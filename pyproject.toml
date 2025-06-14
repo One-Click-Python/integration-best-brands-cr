@@ -1,0 +1,22 @@
+[project]
+name = "rms-shopify-integration"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "leoillanez777",email = "leonardo@live.com.ar"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi (>=0.115.12,<0.116.0)",
+    "pydantic (>=2.11.7,<3.0.0)",
+    "uvicorn (>=0.34.3,<0.35.0)"
+]
+
+[tool.poetry]
+packages = [{include = "rms_shopify_integration", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
