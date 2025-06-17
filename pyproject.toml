@@ -10,13 +10,44 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi (>=0.115.12,<0.116.0)",
     "pydantic (>=2.11.7,<3.0.0)",
-    "uvicorn (>=0.34.3,<0.35.0)"
+    "pydantic-settings (>=2.9.1,<3.0.0)",
+    "uvicorn (>=0.34.3,<0.35.0)",
+    "psutil (>=7.0.0,<8.0.0)"
 ]
 
 [tool.poetry]
-packages = [{include = "rms_shopify_integration", from = "src"}]
+packages = [{include = "rms_shopify_integration", from = "app"}]
 
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+isort = "^6.0.1"
+ruff = "^0.12.0"
+pyright = "^1.1.402"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.ruff]
+select = ["E", "F", "B", "I"]
+line-length = 120
+target-version = "py313"
+
+[tool.pyright]
+reportUnnecessaryTypeIgnoreComment = false
+reportOptionalMemberAccess = false
+reportCallIssue = false
+reportArgumentType = false
+reportGeneralTypeIssues = "warning"  # Cambiar a warning en lugar de error
+# Ignorar solo en archivos específicos
+include = ["app/**"]
+exclude = ["**/__pycache__", "**/alembic/**"]

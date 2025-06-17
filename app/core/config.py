@@ -1,1 +1,356 @@
-# Carga de variables de entorno y parámetros de configuración
+"""
+Configuración centralizada de la aplicación.
+
+Este módulo maneja todas las variables de entorno y configuraciones
+de la aplicación usando Pydantic Settings para validación automática.
+"""
+
+from functools import lru_cache
+from typing import List, Optional
+
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """
+    Configuración de la aplicación usando Pydantic Settings.
+
+    Todas las configuraciones se cargan desde variables de entorno
+    con valores por defecto apropiados para desarrollo.
+    """
+
+    # === CONFIGURACIÓN BÁSICA DE LA APP ===
+    APP_NAME: str = "RMS-Shopify Integration"
+    APP_VERSION: str = "0.1.0"
+    ENVIRONMENT: str = Field(default="development", env="ENV")
+    DEBUG: bool = Field(default=True, env="DEBUG")
+
+    # === CONFIGURACIÓN DEL SERVIDOR ===
+    HOST: str = Field(default="0.0.0.0", env="HOST")
+    PORT: int = Field(default=8000, env="PORT")
+    WORKERS: int = Field(default=1, env="WORKERS")
+    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
+
+    # === CONFIGURACIÓN DE SEGURIDAD ===
+    ALLOWED_HOSTS: Optional[List[str]] = Field(default=None, env="ALLOWED_HOSTS")
+    API_BASE_URL: Optional[str] = Field(default=None, env="API_BASE_URL")
+    SECRET_KEY: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
+
+    # === CONFIGURACIÓN DE RMS (SQL SERVER) ===
+    RMS_DB_HOST: str = Field(..., env="RMS_DB_HOST")
+    RMS_DB_PORT: int = Field(default=1433, env="RMS_DB_PORT")
+    RMS_DB_NAME: str = Field(..., env="RMS_DB_NAME")
+    RMS_DB_USER: str = Field(..., env="RMS_DB_USER")
+    RMS_DB_PASSWORD: str = Field(..., env="RMS_DB_PASSWORD")
+    RMS_DB_DRIVER: str = Field(default="ODBC Driver 17 for SQL Server", env="RMS_DB_DRIVER")
+    RMS_CONNECTION_TIMEOUT: int = Field(default=30, env="RMS_CONNECTION_TIMEOUT")
+    RMS_MAX_POOL_SIZE: int = Field(default=10, env="RMS_MAX_POOL_SIZE")
+
+    # === CONFIGURACIÓN DE SHOPIFY ===
+    SHOPIFY_SHOP_URL: str = Field(..., env="SHOPIFY_SHOP_URL")
+    SHOPIFY_ACCESS_TOKEN: str = Field(..., env="SHOPIFY_ACCESS_TOKEN")
+    SHOPIFY_API_VERSION: str = Field(default="2024-01", env="SHOPIFY_API_VERSION")
+    SHOPIFY_WEBHOOK_SECRET: Optional[str] = Field(default=None, env="SHOPIFY_WEBHOOK_SECRET")
+    SHOPIFY_RATE_LIMIT_PER_SECOND: int = Field(default=2, env="SHOPIFY_RATE_LIMIT_PER_SECOND")
+    SHOPIFY_MAX_RETRIES: int = Field(default=3, env="SHOPIFY_MAX_RETRIES")
+
+    # === CONFIGURACIÓN DE REDIS ===
+    REDIS_URL: Optional[str] = Field(default=None, env="REDIS_URL")
+    REDIS_MAX_CONNECTIONS: int = Field(default=10, env="REDIS_MAX_CONNECTIONS")
+    REDIS_SOCKET_TIMEOUT: int = Field(default=5, env="REDIS_SOCKET_TIMEOUT")
+
+    # === CONFIGURACIÓN DE SINCRONIZACIÓN ===
+    ENABLE_SCHEDULED_SYNC: bool = Field(default=True, env="ENABLE_SCHEDULED_SYNC")
+    SYNC_INTERVAL_MINUTES: int = Field(default=15, env="SYNC_INTERVAL_MINUTES")
+    SYNC_BATCH_SIZE: int = Field(default=100, env="SYNC_BATCH_SIZE")
+    SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
+    SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
+
+    # === CONFIGURACIÓN DE RATE LIMITING ===
+    ENABLE_RATE_LIMITING: bool = Field(default=True, env="ENABLE_RATE_LIMITING")
+    RATE_LIMIT_PER_MINUTE: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")
+    RATE_LIMIT_BURST: int = Field(default=10, env="RATE_LIMIT_BURST")
+
+    # === CONFIGURACIÓN DE LOGGING ===
+    LOG_FILE_PATH: Optional[str] = Field(default="logs/app.log", env="LOG_FILE_PATH")
+    LOG_MAX_SIZE_MB: int = Field(default=10, env="LOG_MAX_SIZE_MB")
+    LOG_BACKUP_COUNT: int = Field(default=5, env="LOG_BACKUP_COUNT")
+    LOG_FORMAT: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", env="LOG_FORMAT")
+
+    # === CONFIGURACIÓN DE MÉTRICAS Y MONITOREO ===
+    METRICS_ENABLED: bool = Field(default=True, env="METRICS_ENABLED")
+    HEALTH_CHECK_TIMEOUT: int = Field(default=10, env="HEALTH_CHECK_TIMEOUT")
+    SLOW_REQUEST_THRESHOLD: float = Field(default=5.0, env="SLOW_REQUEST_THRESHOLD")
+
+    # === CONFIGURACIÓN DE ALERTAS ===
+    ALERT_EMAIL_ENABLED: bool = Field(default=False, env="ALERT_EMAIL_ENABLED")
+    ALERT_EMAIL_SMTP_HOST: Optional[str] = Field(default=None, env="ALERT_EMAIL_SMTP_HOST")
+    ALERT_EMAIL_SMTP_PORT: int = Field(default=587, env="ALERT_EMAIL_SMTP_PORT")
+    ALERT_EMAIL_FROM: Optional[str] = Field(default=None, env="ALERT_EMAIL_FROM")
+    ALERT_EMAIL_TO: Optional[str] = Field(default=None, env="ALERT_EMAIL_TO")
+    ALERT_EMAIL_PASSWORD: Optional[str] = Field(default=None, env="ALERT_EMAIL_PASSWORD")
+    ALERT_EMAIL_USE_TLS: bool = Field(default=True, env="ALERT_EMAIL_USE_TLS")
+
+    # === CONFIGURACIÓN DE DOCUMENTACIÓN ===
+    ENABLE_DOCS: bool = Field(default=True, env="ENABLE_DOCS")
+
+    # === CONFIGURACIÓN DE SISTEMA ===
+    DISK_SPACE_THRESHOLD: int = Field(default=10, env="DISK_SPACE_THRESHOLD")  # Porcentaje
+    MEMORY_USAGE_THRESHOLD: int = Field(default=90, env="MEMORY_USAGE_THRESHOLD")  # Porcentaje
+    CPU_USAGE_THRESHOLD: int = Field(default=95, env="CPU_USAGE_THRESHOLD")  # Porcentaje
+
+    # === CONFIGURACIÓN DE RETRIES ===
+    MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
+    RETRY_DELAY_SECONDS: int = Field(default=1, env="RETRY_DELAY_SECONDS")
+    RETRY_BACKOFF_FACTOR: float = Field(default=2.0, env="RETRY_BACKOFF_FACTOR")
+
+    class Config:
+        """Configuración de Pydantic Settings."""
+
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
+        # Permitir valores extra para flexibilidad futura
+        extra = "allow"
+
+    @validator("ALLOWED_HOSTS", pre=True)
+    def parse_allowed_hosts(cls, v):
+        """Parsea ALLOWED_HOSTS como lista separada por comas."""
+        if isinstance(v, str):
+            return [host.strip() for host in v.split(",") if host.strip()]
+        return v
+
+    @validator("SHOPIFY_SHOP_URL")
+    def validate_shopify_url(cls, v):
+        """Valida que la URL de Shopify tenga el formato correcto."""
+        if not v.endswith(".myshopify.com"):
+            raise ValueError("SHOPIFY_SHOP_URL debe terminar en .myshopify.com")
+        if not v.startswith("https://") and not v.startswith("http://"):
+            v = f"https://{v}"
+        return v
+
+    @validator("LOG_LEVEL")
+    def validate_log_level(cls, v):
+        """Valida que el nivel de log sea válido."""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if v.upper() not in valid_levels:
+            raise ValueError(f"LOG_LEVEL debe ser uno de: {valid_levels}")
+        return v.upper()
+
+    @validator("ENVIRONMENT")
+    def validate_environment(cls, v):
+        """Valida que el entorno sea válido."""
+        valid_envs = ["development", "staging", "production", "testing"]
+        if v.lower() not in valid_envs:
+            raise ValueError(f"ENVIRONMENT debe ser uno de: {valid_envs}")
+        return v.lower()
+
+    @validator("PORT")
+    def validate_port(cls, v):
+        """Valida que el puerto esté en rango válido."""
+        if not 1 <= v <= 65535:
+            raise ValueError("PORT debe estar entre 1 y 65535")
+        return v
+
+    @property
+    def is_production(self) -> bool:
+        """Verifica si está en entorno de producción."""
+        return self.ENVIRONMENT == "production"
+
+    @property
+    def is_development(self) -> bool:
+        """Verifica si está en entorno de desarrollo."""
+        return self.ENVIRONMENT == "development"
+
+    @property
+    def rms_connection_string(self) -> str:
+        """Genera string de conexión para RMS/SQL Server."""
+        return (
+            f"mssql+pyodbc://{self.RMS_DB_USER}:{self.RMS_DB_PASSWORD}"
+            f"@{self.RMS_DB_HOST}:{self.RMS_DB_PORT}/{self.RMS_DB_NAME}"
+            f"?driver={self.RMS_DB_DRIVER.replace(' ', '+')}"
+            f"&connect_timeout={self.RMS_CONNECTION_TIMEOUT}"
+        )
+
+    @property
+    def shopify_api_base_url(self) -> str:
+        """Genera URL base de la API de Shopify."""
+        shop_name = self.SHOPIFY_SHOP_URL.replace("https://", "").replace("http://", "")
+        if not shop_name.endswith(".myshopify.com"):
+            shop_name = f"{shop_name}.myshopify.com"
+        return f"https://{shop_name}/admin/api/{self.SHOPIFY_API_VERSION}"
+
+    @property
+    def redis_config(self) -> dict:
+        """Genera configuración para Redis."""
+        if not self.REDIS_URL:
+            return {}
+
+        return {
+            "url": self.REDIS_URL,
+            "max_connections": self.REDIS_MAX_CONNECTIONS,
+            "socket_timeout": self.REDIS_SOCKET_TIMEOUT,
+            "decode_responses": True,
+        }
+
+    def get_database_url(self, async_driver: bool = False) -> str:
+        """
+        Obtiene URL de conexión a base de datos.
+
+        Args:
+            async_driver: Si usar driver asíncrono
+
+        Returns:
+            str: URL de conexión
+        """
+        if async_driver:
+            return self.rms_connection_string.replace("mssql+pyodbc://", "mssql+aioodbc://")
+        return self.rms_connection_string
+
+    def get_shopify_headers(self) -> dict:
+        """
+        Obtiene headers para requests a Shopify.
+
+        Returns:
+            dict: Headers de autenticación
+        """
+        return {
+            "X-Shopify-Access-Token": self.SHOPIFY_ACCESS_TOKEN,
+            "Content-Type": "application/json",
+            "User-Agent": f"{self.APP_NAME}/{self.APP_VERSION}",
+        }
+
+    def get_logging_config(self) -> dict:
+        """
+        Obtiene configuración completa de logging.
+
+        Returns:
+            dict: Configuración de logging
+        """
+        return {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {"format": self.LOG_FORMAT},
+                "detailed": {
+                    "format": "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+                },
+            },
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "default",
+                    "level": self.LOG_LEVEL,
+                },
+                "file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "filename": self.LOG_FILE_PATH,
+                    "maxBytes": self.LOG_MAX_SIZE_MB * 1024 * 1024,
+                    "backupCount": self.LOG_BACKUP_COUNT,
+                    "formatter": "detailed",
+                    "level": self.LOG_LEVEL,
+                },
+            },
+            "root": {
+                "level": self.LOG_LEVEL,
+                "handlers": ["console", "file"] if self.LOG_FILE_PATH else ["console"],
+            },
+        }
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """
+    Obtiene instancia singleton de configuración.
+
+    Usa LRU cache para evitar recrear la configuración
+    múltiples veces durante la ejecución.
+
+    Returns:
+        Settings: Instancia de configuración
+    """
+    return Settings()
+
+
+# Instancia global para uso directo
+settings = get_settings()
+
+
+def reload_settings() -> Settings:
+    """
+    Recarga la configuración (útil para testing).
+
+    Returns:
+        Settings: Nueva instancia de configuración
+    """
+    get_settings.cache_clear()
+    return get_settings()
+
+
+def validate_required_settings() -> bool:
+    """
+    Valida que todas las configuraciones requeridas estén presentes.
+
+    Returns:
+        bool: True si todas las configuraciones están presentes
+
+    Raises:
+        ValueError: Si alguna configuración requerida falta
+    """
+    try:
+        settings = get_settings()
+
+        # Validar configuraciones críticas
+        required_fields = [
+            "RMS_DB_HOST",
+            "RMS_DB_NAME",
+            "RMS_DB_USER",
+            "RMS_DB_PASSWORD",
+            "SHOPIFY_SHOP_URL",
+            "SHOPIFY_ACCESS_TOKEN",
+        ]
+
+        missing_fields = []
+        for field in required_fields:
+            value = getattr(settings, field, None)
+            if not value or (isinstance(value, str) and not value.strip()):
+                missing_fields.append(field)
+
+        if missing_fields:
+            raise ValueError(f"Configuraciones requeridas faltantes: {missing_fields}")
+
+        return True
+
+    except Exception as e:
+        raise ValueError(f"Error validando configuración: {e}")
+
+
+def get_environment_info() -> dict:
+    """
+    Obtiene información del entorno actual.
+
+    Returns:
+        dict: Información del entorno
+    """
+    settings = get_settings()
+
+    return {
+        "app_name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT,
+        "debug": settings.DEBUG,
+        "is_production": settings.is_production,
+        "is_development": settings.is_development,
+        "host": settings.HOST,
+        "port": settings.PORT,
+        "log_level": settings.LOG_LEVEL,
+        "features": {
+            "scheduled_sync": settings.ENABLE_SCHEDULED_SYNC,
+            "rate_limiting": settings.ENABLE_RATE_LIMITING,
+            "metrics": settings.METRICS_ENABLED,
+            "alerts": settings.ALERT_EMAIL_ENABLED,
+            "docs": settings.ENABLE_DOCS,
+            "redis": bool(settings.REDIS_URL),
+        },
+    }
