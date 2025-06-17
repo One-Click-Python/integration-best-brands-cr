@@ -6,11 +6,11 @@ de sincronización entre RMS y Shopify.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import get_settings
 from app.core.logging_config import log_sync_operation
@@ -29,6 +29,13 @@ logger = logging.getLogger(__name__)
 # Crear router
 router = APIRouter()
 
+# Query parameter singletons para evitar B008
+DEFAULT_QUERY_LIMIT = Query(default=50, ge=1, le=1000)
+DEFAULT_QUERY_SKIP = Query(default=0, ge=0)
+DEFAULT_QUERY_SYNC_TYPE = Query(default=None, regex="^(rms_to_shopify|shopify_to_rms|full_sync)$")
+DEFAULT_QUERY_START_DATE = Query(default=None)
+DEFAULT_QUERY_END_DATE = Query(default=None)
+
 
 # === MODELOS PYDANTIC ===
 
@@ -41,7 +48,8 @@ class SyncRequest(BaseModel):
     filter_categories: Optional[List[str]] = Field(default=None, description="Filtrar por categorías específicas")
     dry_run: bool = Field(default=False, description="Ejecutar en modo simulación sin hacer cambios")
 
-    @validator("batch_size")
+    @field_validator("batch_size")
+    @classmethod
     def validate_batch_size(cls, v):
         """Valida el tamaño del batch."""
         if v is not None and v <= 0:
@@ -78,7 +86,8 @@ class ShopifyOrderSyncRequest(BaseModel):
     order_ids: List[str] = Field(description="IDs de pedidos de Shopify a sincronizar")
     skip_validation: bool = Field(default=False, description="Omitir validaciones de negocio")
 
-    @validator("order_ids")
+    @field_validator("order_ids")
+    @classmethod
     def validate_order_ids(cls, v):
         """Valida los IDs de pedidos."""
         if not v:
@@ -150,7 +159,7 @@ async def get_synchronization_status():
 
     except Exception as e:
         logger.error(f"Error getting sync status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get synchronization status")
+        raise HTTPException(status_code=500, detail="Failed to get synchronization status") from e
 
 
 @router.post(
@@ -165,7 +174,7 @@ async def sync_rms_to_shopify_endpoint(
     background_tasks: BackgroundTasks,
     run_async: bool = Query(default=True, description="Ejecutar sincronización en segundo plano"),
     _: None = Depends(verify_sync_permissions),
-    __: None = Depends(check_system_health),
+    health_check: None = Depends(check_system_health),
 ):
     """
     Ejecuta sincronización de RMS hacia Shopify.
@@ -178,6 +187,7 @@ async def sync_rms_to_shopify_endpoint(
     Returns:
         SyncResponse: Resultado de la sincronización
     """
+    logger.debug("health_check", health_check)
     try:
         log_sync_operation(
             operation="start",
@@ -188,7 +198,7 @@ async def sync_rms_to_shopify_endpoint(
 
         if run_async:
             # Ejecutar en segundo plano
-            sync_id = f"rms_to_shopify_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             background_tasks.add_task(_execute_rms_to_shopify_sync, sync_request, sync_id)
 
@@ -197,7 +207,7 @@ async def sync_rms_to_shopify_endpoint(
                 sync_id=sync_id,
                 message="Synchronization started in background",
                 statistics={"status": "started"},
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         else:
             # Ejecutar sincrónicamente
@@ -219,22 +229,22 @@ async def sync_rms_to_shopify_endpoint(
                 statistics=result["statistics"],
                 errors=result.get("errors"),
                 recommendations=result.get("recommendations"),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 duration_seconds=result.get("duration_seconds"),
             )
 
     except ValidationException as e:
         logger.warning(f"Validation error in RMS sync: {e}")
-        raise HTTPException(status_code=422, detail=create_error_response(e))
+        raise HTTPException(status_code=422, detail=create_error_response(e)) from e
 
     except SyncException as e:
         logger.error(f"Sync error in RMS sync: {e}")
-        raise HTTPException(status_code=500, detail=create_error_response(e))
+        raise HTTPException(status_code=500, detail=create_error_response(e)) from e
 
     except Exception as e:
         logger.error(f"Unexpected error in RMS sync: {e}")
         app_exception = handle_exception(e, reraise=False)
-        raise HTTPException(status_code=500, detail=create_error_response(app_exception))
+        raise HTTPException(status_code=500, detail=create_error_response(app_exception)) from e
 
 
 @router.post(
@@ -249,7 +259,7 @@ async def sync_shopify_to_rms_endpoint(
     background_tasks: BackgroundTasks,
     run_async: bool = Query(default=True, description="Ejecutar sincronización en segundo plano"),
     _: None = Depends(verify_sync_permissions),
-    __: None = Depends(check_system_health),
+    health_check: None = Depends(check_system_health),
 ):
     """
     Ejecuta sincronización de pedidos de Shopify hacia RMS.
@@ -262,6 +272,7 @@ async def sync_shopify_to_rms_endpoint(
     Returns:
         SyncResponse: Resultado de la sincronización
     """
+    logger.debug("health_check", health_check)
     try:
         log_sync_operation(
             operation="start",
@@ -271,7 +282,7 @@ async def sync_shopify_to_rms_endpoint(
 
         if run_async:
             # Ejecutar en segundo plano
-            sync_id = f"shopify_to_rms_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            sync_id = f"shopify_to_rms_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
             background_tasks.add_task(_execute_shopify_to_rms_sync, sync_request, sync_id)
 
@@ -283,7 +294,7 @@ async def sync_shopify_to_rms_endpoint(
                     "status": "started",
                     "order_count": len(sync_request.order_ids),
                 },
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
         else:
             # Ejecutar sincrónicamente
@@ -299,14 +310,14 @@ async def sync_shopify_to_rms_endpoint(
                 statistics=result["statistics"],
                 errors=result.get("errors"),
                 recommendations=result.get("recommendations"),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 duration_seconds=result.get("duration_seconds"),
             )
 
     except Exception as e:
         logger.error(f"Error in Shopify sync: {e}")
         app_exception = handle_exception(e, reraise=False)
-        raise HTTPException(status_code=500, detail=create_error_response(app_exception))
+        raise HTTPException(status_code=500, detail=create_error_response(app_exception)) from e
 
 
 @router.post(
@@ -320,7 +331,7 @@ async def full_synchronization(
     background_tasks: BackgroundTasks,
     force_update: bool = Query(default=False, description="Forzar actualización de todos los productos"),
     _: None = Depends(verify_sync_permissions),
-    __: None = Depends(check_system_health),
+    health_check: None = Depends(check_system_health),
 ):
     """
     Ejecuta sincronización completa bidireccional.
@@ -332,8 +343,9 @@ async def full_synchronization(
     Returns:
         SyncResponse: Resultado de la sincronización
     """
+    logger.debug("health_check", health_check)
     try:
-        sync_id = f"full_sync_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        sync_id = f"full_sync_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         # Siempre ejecutar en background por la duración
         background_tasks.add_task(_execute_full_sync, force_update, sync_id)
@@ -345,13 +357,13 @@ async def full_synchronization(
             sync_id=sync_id,
             message="Full bidirectional synchronization started in background",
             statistics={"status": "started", "type": "bidirectional"},
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
     except Exception as e:
         logger.error(f"Error starting full sync: {e}")
         app_exception = handle_exception(e, reraise=False)
-        raise HTTPException(status_code=500, detail=create_error_response(app_exception))
+        raise HTTPException(status_code=500, detail=create_error_response(app_exception)) from e
 
 
 @router.get(
@@ -360,11 +372,11 @@ async def full_synchronization(
     description="Obtiene el historial de operaciones de sincronización",
 )
 async def get_sync_history(
-    limit: int = Query(default=50, ge=1, le=1000),
-    skip: int = Query(default=0, ge=0),
-    sync_type: Optional[str] = Query(default=None, regex="^(rms_to_shopify|shopify_to_rms|full_sync)$"),
-    start_date: Optional[datetime] = Query(default=None),
-    end_date: Optional[datetime] = Query(default=None),
+    limit: int = DEFAULT_QUERY_LIMIT,
+    skip: int = DEFAULT_QUERY_SKIP,
+    sync_type: Optional[str] = DEFAULT_QUERY_SYNC_TYPE,
+    start_date: Optional[datetime] = DEFAULT_QUERY_START_DATE,
+    end_date: Optional[datetime] = DEFAULT_QUERY_END_DATE,
 ):
     """
     Obtiene historial de sincronizaciones.
@@ -398,7 +410,7 @@ async def get_sync_history(
 
     except Exception as e:
         logger.error(f"Error getting sync history: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get synchronization history")
+        raise HTTPException(status_code=500, detail="Failed to get synchronization history") from e
 
 
 @router.delete(
@@ -426,12 +438,12 @@ async def cancel_synchronization(sync_id: str):
             "success": True,
             "message": f"Cancellation requested for sync {sync_id}",
             "sync_id": sync_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error canceling sync {sync_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel synchronization {sync_id}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel synchronization {sync_id}") from e
 
 
 # === FUNCIONES AUXILIARES ===
@@ -478,7 +490,7 @@ async def _execute_shopify_to_rms_sync(sync_request: ShopifyOrderSyncRequest, sy
     try:
         logger.info(f"Starting background Shopify sync: {sync_id}")
 
-        result = await sync_shopify_to_rms(
+        await sync_shopify_to_rms(
             order_ids=sync_request.order_ids,
             skip_validation=sync_request.skip_validation,
         )
@@ -508,7 +520,7 @@ async def _execute_full_sync(force_update: bool, sync_id: str):
         logger.info(f"Starting full bidirectional sync: {sync_id}")
 
         # 1. Primero sincronizar RMS → Shopify
-        rms_result = await sync_rms_to_shopify(force_update=force_update)
+        await sync_rms_to_shopify(force_update=force_update)
 
         # 2. Luego procesar pedidos pendientes de Shopify
         # TODO: Implementar lógica para obtener pedidos pendientes
@@ -531,11 +543,11 @@ async def _simulate_rms_to_shopify_sync(sync_request: SyncRequest) -> Dict[str, 
     Returns:
         Dict: Resultado simulado
     """
-    logger.info("Running RMS sync simulation")
+    logger.info("Running RMS sync simulation", sync_request)
 
     # Simular estadísticas
     simulated_result = {
-        "sync_id": f"simulation_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+        "sync_id": f"simulation_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
         "statistics": {
             "total_processed": 100,
             "created": 25,

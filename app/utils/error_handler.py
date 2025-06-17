@@ -7,7 +7,7 @@ y proporciona utilidades para manejo consistente de errores.
 
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -101,7 +101,7 @@ class AppException(Exception):
         self.severity = severity
         self.is_retryable = is_retryable
         self.is_critical = is_critical
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(timezone.utc)
         self.traceback_str = traceback.format_exc()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -524,7 +524,7 @@ class ErrorAggregator:
         self.errors: List[AppException] = []
         self.warnings: List[AppException] = []
         self.total_processed = 0
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
     def add_error(self, exception: Union[AppException, Exception], context: Optional[Dict] = None):
         """
@@ -565,7 +565,7 @@ class ErrorAggregator:
         Returns:
             Dict: Resumen de errores
         """
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         duration = (end_time - self.start_time).total_seconds()
 
         return {

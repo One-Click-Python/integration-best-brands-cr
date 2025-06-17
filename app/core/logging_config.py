@@ -11,9 +11,8 @@ Este módulo configura un sistema de logging robusto con:
 
 import logging
 import logging.config
-import logging.handlers
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -81,7 +80,7 @@ class StructuredFormatter(logging.Formatter):
 
         # Datos base del log
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -97,13 +96,13 @@ class StructuredFormatter(logging.Formatter):
 
         # Agregar información adicional si existe
         if hasattr(record, "request_id"):
-            log_entry["request_id"] = record.request_id
+            log_entry["request_id"] = record.request_id  # type: ignore
 
         if hasattr(record, "user_id"):
-            log_entry["user_id"] = record.user_id
+            log_entry["user_id"] = record.user_id  # type: ignore
 
         if hasattr(record, "correlation_id"):
-            log_entry["correlation_id"] = record.correlation_id
+            log_entry["correlation_id"] = record.correlation_id  # type: ignore
 
         # Agregar información de excepción si existe
         if record.exc_info:
@@ -203,7 +202,7 @@ class SyncOperationFilter(logging.Filter):
 
             # Agregar timestamp de sync si no existe
             if not hasattr(record, "sync_timestamp"):
-                record.sync_timestamp = datetime.utcnow().isoformat()
+                record.sync_timestamp = datetime.now(timezone.utc).isoformat()
 
         return True
 
@@ -261,9 +260,7 @@ def get_logging_configuration() -> Dict[str, Any]:
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             },
             "detailed": {
-                "format": (
-                    "%(asctime)s - %(name)s - %(levelname)s - " "%(module)s.%(funcName)s:%(lineno)d - %(message)s"
-                ),
+                "format": ("%(asctime)s - %(name)s - %(levelname)s - %(module)s.%(funcName)s:%(lineno)d - %(message)s"),
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             },
             "colored": {
@@ -412,7 +409,7 @@ def log_sync_operation(operation: str, service: str, **kwargs):
     extra_data = {
         "operation": operation,
         "service": service,
-        "sync_timestamp": datetime.utcnow().isoformat(),
+        "sync_timestamp": datetime.now(timezone.utc).isoformat(),
         **kwargs,
     }
 
@@ -438,7 +435,7 @@ def log_api_call(method: str, url: str, status_code: int, duration: float, **kwa
         "url": url,
         "status_code": status_code,
         "duration_ms": round(duration * 1000, 2),
-        "api_timestamp": datetime.utcnow().isoformat(),
+        "api_timestamp": datetime.now(timezone.utc).isoformat(),
         **kwargs,
     }
 
@@ -471,7 +468,7 @@ def log_webhook_received(webhook_type: str, shop: str, **kwargs):
     extra_data = {
         "webhook_type": webhook_type,
         "shop": shop,
-        "webhook_timestamp": datetime.utcnow().isoformat(),
+        "webhook_timestamp": datetime.now(timezone.utc).isoformat(),
         **kwargs,
     }
 
@@ -500,7 +497,10 @@ class LogContext:
 
         # Crear nueva factory que agrega contexto
         def record_factory(*args, **kwargs):
-            record = self.old_factory(*args, **kwargs)
+            if self.old_factory:
+                record = self.old_factory(*args, **kwargs)
+            else:
+                record = logging.LogRecord(*args, **kwargs)
             for key, value in self.context.items():
                 setattr(record, key, value)
             return record

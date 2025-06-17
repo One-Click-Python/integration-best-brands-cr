@@ -62,7 +62,21 @@ class RMSToShopifySync:
                 message=f"Failed to initialize sync service: {str(e)}",
                 service="rms_to_shopify",
                 operation="initialize",
-            )
+            ) from e
+
+    async def get_status(self) -> Dict[str, Any]:
+        """
+        Obtiene el estado actual del servicio de sincronización.
+        
+        Returns:
+            Dict: Estado del servicio
+        """
+        return {
+            "sync_id": self.sync_id,
+            "status": "idle",  # idle, running, error
+            "last_sync": None,
+            "errors": self.error_aggregator.get_summary(),
+        }
 
     async def sync_products(
         self,
@@ -108,7 +122,23 @@ class RMSToShopifySync:
 
             except Exception as e:
                 self.error_aggregator.add_error(e)
-                self.error_aggregator.raise_if_errors()
+                logger.error(f"Critical error in sync_products: {e}")
+                
+                # Return error report instead of raising
+                return {
+                    "sync_id": self.sync_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "statistics": {
+                        "total_processed": 0,
+                        "created": 0,
+                        "updated": 0,
+                        "errors": 1,
+                        "skipped": 0,
+                    },
+                    "errors": self.error_aggregator.get_summary(),
+                    "success_rate": 0.0,
+                    "recommendations": ["Fix critical sync errors before retrying"],
+                }
 
     async def _extract_rms_products(self, filter_categories: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
@@ -151,7 +181,7 @@ class RMSToShopifySync:
 
             # Agregar filtro de fecha para sync incremental
             if not getattr(self, "_force_full_sync", False):
-                cutoff_date = datetime.utcnow() - timedelta(hours=24)
+                cutoff_date = datetime.now(timezone.utc) - timedelta(hours=24)
                 query += f" AND LastModified >= '{cutoff_date.isoformat()}'"
 
             query += " ORDER BY LastModified DESC"
@@ -175,7 +205,7 @@ class RMSToShopifySync:
                 message=f"Failed to extract RMS products: {str(e)}",
                 service="rms",
                 operation="extract_products",
-            )
+            ) from e
 
     def _validate_and_process_rms_product(self, product: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -237,7 +267,7 @@ class RMSToShopifySync:
             "published": True,
             "meta_fields": {
                 "rms_sync": {
-                    "last_synced": datetime.utcnow().isoformat(),
+                    "last_synced": datetime.now(timezone.utc).isoformat(),
                     "rms_category": product.get("Category"),
                     "rms_family": product.get("Family"),
                     "rms_extended_category": product.get("ExtendedCategory"),
@@ -399,7 +429,7 @@ class RMSToShopifySync:
                 message=f"Failed to fetch existing Shopify products: {str(e)}",
                 service="shopify",
                 operation="get_products",
-            )
+            ) from e
 
     async def _process_products_in_batches(
         self,
@@ -551,7 +581,7 @@ class RMSToShopifySync:
                 service="shopify",
                 operation="create_product",
                 failed_records=[product],
-            )
+            ) from e
 
     async def _update_shopify_product(
         self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]
@@ -583,7 +613,7 @@ class RMSToShopifySync:
                 service="shopify",
                 operation="update_product",
                 failed_records=[rms_product],
-            )
+            ) from e
 
     def _prepare_update_data(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -639,7 +669,7 @@ class RMSToShopifySync:
 
         report = {
             "sync_id": self.sync_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "statistics": stats,
             "errors": error_summary,
             "success_rate": ((stats["total_processed"] - stats["errors"]) / max(stats["total_processed"], 1) * 100),
@@ -647,7 +677,7 @@ class RMSToShopifySync:
         }
 
         # Log reporte final
-        logger.info(f"Sync completed - ID: {self.sync_id} - " f"Success rate: {report['success_rate']:.1f}%")
+        logger.info(f"Sync completed - ID: {self.sync_id} - Success rate: {report['success_rate']:.1f}%")
 
         return report
 

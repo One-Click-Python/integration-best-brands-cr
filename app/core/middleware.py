@@ -11,7 +11,7 @@ Este módulo centraliza toda la configuración de middleware incluyendo:
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +94,7 @@ def configure_request_logging_middleware(app: FastAPI) -> None:
         Returns:
             Response con headers adicionales
         """
+        logger.info("🔧 Configurando middleware de request logging", request)
         # Generar ID único para la request
         request_id = generate_request_id()
 
@@ -223,11 +224,14 @@ def configure_rate_limiting_middleware(app: FastAPI) -> None:
 
         # Limpiar cache antiguo (cada 5 minutos)
         cleanup_time = current_time - 300
-        request_cache = {
+        nonlocal request_cache
+        cleaned_cache = {
             ip: requests
             for ip, requests in request_cache.items()
             if any(req_time > cleanup_time for req_time in requests)
         }
+        request_cache.clear()
+        request_cache.update(cleaned_cache)
 
         # Verificar requests del cliente
         if client_ip not in request_cache:
@@ -247,7 +251,7 @@ def configure_rate_limiting_middleware(app: FastAPI) -> None:
                     "error": "Rate limit exceeded",
                     "message": f"Maximum {settings.RATE_LIMIT_PER_MINUTE} requests per minute allowed",
                     "retry_after": 60,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
                 headers={
                     "Retry-After": "60",

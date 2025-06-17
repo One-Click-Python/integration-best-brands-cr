@@ -6,7 +6,7 @@ configurar endpoints base y organizar las rutas de manera estructurada.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import FastAPI
@@ -44,7 +44,7 @@ def create_root_endpoints(app: FastAPI) -> None:
             "version": settings.APP_VERSION,
             "status": "running",
             "documentation": "/docs" if settings.DEBUG else "disabled",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "endpoints": {
                 "health": "/health",
                 "api_v1": "/api/v1",
@@ -61,7 +61,7 @@ def create_root_endpoints(app: FastAPI) -> None:
         Returns:
             Dict con pong y timestamp
         """
-        return {"message": "pong", "timestamp": datetime.utcnow().isoformat()}
+        return {"message": "pong", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 def create_health_endpoints(app: FastAPI) -> None:
@@ -91,7 +91,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 content={
                     "status": "healthy" if health_status["overall"] else "unhealthy",
                     "version": settings.APP_VERSION,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "uptime": health_status.get("uptime"),
                     "services": health_status["services"],
                     "environment": settings.ENVIRONMENT,
@@ -106,7 +106,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 content={
                     "status": "unhealthy",
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "version": settings.APP_VERSION,
                 },
             )
@@ -120,7 +120,7 @@ def create_health_endpoints(app: FastAPI) -> None:
         Returns:
             Dict simple con estado
         """
-        return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+        return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}
 
     @app.get("/health/readiness", tags=["Health"], summary="Readiness Probe")
     async def readiness_probe():
@@ -147,7 +147,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 status_code=status_code,
                 content={
                     "status": "ready" if ready else "not_ready",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "critical_services": {
                         service: health_status["services"].get(service, {}).get("status", "unknown")
                         for service in critical_services
@@ -162,7 +162,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 content={
                     "status": "not_ready",
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -188,7 +188,7 @@ def create_info_endpoints(app: FastAPI) -> None:
             "name": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
             "debug": settings.DEBUG,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     @app.get("/config", tags=["Info"], summary="Configuration Info")
@@ -223,7 +223,7 @@ def create_info_endpoints(app: FastAPI) -> None:
             "slow_request_threshold": settings.SLOW_REQUEST_THRESHOLD,
         }
 
-        return {"config": safe_config, "timestamp": datetime.utcnow().isoformat()}
+        return {"config": safe_config, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 def configure_api_v1_routers(app: FastAPI) -> None:

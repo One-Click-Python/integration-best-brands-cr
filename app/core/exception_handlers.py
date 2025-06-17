@@ -7,7 +7,7 @@ proporcionando respuestas consistentes y logging apropiado para diferentes tipos
 
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, Request
@@ -39,12 +39,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     Returns:
         JSONResponse: Respuesta JSON con error formateado
     """
-    logger.error(
-        f"App Exception: {exc.message} - "
-        f"Code: {exc.error_code} - "
-        f"URL: {request.url} - "
-        f"Details: {exc.details}"
-    )
+    logger.error(f"App Exception: {exc.message} - Code: {exc.error_code} - URL: {request.url} - Details: {exc.details}")
 
     # Enviar alerta si es crítico
     if exc.is_critical:
@@ -59,7 +54,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
             "message": exc.message,
             "details": exc.details if settings.DEBUG else None,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -101,7 +96,7 @@ async def sync_exception_handler(request: Request, exc: SyncException) -> JSONRe
             "sync_stats": exc.sync_stats,
             "retry_suggested": exc.retry_suggested,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -144,7 +139,7 @@ async def shopify_api_exception_handler(request: Request, exc: ShopifyAPIExcepti
             "retry_after": exc.retry_after,
             "endpoint": exc.endpoint,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
         headers=headers,
@@ -182,7 +177,7 @@ async def rms_connection_exception_handler(request: Request, exc: RMSConnectionE
             "db_host": exc.db_host if settings.DEBUG else "hidden",
             "connection_type": exc.connection_type,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -200,10 +195,7 @@ async def validation_exception_handler(request: Request, exc: ValidationExceptio
         JSONResponse: Respuesta JSON con detalles de validación
     """
     logger.warning(
-        f"Validation Exception: {exc.message} - "
-        f"Field: {exc.field} - "
-        f"Value: {exc.invalid_value} - "
-        f"URL: {request.url}"
+        f"Validation Exception: {exc.message} - Field: {exc.field} - Value: {exc.invalid_value} - URL: {request.url}"
     )
 
     return JSONResponse(
@@ -217,7 +209,7 @@ async def validation_exception_handler(request: Request, exc: ValidationExceptio
             "invalid_value": exc.invalid_value if settings.DEBUG else None,
             "expected_format": exc.expected_format,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -235,10 +227,7 @@ async def rate_limit_exception_handler(request: Request, exc: RateLimitException
         JSONResponse: Respuesta JSON con información de rate limit
     """
     logger.warning(
-        f"Rate Limit Exception: {exc.message} - "
-        f"Limit: {exc.limit} - "
-        f"Reset Time: {exc.reset_time} - "
-        f"URL: {request.url}"
+        f"Rate Limit Exception: {exc.message} - Limit: {exc.limit} - Reset Time: {exc.reset_time} - URL: {request.url}"
     )
 
     headers = {
@@ -258,7 +247,7 @@ async def rate_limit_exception_handler(request: Request, exc: RateLimitException
             "retry_after": exc.retry_after,
             "reset_time": exc.reset_time,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
         headers=headers,
@@ -286,7 +275,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
             "status_code": exc.status_code,
             "message": exc.detail,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -303,7 +292,7 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
     Returns:
         JSONResponse: Respuesta JSON estandarizada
     """
-    logger.warning(f"Starlette HTTP Exception: {exc.status_code} - {exc.detail} - " f"URL: {request.url}")
+    logger.warning(f"Starlette HTTP Exception: {exc.status_code} - {exc.detail} - URL: {request.url}")
 
     return JSONResponse(
         status_code=exc.status_code,
@@ -313,7 +302,7 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
             "status_code": exc.status_code,
             "message": exc.detail,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
         },
     )
@@ -353,7 +342,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             "error_type": "internal_server_error",
             "message": error_message,
             "path": str(request.url.path),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
             "traceback": traceback.format_exc() if settings.DEBUG else None,
         },
@@ -408,7 +397,7 @@ async def send_critical_alert(exc: Exception, request: Request) -> None:
             "error_type": type(exc).__name__,
             "error_message": str(exc),
             "url": str(request.url),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request.headers.get("X-Request-ID"),
             "user_agent": request.headers.get("user-agent"),
             "client_ip": request.headers.get("X-Forwarded-For")
@@ -443,5 +432,5 @@ def get_error_context(request: Request) -> Dict[str, Any]:
         },
         "user_agent": request.headers.get("user-agent"),
         "request_id": request.headers.get("X-Request-ID"),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

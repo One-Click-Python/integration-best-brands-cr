@@ -30,8 +30,7 @@ async def lifespan(app: FastAPI):
         app: Instancia de FastAPI
     """
     # === STARTUP ===
-    logger.info("🚀 Iniciando RMS-Shopify Integration...")
-    startup_success = False
+    logger.info("🚀 Iniciando RMS-Shopify Integration...", app)
 
     try:
         # 1. Configurar logging
@@ -55,7 +54,6 @@ async def lifespan(app: FastAPI):
         # 7. Ejecutar verificaciones finales
         await startup_final_checks()
 
-        startup_success = True
         logger.info("🎉 Aplicación iniciada correctamente")
 
     except Exception as e:
@@ -202,18 +200,18 @@ async def startup_initialize_services():
         # Inicializar cliente Redis para caché
         if settings.REDIS_URL:
             try:
-                from app.core.redis_client import initialize_redis
+                from app.core import redis_client
 
-                await initialize_redis()
+                await redis_client.initialize_redis()
                 logger.info("✅ Cliente Redis inicializado")
             except Exception as e:
                 logger.warning(f"⚠️ Error inicializando Redis: {e} (no crítico)")
 
         # Inicializar pool de conexiones de base de datos
         try:
-            from app.db.rms_handler import initialize_connection_pool
+            from app.db import rms_handler
 
-            await initialize_connection_pool()
+            await rms_handler.initialize_connection_pool()
             logger.info("✅ Pool de conexiones RMS inicializado")
         except Exception as e:
             logger.error(f"❌ Error inicializando pool RMS: {e}")
@@ -221,9 +219,9 @@ async def startup_initialize_services():
 
         # Inicializar cliente HTTP para Shopify
         try:
-            from app.db.shopify_client import initialize_http_client
+            from app.db import shopify_client
 
-            await initialize_http_client()
+            await shopify_client.initialize_http_client()
             logger.info("✅ Cliente HTTP Shopify inicializado")
         except Exception as e:
             logger.error(f"❌ Error inicializando cliente Shopify: {e}")
@@ -336,9 +334,9 @@ async def shutdown_cleanup_services():
 
         # Cerrar cliente HTTP
         try:
-            from app.db.shopify_client import close_http_client
+            from app.db import shopify_client
 
-            await close_http_client()
+            await shopify_client.close_http_client()
             logger.info("✅ Cliente HTTP Shopify cerrado")
         except Exception as e:
             logger.error(f"Error cerrando cliente Shopify: {e}")
@@ -362,9 +360,9 @@ async def shutdown_close_connections():
     try:
         # Cerrar pool de conexiones RMS
         try:
-            from app.db.rms_handler import close_connection_pool
+            from app.db import rms_handler
 
-            await close_connection_pool()
+            await rms_handler.close_connection_pool()
             logger.info("✅ Pool de conexiones RMS cerrado")
         except Exception as e:
             logger.error(f"Error cerrando pool RMS: {e}")
@@ -372,9 +370,9 @@ async def shutdown_close_connections():
         # Cerrar cliente Redis
         if settings.REDIS_URL:
             try:
-                from app.core.redis_client import close_redis
+                from app.core import redis_client
 
-                await close_redis()
+                await redis_client.close_redis()
                 logger.info("✅ Cliente Redis cerrado")
             except Exception as e:
                 logger.error(f"Error cerrando Redis: {e}")

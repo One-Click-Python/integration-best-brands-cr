@@ -8,7 +8,7 @@ de la aplicación usando Pydantic Settings para validación automática.
 from functools import lru_cache
 from typing import List, Optional
 
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -35,21 +35,22 @@ class Settings(BaseSettings):
     # === CONFIGURACIÓN DE SEGURIDAD ===
     ALLOWED_HOSTS: Optional[List[str]] = Field(default=None, env="ALLOWED_HOSTS")
     API_BASE_URL: Optional[str] = Field(default=None, env="API_BASE_URL")
+    STAGING_URL: Optional[str] = Field(default=None, env="STAGING_URL")
     SECRET_KEY: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
 
     # === CONFIGURACIÓN DE RMS (SQL SERVER) ===
-    RMS_DB_HOST: str = Field(..., env="RMS_DB_HOST")
+    RMS_DB_HOST: str = Field(default="localhost", env="RMS_DB_HOST")
     RMS_DB_PORT: int = Field(default=1433, env="RMS_DB_PORT")
-    RMS_DB_NAME: str = Field(..., env="RMS_DB_NAME")
-    RMS_DB_USER: str = Field(..., env="RMS_DB_USER")
-    RMS_DB_PASSWORD: str = Field(..., env="RMS_DB_PASSWORD")
+    RMS_DB_NAME: str = Field(default="RMS_Store", env="RMS_DB_NAME")
+    RMS_DB_USER: str = Field(default="rms_user", env="RMS_DB_USER")
+    RMS_DB_PASSWORD: str = Field(default="password", env="RMS_DB_PASSWORD")
     RMS_DB_DRIVER: str = Field(default="ODBC Driver 17 for SQL Server", env="RMS_DB_DRIVER")
     RMS_CONNECTION_TIMEOUT: int = Field(default=30, env="RMS_CONNECTION_TIMEOUT")
     RMS_MAX_POOL_SIZE: int = Field(default=10, env="RMS_MAX_POOL_SIZE")
 
     # === CONFIGURACIÓN DE SHOPIFY ===
-    SHOPIFY_SHOP_URL: str = Field(..., env="SHOPIFY_SHOP_URL")
-    SHOPIFY_ACCESS_TOKEN: str = Field(..., env="SHOPIFY_ACCESS_TOKEN")
+    SHOPIFY_SHOP_URL: str = Field(default="your-shop.myshopify.com", env="SHOPIFY_SHOP_URL")
+    SHOPIFY_ACCESS_TOKEN: str = Field(default="your-access-token", env="SHOPIFY_ACCESS_TOKEN")
     SHOPIFY_API_VERSION: str = Field(default="2024-01", env="SHOPIFY_API_VERSION")
     SHOPIFY_WEBHOOK_SECRET: Optional[str] = Field(default=None, env="SHOPIFY_WEBHOOK_SECRET")
     SHOPIFY_RATE_LIMIT_PER_SECOND: int = Field(default=2, env="SHOPIFY_RATE_LIMIT_PER_SECOND")
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
     ENABLE_SCHEDULED_SYNC: bool = Field(default=True, env="ENABLE_SCHEDULED_SYNC")
     SYNC_INTERVAL_MINUTES: int = Field(default=15, env="SYNC_INTERVAL_MINUTES")
     SYNC_BATCH_SIZE: int = Field(default=100, env="SYNC_BATCH_SIZE")
+    DEFAULT_BATCH_SIZE: int = Field(default=100, env="DEFAULT_BATCH_SIZE")
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
 
@@ -105,32 +107,36 @@ class Settings(BaseSettings):
     RETRY_DELAY_SECONDS: int = Field(default=1, env="RETRY_DELAY_SECONDS")
     RETRY_BACKOFF_FACTOR: float = Field(default=2.0, env="RETRY_BACKOFF_FACTOR")
 
-    class Config:
-        """Configuración de Pydantic Settings."""
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "allow",  # Permitir valores extra para flexibilidad futura
+    }
 
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        # Permitir valores extra para flexibilidad futura
-        extra = "allow"
-
-    @validator("ALLOWED_HOSTS", pre=True)
+    @field_validator("ALLOWED_HOSTS", mode='before')
+    @classmethod
     def parse_allowed_hosts(cls, v):
         """Parsea ALLOWED_HOSTS como lista separada por comas."""
         if isinstance(v, str):
             return [host.strip() for host in v.split(",") if host.strip()]
         return v
 
-    @validator("SHOPIFY_SHOP_URL")
+    @field_validator("SHOPIFY_SHOP_URL")
+    @classmethod
     def validate_shopify_url(cls, v):
         """Valida que la URL de Shopify tenga el formato correcto."""
+        # Skip validation for default/placeholder values
+        if v in ["your-shop.myshopify.com"]:
+            return v
         if not v.endswith(".myshopify.com"):
             raise ValueError("SHOPIFY_SHOP_URL debe terminar en .myshopify.com")
         if not v.startswith("https://") and not v.startswith("http://"):
             v = f"https://{v}"
         return v
 
-    @validator("LOG_LEVEL")
+    @field_validator("LOG_LEVEL")
+    @classmethod
     def validate_log_level(cls, v):
         """Valida que el nivel de log sea válido."""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -138,7 +144,8 @@ class Settings(BaseSettings):
             raise ValueError(f"LOG_LEVEL debe ser uno de: {valid_levels}")
         return v.upper()
 
-    @validator("ENVIRONMENT")
+    @field_validator("ENVIRONMENT")
+    @classmethod
     def validate_environment(cls, v):
         """Valida que el entorno sea válido."""
         valid_envs = ["development", "staging", "production", "testing"]
@@ -146,7 +153,8 @@ class Settings(BaseSettings):
             raise ValueError(f"ENVIRONMENT debe ser uno de: {valid_envs}")
         return v.lower()
 
-    @validator("PORT")
+    @field_validator("PORT")
+    @classmethod
     def validate_port(cls, v):
         """Valida que el puerto esté en rango válido."""
         if not 1 <= v <= 65535:
@@ -172,6 +180,16 @@ class Settings(BaseSettings):
             f"?driver={self.RMS_DB_DRIVER.replace(' ', '+')}"
             f"&connect_timeout={self.RMS_CONNECTION_TIMEOUT}"
         )
+
+    @property
+    def RMS_CONNECTION_STRING(self) -> str:
+        """Alias para rms_connection_string."""
+        return self.rms_connection_string
+
+    @property
+    def SHOPIFY_API_KEY(self) -> str:
+        """Alias para SHOPIFY_ACCESS_TOKEN."""
+        return self.SHOPIFY_ACCESS_TOKEN
 
     @property
     def shopify_api_base_url(self) -> str:

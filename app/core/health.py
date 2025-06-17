@@ -8,7 +8,7 @@ críticos y dependencias externas de la aplicación.
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import psutil
@@ -19,7 +19,7 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 # Variable global para tracking de uptime
-_app_start_time = datetime.utcnow()
+_app_start_time = datetime.now(timezone.utc)
 
 
 async def get_health_status() -> Dict[str, Any]:
@@ -69,10 +69,18 @@ async def get_health_status() -> Dict[str, Any]:
                     "latency_ms": None,
                 }
                 overall_healthy = False
-            else:
+            elif isinstance(result, dict):
                 health_results[service_name] = result
-                if result["status"] != "healthy":
+                if result.get("status") != "healthy":
                     overall_healthy = False
+            else:
+                # Handle unexpected result type
+                health_results[service_name] = {
+                    "status": "unhealthy",
+                    "error": f"Unexpected result type: {type(result)}",
+                    "latency_ms": None,
+                }
+                overall_healthy = False
 
     except asyncio.TimeoutError:
         logger.error("Health check timeout exceeded")
@@ -90,7 +98,7 @@ async def get_health_status() -> Dict[str, Any]:
         "services": health_results,
         "uptime": get_uptime_info(),
         "system": get_system_info(),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -114,7 +122,7 @@ async def run_health_check(service_name: str, check_func) -> Dict[str, Any]:
         return {
             "status": "healthy" if result else "unhealthy",
             "latency_ms": round(latency_ms, 2),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -125,7 +133,7 @@ async def run_health_check(service_name: str, check_func) -> Dict[str, Any]:
             "status": "unhealthy",
             "error": str(e),
             "latency_ms": round(latency_ms, 2),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -258,7 +266,7 @@ def get_uptime_info() -> Dict[str, Any]:
     Returns:
         Dict: Información de uptime
     """
-    current_time = datetime.utcnow()
+    current_time = datetime.now(timezone.utc)
     uptime_delta = current_time - _app_start_time
 
     return {
@@ -374,7 +382,7 @@ def reset_uptime() -> None:
     Resetea el contador de uptime (útil para testing).
     """
     global _app_start_time
-    _app_start_time = datetime.utcnow()
+    _app_start_time = datetime.now(timezone.utc)
     logger.info("Uptime counter reset")
 
 
@@ -423,5 +431,5 @@ async def get_detailed_service_health(service_name: str) -> Dict[str, Any]:
         "min_latency_ms": min(latencies) if latencies else None,
         "max_latency_ms": max(latencies) if latencies else None,
         "checks": results,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
