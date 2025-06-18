@@ -137,14 +137,22 @@ async def startup_verify_connections():
     try:
         connection_results = {}
 
-        # Verificar conexión a RMS
+        # Verificar conexión a RMS usando la nueva infraestructura
         try:
-            from app.db.rms_handler import test_rms_connection
-
-            rms_ok = await test_rms_connection()
+            from app.db.connection import get_db_connection
+            
+            conn_db = get_db_connection()
+            if not conn_db.is_initialized():
+                logger.info("Inicializando conexión a base de datos RMS...")
+                await conn_db.initialize()
+            
+            rms_ok = await conn_db.test_connection()
             connection_results["rms"] = rms_ok
             if rms_ok:
                 logger.info("✅ Conexión a RMS verificada")
+                # Verificar acceso a View_Items
+                health_info = await conn_db.health_check()
+                logger.info(f"✅ Health check RMS: {health_info['response_time_ms']}ms")
             else:
                 logger.error("❌ Conexión a RMS falló")
         except Exception as e:
@@ -207,14 +215,16 @@ async def startup_initialize_services():
             except Exception as e:
                 logger.warning(f"⚠️ Error inicializando Redis: {e} (no crítico)")
 
-        # Inicializar pool de conexiones de base de datos
+        # Inicializar conexión a base de datos RMS
         try:
-            from app.db import rms_handler
-
-            await rms_handler.initialize_connection_pool()
-            logger.info("✅ Pool de conexiones RMS inicializado")
+            from app.db.connection import get_db_connection
+            
+            conn_db = get_db_connection()
+            if not conn_db.is_initialized():
+                await conn_db.initialize()
+            logger.info("✅ Conexión RMS inicializada")
         except Exception as e:
-            logger.error(f"❌ Error inicializando pool RMS: {e}")
+            logger.error(f"❌ Error inicializando conexión RMS: {e}")
             raise
 
         # Inicializar cliente HTTP para Shopify
@@ -358,14 +368,15 @@ async def shutdown_cleanup_services():
 async def shutdown_close_connections():
     """Cierra conexiones de manera limpia."""
     try:
-        # Cerrar pool de conexiones RMS
+        # Cerrar conexión RMS
         try:
-            from app.db import rms_handler
+            from app.db.connection import get_db_connection
 
-            await rms_handler.close_connection_pool()
-            logger.info("✅ Pool de conexiones RMS cerrado")
+            conn_db = get_db_connection()
+            await conn_db.close()
+            logger.info("✅ Conexión RMS cerrada")
         except Exception as e:
-            logger.error(f"Error cerrando pool RMS: {e}")
+            logger.error(f"Error cerrando conexión RMS: {e}")
 
         # Cerrar cliente Redis
         if settings.REDIS_URL:

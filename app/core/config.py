@@ -39,14 +39,18 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
 
     # === CONFIGURACIÓN DE RMS (SQL SERVER) ===
-    RMS_DB_HOST: str = Field(default="localhost", env="RMS_DB_HOST")
+    RMS_DB_HOST: str = Field(default="190.106.75.222.1438", env="RMS_DB_HOST")
     RMS_DB_PORT: int = Field(default=1433, env="RMS_DB_PORT")
-    RMS_DB_NAME: str = Field(default="RMS_Store", env="RMS_DB_NAME")
-    RMS_DB_USER: str = Field(default="rms_user", env="RMS_DB_USER")
-    RMS_DB_PASSWORD: str = Field(default="password", env="RMS_DB_PASSWORD")
+    RMS_DB_NAME: str = Field(default="BB57_TempSF", env="RMS_DB_NAME")
+    RMS_DB_USER: str = Field(default="Shop1fy5428", env="RMS_DB_USER")
+    RMS_DB_PASSWORD: str = Field(default="sh0pqfy10736!", env="RMS_DB_PASSWORD")
     RMS_DB_DRIVER: str = Field(default="ODBC Driver 17 for SQL Server", env="RMS_DB_DRIVER")
     RMS_CONNECTION_TIMEOUT: int = Field(default=30, env="RMS_CONNECTION_TIMEOUT")
     RMS_MAX_POOL_SIZE: int = Field(default=10, env="RMS_MAX_POOL_SIZE")
+    # Configuraciones específicas para RMS
+    RMS_VIEW_ITEMS_TABLE: str = Field(default="View_Items", env="RMS_VIEW_ITEMS_TABLE")
+    RMS_STORE_ID: int = Field(default=40, env="RMS_STORE_ID")  # StoreID fijo para tienda virtual
+    RMS_SYNC_INCREMENTAL_HOURS: int = Field(default=24, env="RMS_SYNC_INCREMENTAL_HOURS")
 
     # === CONFIGURACIÓN DE SHOPIFY ===
     SHOPIFY_SHOP_URL: str = Field(default="your-shop.myshopify.com", env="SHOPIFY_SHOP_URL")
@@ -114,7 +118,7 @@ class Settings(BaseSettings):
         "extra": "allow",  # Permitir valores extra para flexibilidad futura
     }
 
-    @field_validator("ALLOWED_HOSTS", mode='before')
+    @field_validator("ALLOWED_HOSTS", mode="before")
     @classmethod
     def parse_allowed_hosts(cls, v):
         """Parsea ALLOWED_HOSTS como lista separada por comas."""
@@ -180,6 +184,11 @@ class Settings(BaseSettings):
             f"?driver={self.RMS_DB_DRIVER.replace(' ', '+')}"
             f"&connect_timeout={self.RMS_CONNECTION_TIMEOUT}"
         )
+
+    @property
+    def rms_connection_string_async(self) -> str:
+        """String de conexión asíncrona para RMS."""
+        return self.rms_connection_string.replace("mssql+pyodbc://", "mssql+aioodbc://")
 
     @property
     def RMS_CONNECTION_STRING(self) -> str:
@@ -341,7 +350,7 @@ def validate_required_settings() -> bool:
         return True
 
     except Exception as e:
-        raise ValueError(f"Error validando configuración: {e}")
+        raise ValueError(f"Error validando configuración: {e}") from e
 
 
 def get_environment_info() -> dict:

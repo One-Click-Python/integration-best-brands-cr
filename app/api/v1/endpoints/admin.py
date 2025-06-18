@@ -376,3 +376,92 @@ async def get_recent_logs(
         logger.error(f"Error getting recent logs: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve recent logs") from e
 
+
+@router.get(
+    "/database-health",
+    summary="Get database health details",
+    description="Get detailed health information about the RMS database connection"
+)
+async def get_database_health(
+    _: None = Depends(verify_admin_access)
+):
+    """
+    Get detailed database health information.
+    
+    Returns:
+        Dict: Detailed database health data
+    """
+    try:
+        from app.db.connection import get_db_connection
+        
+        conn_db = get_db_connection()
+        
+        # Obtener información completa de la base de datos
+        health_info = await conn_db.health_check()
+        engine_info = conn_db.get_engine_info()
+        
+        # Información adicional de configuración
+        config_info = {
+            "host": settings.RMS_DB_HOST,
+            "port": settings.RMS_DB_PORT,
+            "database": settings.RMS_DB_NAME,
+            "driver": settings.RMS_DB_DRIVER,
+            "max_pool_size": settings.RMS_MAX_POOL_SIZE,
+            "connection_timeout": settings.RMS_CONNECTION_TIMEOUT,
+        }
+        
+        return {
+            "health_check": health_info,
+            "engine_info": engine_info,
+            "configuration": config_info,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting database health: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get database health: {str(e)}") from e
+
+
+@router.post(
+    "/database-test",
+    summary="Test database connection",
+    description="Perform a test of the database connection and return results"
+)
+async def test_database_connection(
+    _: None = Depends(verify_admin_access)
+):
+    """
+    Test the database connection.
+    
+    Returns:
+        Dict: Connection test results
+    """
+    try:
+        from app.db.connection import get_db_connection
+        
+        conn_db = get_db_connection()
+        
+        # Realizar test de conexión
+        import time
+        start_time = time.time()
+        
+        if not conn_db.is_initialized():
+            await conn_db.initialize()
+        
+        test_result = await conn_db.test_connection()
+        
+        end_time = time.time()
+        response_time = round((end_time - start_time) * 1000, 2)
+        
+        return {
+            "connection_test": test_result,
+            "response_time_ms": response_time,
+            "initialized": conn_db.is_initialized(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": "Database connection test completed successfully" if test_result else "Database connection test failed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing database connection: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to test database connection: {str(e)}") from e
+

@@ -145,11 +145,26 @@ async def check_rms_health() -> bool:
         bool: True si RMS está disponible
     """
     try:
-        from app.db.rms_handler import test_rms_connection
-
-        return await test_rms_connection()
+        from app.db.connection import get_db_connection
+        
+        conn_db = get_db_connection()
+        
+        # Si no está inicializada, intentar inicializar
+        if not conn_db.is_initialized():
+            try:
+                await conn_db.initialize()
+            except Exception as e:
+                logger.error(f"Failed to initialize RMS connection for health check: {e}")
+                return False
+        
+        # Realizar test de conexión
+        return await conn_db.test_connection()
+        
     except ImportError:
-        logger.warning("RMS handler not available")
+        logger.warning("RMS connection module not available")
+        return False
+    except Exception as e:
+        logger.error(f"RMS health check failed: {e}")
         return False
 
 
@@ -195,8 +210,19 @@ async def check_database_health() -> bool:
     Returns:
         bool: True si las bases de datos están disponibles
     """
-    # Por ahora, usar el check de RMS como proxy
-    return await check_rms_health()
+    try:
+        from app.db.connection import get_db_connection
+        
+        conn_db = get_db_connection()
+        
+        # Realizar health check completo de la base de datos
+        health_info = await conn_db.health_check()
+        
+        return health_info.get("test_passed", False) and health_info.get("connection_initialized", False)
+        
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return False
 
 
 async def check_disk_space() -> bool:

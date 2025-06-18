@@ -186,7 +186,7 @@ class RMSToShopifySync:
 
             query += " ORDER BY LastModified DESC"
 
-            products = await self.rms_handler.execute_query(query)
+            products = await self.rms_handler.execute_custom_query(query)
 
             # Validar y procesar productos
             processed_products = []
