@@ -11,8 +11,15 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+from app.api.v1.schemas.rms_schemas import RMSViewItem
+from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 from app.core.config import get_settings
 from app.core.logging_config import LogContext, log_sync_operation
+from app.services.data_mapper import (
+    DataComparator,
+    RMSToShopifyMapper,
+    ShopifyToRMSMapper,
+)
 from app.utils.error_handler import (
     ErrorAggregator,
     SyncException,
@@ -49,10 +56,10 @@ class RMSToShopifySync:
             self.rms_handler = RMSHandler()
             await self.rms_handler.initialize()
 
-            # Inicializar cliente Shopify
-            from app.db.shopify_client import ShopifyClient
+            # Inicializar cliente Shopify GraphQL
+            from app.db.shopify_graphql_client import ShopifyGraphQLClient
 
-            self.shopify_client = ShopifyClient()
+            self.shopify_client = ShopifyGraphQLClient()
             await self.shopify_client.initialize()
 
             logger.info(f"Sync service initialized - ID: {self.sync_id}")
@@ -67,7 +74,7 @@ class RMSToShopifySync:
     async def get_status(self) -> Dict[str, Any]:
         """
         Obtiene el estado actual del servicio de sincronización.
-        
+
         Returns:
             Dict: Estado del servicio
         """
@@ -123,7 +130,7 @@ class RMSToShopifySync:
             except Exception as e:
                 self.error_aggregator.add_error(e)
                 logger.error(f"Critical error in sync_products: {e}")
-                
+
                 # Return error report instead of raising
                 return {
                     "sync_id": self.sync_id,
@@ -188,15 +195,37 @@ class RMSToShopifySync:
 
             products = await self.rms_handler.execute_custom_query(query)
 
-            # Validar y procesar productos
+            # Validar y procesar productos usando Pydantic schemas
             processed_products = []
-            for product in products:
+            for product_data in products:
                 try:
-                    processed_product = self._validate_and_process_rms_product(product)
-                    processed_products.append(processed_product)
+                    # Convertir a RMSViewItem para validación
+                    rms_item = RMSViewItem(
+                        familia=product_data.get("Family"),
+                        genero=product_data.get("Gender"),
+                        categoria=product_data.get("Category"),
+                        ccod=product_data.get("sku", ""),  # Usar sku como ccod por ahora
+                        c_articulo=product_data.get("sku"),
+                        item_id=product_data.get("item_id", 0),
+                        description=product_data.get("title"),
+                        color=product_data.get("Color"),
+                        talla=product_data.get("Size"),
+                        quantity=int(product_data.get("Quantity", 0)),
+                        price=Decimal(str(product_data.get("Price", 0))),
+                        sale_price=Decimal(str(product_data.get("SalePrice", 0)))
+                        if product_data.get("SalePrice")
+                        else None,
+                        extended_category=product_data.get("ExtendedCategory"),
+                        tax=int(product_data.get("Tax", 13)),
+                    )
+
+                    # Mapear a formato Shopify GraphQL
+                    shopify_product = RMSToShopifyMapper.map_product_to_shopify(rms_item)
+                    processed_products.append({"rms_item": rms_item, "shopify_input": shopify_product})
                     self.error_aggregator.increment_processed()
-                except ValidationException as e:
-                    self.error_aggregator.add_error(e, {"sku": product.get("sku")})
+
+                except (ValidationException, ValueError) as e:
+                    self.error_aggregator.add_error(e, {"sku": product_data.get("sku")})
 
             return processed_products
 
@@ -207,201 +236,17 @@ class RMSToShopifySync:
                 operation="extract_products",
             ) from e
 
-    def _validate_and_process_rms_product(self, product: Dict[str, Any]) -> Dict[str, Any]:
+    def _convert_to_graphql_input(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
-        Valida y procesa un producto RMS.
+        Convierte ShopifyProductInput a formato dict para la API GraphQL.
 
         Args:
-            product: Datos del producto RMS
+            shopify_input: Input de producto validado
 
         Returns:
-            Dict: Producto procesado
-
-        Raises:
-            ValidationException: Si la validación falla
+            Dict: Producto en formato GraphQL
         """
-        # Validaciones básicas
-        if not product.get("sku"):
-            raise ValidationException(message="SKU is required", field="sku", invalid_value=product.get("sku"))
-
-        if not product.get("title"):
-            raise ValidationException(
-                message="Product title is required",
-                field="title",
-                invalid_value=product.get("title"),
-            )
-
-        # Procesar precios
-        price = self._process_price(product.get("Price"))
-        sale_price = self._process_price(product.get("SalePrice"))
-
-        # Procesar inventario
-        quantity = max(0, int(product.get("Quantity", 0)))
-
-        # Mapear a formato Shopify
-        shopify_product = {
-            "title": product["title"],
-            "handle": self._generate_handle(product["title"], product["sku"]),
-            "product_type": product.get("Category", ""),
-            "vendor": product.get("Family", ""),
-            "tags": self._generate_tags(product),
-            "variants": [
-                {
-                    "sku": product["sku"],
-                    "price": str(price),
-                    "compare_at_price": str(sale_price) if sale_price and sale_price > price else None,
-                    "inventory_quantity": quantity,
-                    "inventory_management": "shopify",
-                    "inventory_policy": "deny",
-                    "weight": 0,
-                    "weight_unit": "kg",
-                    "requires_shipping": True,
-                    "taxable": bool(product.get("Tax", False)),
-                    "option1": product.get("Color") or "Default",
-                    "option2": product.get("Size") if product.get("Size") else None,
-                    "option3": product.get("Gender") if product.get("Gender") else None,
-                }
-            ],
-            "options": self._generate_options(product),
-            "status": "active",
-            "published": True,
-            "meta_fields": {
-                "rms_sync": {
-                    "last_synced": datetime.now(timezone.utc).isoformat(),
-                    "rms_category": product.get("Category"),
-                    "rms_family": product.get("Family"),
-                    "rms_extended_category": product.get("ExtendedCategory"),
-                }
-            },
-        }
-
-        # Agregar descripción si existe
-        if product.get("Description"):
-            shopify_product["body_html"] = self._format_description(product["Description"])
-
-        return shopify_product
-
-    def _process_price(self, price: Any) -> Decimal:
-        """
-        Procesa y valida un precio.
-
-        Args:
-            price: Precio a procesar
-
-        Returns:
-            Decimal: Precio procesado
-        """
-        if price is None:
-            return Decimal("0.00")
-
-        try:
-            decimal_price = Decimal(str(price))
-            return max(decimal_price, Decimal("0.00"))
-        except (ValueError, TypeError):
-            return Decimal("0.00")
-
-    def _generate_handle(self, title: str, sku: str) -> str:
-        """
-        Genera un handle único para Shopify.
-
-        Args:
-            title: Título del producto
-            sku: SKU del producto
-
-        Returns:
-            str: Handle generado
-        """
-        import re
-
-        # Limpiar título
-        handle = title.lower().strip()
-        handle = re.sub(r"[^\w\s-]", "", handle)
-        handle = re.sub(r"\s+", "-", handle)
-        handle = re.sub(r"-+", "-", handle)
-        handle = handle.strip("-")
-
-        # Agregar SKU para unicidad
-        handle = f"{handle}-{sku.lower()}"
-
-        return handle[:100]  # Límite de Shopify
-
-    def _generate_tags(self, product: Dict[str, Any]) -> str:
-        """
-        Genera tags para el producto.
-
-        Args:
-            product: Datos del producto
-
-        Returns:
-            str: Tags separados por coma
-        """
-        tags = []
-
-        if product.get("Category"):
-            tags.append(product["Category"])
-
-        if product.get("Family"):
-            tags.append(product["Family"])
-
-        if product.get("Gender"):
-            tags.append(product["Gender"])
-
-        if product.get("Color"):
-            tags.append(f"Color-{product['Color']}")
-
-        if product.get("Size"):
-            tags.append(f"Size-{product['Size']}")
-
-        # Tag de origen
-        tags.append("RMS-Sync")
-
-        return ", ".join(tags)
-
-    def _generate_options(self, product: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Genera opciones de variante para Shopify.
-
-        Args:
-            product: Datos del producto
-
-        Returns:
-            List: Opciones de variante
-        """
-        options = []
-
-        # Opción 1: Color (siempre presente)
-        options.append({"name": "Color", "values": [product.get("Color") or "Default"]})
-
-        # Opción 2: Talla (si existe)
-        if product.get("Size"):
-            options.append({"name": "Talla", "values": [product["Size"]]})
-
-        # Opción 3: Género (si existe y no hay talla)
-        elif product.get("Gender"):
-            options.append({"name": "Género", "values": [product["Gender"]]})
-
-        return options
-
-    def _format_description(self, description: str) -> str:
-        """
-        Formatea la descripción para HTML.
-
-        Args:
-            description: Descripción original
-
-        Returns:
-            str: Descripción formateada en HTML
-        """
-        if not description:
-            return ""
-
-        # Escapar HTML básico y convertir saltos de línea
-        import html
-
-        escaped = html.escape(description)
-        formatted = escaped.replace("\n", "<br>")
-
-        return f"<p>{formatted}</p>"
+        return shopify_input.to_graphql_input()
 
     async def _get_existing_shopify_products(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -413,14 +258,15 @@ class RMSToShopifySync:
         try:
             products = await self.shopify_client.get_all_products()
 
-            # Indexar por SKU de la primera variante
+            # Indexar por SKU usando el nuevo parser
             indexed_products = {}
             for product in products:
-                if product.get("variants"):
-                    first_variant = product["variants"][0]
-                    sku = first_variant.get("sku")
+                parsed_product = ShopifyToRMSMapper.parse_product_for_updates(product)
+                for variant in parsed_product.get("variants", []):
+                    sku = variant.get("sku")
                     if sku:
                         indexed_products[sku] = product
+                        break  # Solo necesitamos el primer SKU válido
 
             return indexed_products
 
@@ -503,22 +349,24 @@ class RMSToShopifySync:
             "errors": 0,
         }
 
-        for product in batch:
+        for product_data in batch:
             try:
-                sku = product["variants"][0]["sku"]
+                rms_item = product_data["rms_item"]
+                shopify_input = product_data["shopify_input"]
+                sku = rms_item.c_articulo
                 existing_product = shopify_products.get(sku)
 
                 if existing_product:
                     # Producto existe - decidir si actualizar
-                    if force_update or self._should_update_product(product, existing_product):
-                        await self._update_shopify_product(product, existing_product)
+                    if force_update or DataComparator.needs_update(rms_item, existing_product):
+                        await self._update_shopify_product(shopify_input, existing_product)
                         stats["updated"] += 1
                         log_sync_operation("update", "shopify", sku=sku)
                     else:
                         stats["skipped"] += 1
                 else:
                     # Producto nuevo - crear
-                    await self._create_shopify_product(product)
+                    await self._create_shopify_product(shopify_input)
                     stats["created"] += 1
                     log_sync_operation("create", "shopify", sku=sku)
 
@@ -526,52 +374,36 @@ class RMSToShopifySync:
 
             except Exception as e:
                 stats["errors"] += 1
-                self.error_aggregator.add_error(e, {"sku": product.get("variants", [{}])[0].get("sku", "unknown")})
+                self.error_aggregator.add_error(
+                    e,
+                    {"sku": rms_item.c_articulo if "rms_item" in product_data else "unknown"},  # type: ignore
+                )
 
         return stats
 
-    def _should_update_product(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> bool:
+    def _should_update_product_legacy(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> bool:
         """
-        Determina si un producto debe actualizarse.
+        Método legacy para compatibilidad. Usa DataComparator en su lugar.
+        """
+        logger.warning("Using legacy comparison method. Consider updating to DataComparator.")
+        return True  # Forzar actualización para métodos legacy
+
+    async def _create_shopify_product(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
+        """
+        Crea un producto en Shopify usando GraphQL.
 
         Args:
-            rms_product: Producto de RMS
-            shopify_product: Producto existente en Shopify
-
-        Returns:
-            bool: True si debe actualizarse
-        """
-        # Comparar campos importantes
-        rms_variant = rms_product["variants"][0]
-        shopify_variant = shopify_product.get("variants", [{}])[0]
-
-        # Comparar precios
-        if str(rms_variant.get("price", "0")) != str(shopify_variant.get("price", "0")):
-            return True
-
-        # Comparar inventario
-        if rms_variant.get("inventory_quantity", 0) != shopify_variant.get("inventory_quantity", 0):
-            return True
-
-        # Comparar título
-        if rms_product.get("title") != shopify_product.get("title"):
-            return True
-
-        return False
-
-    async def _create_shopify_product(self, product: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Crea un producto en Shopify.
-
-        Args:
-            product: Datos del producto
+            shopify_input: Input del producto validado
 
         Returns:
             Dict: Producto creado
         """
         try:
-            created_product = await self.shopify_client.create_product(product)
-            sku = product["variants"][0]["sku"]
+            # Convertir a formato GraphQL
+            product_data = self._convert_to_graphql_input(shopify_input)
+
+            created_product = await self.shopify_client.create_product(product_data)
+            sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
             logger.info(f"Created product in Shopify: {sku}")
             return created_product
 
@@ -580,30 +412,35 @@ class RMSToShopifySync:
                 message=f"Failed to create product in Shopify: {str(e)}",
                 service="shopify",
                 operation="create_product",
-                failed_records=[product],
+                failed_records=[shopify_input.model_dump()],
             ) from e
 
     async def _update_shopify_product(
-        self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]
+        self, shopify_input: ShopifyProductInput, shopify_product: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Actualiza un producto en Shopify.
+        Actualiza un producto en Shopify usando GraphQL.
 
         Args:
-            rms_product: Datos actualizados del producto
+            shopify_input: Datos actualizados del producto
             shopify_product: Producto existente
 
         Returns:
             Dict: Producto actualizado
         """
         try:
-            # Preparar datos de actualización
-            update_data = self._prepare_update_data(rms_product, shopify_product)
+            # Preparar datos de actualización con ID del producto existente
+            update_data = self._convert_to_graphql_input(shopify_input)
+
+            # Obtener ID del producto existente
+            product_id = shopify_product.get("id")
+            if not product_id:
+                raise ValueError("Product ID not found in existing product")
 
             # Actualizar producto
-            updated_product = await self.shopify_client.update_product(shopify_product["id"], update_data)
+            updated_product = await self.shopify_client.update_product(product_id, update_data)
 
-            sku = rms_product["variants"][0]["sku"]
+            sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
             logger.info(f"Updated product in Shopify: {sku}")
             return updated_product
 
@@ -612,48 +449,17 @@ class RMSToShopifySync:
                 message=f"Failed to update product in Shopify: {str(e)}",
                 service="shopify",
                 operation="update_product",
-                failed_records=[rms_product],
+                failed_records=[shopify_input.model_dump()],
             ) from e
 
-    def _prepare_update_data(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_update_data_legacy(
+        self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
-        Prepara datos para actualización de producto.
-
-        Args:
-            rms_product: Producto RMS
-            shopify_product: Producto Shopify existente
-
-        Returns:
-            Dict: Datos de actualización
+        Método legacy mantenido para compatibilidad.
         """
-        update_data = {
-            "title": rms_product["title"],
-            "product_type": rms_product["product_type"],
-            "vendor": rms_product["vendor"],
-            "tags": rms_product["tags"],
-        }
-
-        # Actualizar descripción si existe
-        if rms_product.get("body_html"):
-            update_data["body_html"] = rms_product["body_html"]
-
-        # Actualizar variante
-        rms_variant = rms_product["variants"][0]
-        shopify_variant = shopify_product["variants"][0]
-
-        update_data["variants"] = [
-            {
-                "id": shopify_variant["id"],
-                "price": rms_variant["price"],
-                "compare_at_price": rms_variant.get("compare_at_price"),
-                "inventory_quantity": rms_variant["inventory_quantity"],
-                "option1": rms_variant["option1"],
-                "option2": rms_variant.get("option2"),
-                "option3": rms_variant.get("option3"),
-            }
-        ]
-
-        return update_data
+        logger.warning("Using legacy update data preparation. Consider updating to use ShopifyProductInput.")
+        return {}
 
     def _generate_sync_report(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """

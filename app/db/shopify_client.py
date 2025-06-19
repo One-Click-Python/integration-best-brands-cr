@@ -3,16 +3,33 @@ Cliente API para Shopify.
 
 Este módulo proporciona funciones para interactuar con la API de Shopify,
 incluyendo autenticación, consultas y operaciones CRUD para productos,
-inventarios y pedidos.
+inventarios y pedidos. Utiliza GraphQL como interfaz principal.
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
+from app.db.shopify_graphql_client import ShopifyGraphQLClient
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Global GraphQL client instance
+_graphql_client: Optional[ShopifyGraphQLClient] = None
+
+
+def get_graphql_client() -> ShopifyGraphQLClient:
+    """
+    Obtiene la instancia global del cliente GraphQL.
+    
+    Returns:
+        ShopifyGraphQLClient: Cliente GraphQL configurado
+    """
+    global _graphql_client
+    if _graphql_client is None:
+        _graphql_client = ShopifyGraphQLClient()
+    return _graphql_client
 
 
 async def test_shopify_connection() -> bool:
@@ -23,18 +40,8 @@ async def test_shopify_connection() -> bool:
         bool: True si la conexión es exitosa, False en caso contrario
     """
     try:
-        # Por ahora, simular la conexión
-        # En producción, aquí se verificaría la conexión real con Shopify API
-        logger.info("Shopify connection test simulated - would connect to Shopify API")
-
-        # Verificar configuración básica
-        if settings.SHOPIFY_SHOP_URL and settings.SHOPIFY_ACCESS_TOKEN:
-            logger.debug(f"Would test connection to: {settings.SHOPIFY_SHOP_URL}")
-            return True
-        else:
-            logger.warning("Shopify API credentials not configured")
-            return False
-
+        client = get_graphql_client()
+        return await client.test_connection()
     except Exception as e:
         logger.error(f"Shopify connection test failed: {e}")
         return False
@@ -54,13 +61,25 @@ async def get_shopify_products(
     Returns:
         Dict: Respuesta con productos y metadatos de paginación
     """
-    # Implementación placeholder
-    logger.info("Getting products from Shopify API...", limit, page_info)
-    return {
-        "products": [],
-        "page_info": None,
-        "has_next_page": False,
-    }
+    try:
+        client = get_graphql_client()
+        result = await client.get_products(
+            limit=limit or 50,
+            cursor=page_info
+        )
+        
+        return {
+            "products": result.get("products", []),
+            "page_info": result.get("pageInfo", {}),
+            "has_next_page": result.get("hasNextPage", False),
+        }
+    except Exception as e:
+        logger.error(f"Error getting Shopify products: {e}")
+        return {
+            "products": [],
+            "page_info": None,
+            "has_next_page": False,
+        }
 
 
 async def get_shopify_orders(
@@ -79,13 +98,26 @@ async def get_shopify_orders(
     Returns:
         Dict: Respuesta con pedidos y metadatos de paginación
     """
-    # Implementación placeholder
-    logger.info(f"Getting orders from Shopify API... status: {status}", limit, page_info)
-    return {
-        "orders": [],
-        "page_info": None,
-        "has_next_page": False,
-    }
+    try:
+        client = get_graphql_client()
+        result = await client.get_orders(
+            limit=limit or 50,
+            cursor=page_info,
+            status=status
+        )
+        
+        return {
+            "orders": result.get("orders", []),
+            "page_info": result.get("pageInfo", {}),
+            "has_next_page": result.get("hasNextPage", False),
+        }
+    except Exception as e:
+        logger.error(f"Error getting Shopify orders: {e}")
+        return {
+            "orders": [],
+            "page_info": None,
+            "has_next_page": False,
+        }
 
 
 async def update_shopify_product(
@@ -102,9 +134,12 @@ async def update_shopify_product(
     Returns:
         Dict: Producto actualizado
     """
-    # Implementación placeholder
-    logger.info(f"Updating Shopify product {product_id} with data: {product_data}")
-    return {"id": product_id, "updated": True}
+    try:
+        client = get_graphql_client()
+        return await client.update_product(product_id, product_data)
+    except Exception as e:
+        logger.error(f"Error updating Shopify product {product_id}: {e}")
+        raise
 
 
 async def update_shopify_inventory(
@@ -123,9 +158,16 @@ async def update_shopify_inventory(
     Returns:
         bool: True si la actualización fue exitosa
     """
-    # Implementación placeholder
-    logger.info(f"Updating Shopify inventory for item {inventory_item_id}: {available} in location {location_id}")
-    return True
+    try:
+        client = get_graphql_client()
+        return await client.update_inventory(
+            inventory_item_id,
+            location_id,
+            available
+        )
+    except Exception as e:
+        logger.error(f"Error updating Shopify inventory: {e}")
+        return False
 
 
 async def create_shopify_product(product_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,14 +180,19 @@ async def create_shopify_product(product_data: Dict[str, Any]) -> Dict[str, Any]
     Returns:
         Dict: Producto creado
     """
-    # Implementación placeholder
-    logger.info(f"Creating Shopify product with data: {product_data}")
-    return {"id": "shopify_product_123", "created": True}
+    try:
+        client = get_graphql_client()
+        return await client.create_product(product_data)
+    except Exception as e:
+        logger.error(f"Error creating Shopify product: {e}")
+        raise
 
 
 class ShopifyClient:
     """
     Cliente principal para operaciones con la API de Shopify.
+    Esta clase actúa como wrapper del cliente GraphQL para mantener
+    compatibilidad con el código existente.
     """
 
     def __init__(self):
@@ -153,7 +200,7 @@ class ShopifyClient:
         self.shop_url = settings.SHOPIFY_SHOP_URL
         self.access_token = settings.SHOPIFY_ACCESS_TOKEN
         self.api_version = settings.SHOPIFY_API_VERSION
-        self.session = None
+        self._graphql_client = get_graphql_client()
         logger.info("Shopify Client initialized")
 
     async def test_connection(self) -> bool:
@@ -163,7 +210,7 @@ class ShopifyClient:
         Returns:
             bool: True si la conexión es exitosa
         """
-        return await test_shopify_connection()
+        return await self._graphql_client.test_connection()
 
     async def get_products(self, limit: Optional[int] = None, page_info: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -176,7 +223,16 @@ class ShopifyClient:
         Returns:
             Dict: Respuesta con productos y metadatos
         """
-        return await get_shopify_products(limit, page_info)
+        result = await self._graphql_client.get_products(
+            limit=limit or 50,
+            cursor=page_info
+        )
+        
+        return {
+            "products": result.get("products", []),
+            "page_info": result.get("endCursor"),
+            "has_next_page": result.get("hasNextPage", False),
+        }
 
     async def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -188,7 +244,7 @@ class ShopifyClient:
         Returns:
             Dict: Producto creado
         """
-        return await create_shopify_product(product_data)
+        return await self._graphql_client.create_product(product_data)
 
     async def update_product(self, product_id: str, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -201,7 +257,7 @@ class ShopifyClient:
         Returns:
             Dict: Producto actualizado
         """
-        return await update_shopify_product(product_id, product_data)
+        return await self._graphql_client.update_product(product_id, product_data)
 
     async def get_orders(self, limit: Optional[int] = None, status: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -214,20 +270,75 @@ class ShopifyClient:
         Returns:
             Dict: Respuesta con pedidos
         """
-        return await get_shopify_orders(limit, status)
+        result = await self._graphql_client.get_orders(
+            limit=limit or 50,
+            status=status
+        )
+        
+        return {
+            "orders": result.get("orders", []),
+            "page_info": result.get("endCursor"),
+            "has_next_page": result.get("hasNextPage", False),
+        }
+
+    async def update_inventory(self, inventory_item_id: str, location_id: str, available: int) -> bool:
+        """
+        Actualiza el inventario en Shopify.
+
+        Args:
+            inventory_item_id: ID del item de inventario
+            location_id: ID de la ubicación
+            available: Cantidad disponible
+
+        Returns:
+            bool: True si la actualización fue exitosa
+        """
+        return await self._graphql_client.update_inventory(
+            inventory_item_id,
+            location_id,
+            available
+        )
+
+    async def get_product_by_sku(self, sku: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca un producto por SKU.
+
+        Args:
+            sku: SKU del producto
+
+        Returns:
+            Producto si existe, None si no se encuentra
+        """
+        return await self._graphql_client.get_product_by_sku(sku)
+
+    async def get_locations(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las ubicaciones de inventario.
+
+        Returns:
+            Lista de ubicaciones
+        """
+        return await self._graphql_client.get_locations()
+
+    async def batch_update_inventory(self, inventory_updates: List[Dict[str, Any]]) -> tuple[int, List[Dict[str, Any]]]:
+        """
+        Actualiza inventario en lote.
+
+        Args:
+            inventory_updates: Lista de actualizaciones
+
+        Returns:
+            Tupla con (éxitos, errores)
+        """
+        return await self._graphql_client.batch_update_inventory(inventory_updates)
 
     async def initialize(self):
         """
         Inicializa el cliente HTTP para Shopify.
         """
         try:
-            # TODO: Implementar inicialización real de sesión HTTP
-            logger.info("Initializing Shopify HTTP client (simulated)")
-            # En producción aquí se inicializaría aiohttp session
-            # self.session = aiohttp.ClientSession(
-            #     headers=self.get_headers(),
-            #     timeout=aiohttp.ClientTimeout(total=30)
-            # )
+            await self._graphql_client.initialize()
+            logger.info("Shopify HTTP client initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Shopify client: {e}")
             raise
@@ -237,11 +348,8 @@ class ShopifyClient:
         Cierra el cliente HTTP de Shopify.
         """
         try:
-            # TODO: Implementar cierre real de sesión
-            logger.info("Closing Shopify HTTP client (simulated)")
-            if self.session:
-                # await self.session.close()
-                self.session = None
+            await self._graphql_client.close()
+            logger.info("Shopify HTTP client closed")
         except Exception as e:
             logger.error(f"Error closing Shopify client: {e}")
             raise
@@ -253,29 +361,7 @@ class ShopifyClient:
         Returns:
             List[Dict]: Lista completa de productos
         """
-        try:
-            all_products = []
-            page_info = None
-
-            while True:
-                response = await self.get_products(limit=250, page_info=page_info)
-                products = response.get("products", [])
-                all_products.extend(products)
-
-                # Verificar si hay más páginas
-                if not response.get("has_next_page", False):
-                    break
-
-                page_info = response.get("page_info")
-                if not page_info:
-                    break
-
-            logger.info(f"Retrieved {len(all_products)} products from Shopify")
-            return all_products
-
-        except Exception as e:
-            logger.error(f"Error getting all Shopify products: {e}")
-            raise
+        return await self._graphql_client.get_all_products()
 
     def get_headers(self) -> Dict[str, str]:
         """
@@ -284,22 +370,22 @@ class ShopifyClient:
         Returns:
             Dict: Headers de autenticación
         """
-        return {
-            "X-Shopify-Access-Token": self.access_token,
-            "Content-Type": "application/json",
-            "User-Agent": f"{settings.APP_NAME}/{settings.APP_VERSION}",
-        }
+        return self._graphql_client._get_headers()
 
 
 async def initialize_http_client():
     """
     Inicializa el cliente HTTP para Shopify.
     """
-    logger.info("Initializing Shopify HTTP client (simulated)")
+    client = get_graphql_client()
+    await client.initialize()
+    logger.info("Shopify HTTP client initialized")
 
 
 async def close_http_client():
     """
     Cierra el cliente HTTP para Shopify.
     """
-    logger.info("Closing Shopify HTTP client (simulated)")
+    client = get_graphql_client()
+    await client.close()
+    logger.info("Shopify HTTP client closed")
