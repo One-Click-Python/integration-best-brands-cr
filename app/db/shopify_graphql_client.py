@@ -59,7 +59,9 @@ class ShopifyGraphQLClient:
         self.last_request_time = time.time()
         
         # GraphQL endpoint
-        self.graphql_url = f"https://{self.shop_url}/admin/api/{self.api_version}/graphql.json"
+        # Remove https:// if already present in shop_url
+        clean_shop_url = self.shop_url.replace("https://", "").replace("http://", "")
+        self.graphql_url = f"https://{clean_shop_url}/admin/api/{self.api_version}/graphql.json"
         
         # Initialize retry handler
         self.retry_handler = get_handler("shopify")

@@ -12,7 +12,6 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import QueuePool
 
 from app.core.config import get_settings
 from app.utils.error_handler import RMSConnectionException
@@ -65,7 +64,7 @@ class ConnDB:
             # Crear engine con configuración optimizada para SQL Server
             self.engine = create_async_engine(
                 self.connection_string,
-                poolclass=QueuePool,
+                # No especificar poolclass para usar NullPool por defecto con asyncio
                 pool_size=settings.RMS_MAX_POOL_SIZE,
                 max_overflow=20,
                 pool_pre_ping=True,  # Verificar conexiones antes de usar
@@ -112,7 +111,15 @@ class ConnDB:
         try:
             logger.info("Testing database connection...")
 
-            async with self.get_session() as session:
+            # Use session_factory directly to avoid circular dependency
+            if not self.session_factory:
+                raise RMSConnectionException(
+                    message="Session factory not initialized",
+                    db_host=settings.RMS_DB_HOST,
+                    connection_type="test",
+                )
+
+            async with self.session_factory() as session:
                 # Test simple de conexión
                 result = await session.execute(text("SELECT 1 as test_connection"))
                 test_value = result.scalar()

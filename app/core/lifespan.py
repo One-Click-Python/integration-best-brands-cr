@@ -189,11 +189,16 @@ async def startup_verify_connections():
                 connection_results["redis"] = False
 
         # Verificar que servicios críticos estén disponibles
-        critical_services = ["rms", "shopify"]
+        # Temporalmente hacer RMS opcional para desarrollo
+        critical_services = ["shopify"]  # Solo Shopify es crítico por ahora
         failed_critical = [service for service in critical_services if not connection_results.get(service, False)]
 
         if failed_critical:
             raise ConnectionError(f"Servicios críticos no disponibles: {failed_critical}")
+        
+        # Advertir si RMS no está disponible
+        if not connection_results.get("rms", False):
+            logger.warning("⚠️ RMS no está disponible - Las funciones de sincronización con RMS estarán deshabilitadas")
 
         logger.info("✅ Todas las conexiones críticas verificadas")
 
@@ -225,7 +230,8 @@ async def startup_initialize_services():
             logger.info("✅ Conexión RMS inicializada")
         except Exception as e:
             logger.error(f"❌ Error inicializando conexión RMS: {e}")
-            raise
+            logger.warning("⚠️ Continuando sin conexión RMS - Las funciones de sincronización con RMS estarán deshabilitadas")
+            # No lanzar la excepción para permitir que la app arranque sin RMS
 
         # Inicializar cliente HTTP para Shopify
         try:

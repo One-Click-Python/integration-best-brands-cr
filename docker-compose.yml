@@ -1,0 +1,71 @@
+services:
+  api:
+    image: rms-shopify-integration:latest
+    container_name: rms-shopify-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Application Configuration
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - LOG_LEVEL=INFO
+      
+      # RMS Database Configuration
+      - RMS_DB_HOST=${RMS_DB_HOST:-190.106.75.222,1438}
+      - RMS_DB_PORT=${RMS_DB_PORT:-1433}
+      - RMS_DB_NAME=${RMS_DB_NAME:-BB57_TempSF}
+      - RMS_DB_USER=${RMS_DB_USER:-Shop1fy5428}
+      - RMS_DB_PASSWORD=${RMS_DB_PASSWORD:-sh0pqfy10736!}
+      - RMS_DB_DRIVER=${RMS_DB_DRIVER:-ODBC Driver 18 for SQL Server}
+      - RMS_CONNECTION_TIMEOUT=${RMS_CONNECTION_TIMEOUT:-30}
+      
+      # Shopify Configuration
+      - SHOPIFY_SHOP_URL=${SHOPIFY_SHOP_URL}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2025-04}
+      - SHOPIFY_WEBHOOK_SECRET=${SHOPIFY_WEBHOOK_SECRET}
+      
+      # Redis Configuration (optional)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      
+      # Synchronization Settings
+      - ENABLE_SCHEDULED_SYNC=${ENABLE_SCHEDULED_SYNC:-True}
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+      - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
+    
+    volumes:
+      - ./logs:/app/logs
+    
+    networks:
+      - app-network
+    
+    depends_on:
+      - redis
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: rms-shopify-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis-data:

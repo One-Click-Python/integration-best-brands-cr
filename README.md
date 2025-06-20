@@ -69,7 +69,7 @@ venv\Scripts\activate     # Windows
 ### 3. Instalar dependencias
 
 ```bash
-pip install -r requirements.txt
+poetry install
 ```
 
 ### 4. Configurar variables de entorno
@@ -120,7 +120,7 @@ ALERT_EMAIL_PASSWORD=your_email_password
 
 ```bash
 # Desarrollo
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Producción
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4

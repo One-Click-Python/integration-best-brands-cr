@@ -178,9 +178,15 @@ class Settings(BaseSettings):
     @property
     def rms_connection_string(self) -> str:
         """Genera string de conexión para RMS/SQL Server."""
+        # If host already includes port (with comma), use it as is
+        if ',' in self.RMS_DB_HOST:
+            host_part = self.RMS_DB_HOST
+        else:
+            host_part = f"{self.RMS_DB_HOST}:{self.RMS_DB_PORT}"
+        
         return (
             f"mssql+pyodbc://{self.RMS_DB_USER}:{self.RMS_DB_PASSWORD}"
-            f"@{self.RMS_DB_HOST}:{self.RMS_DB_PORT}/{self.RMS_DB_NAME}"
+            f"@{host_part}/{self.RMS_DB_NAME}"
             f"?driver={self.RMS_DB_DRIVER.replace(' ', '+')}"
             f"&connect_timeout={self.RMS_CONNECTION_TIMEOUT}"
         )
