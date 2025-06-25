@@ -279,27 +279,64 @@ class ShopifyGraphQLClient:
             logger.error(f"Error getting locations: {e}")
             raise
 
-    async def get_primary_location_id(self) -> Optional[str]:
+    async def get_primary_location_id(self, preferred_location_name: Optional[str] = None) -> Optional[str]:
         """
-        Obtiene el ID de la ubicación principal (primera activa).
+        Obtiene el ID de la ubicación principal usando lógica mejorada.
+
+        Args:
+            preferred_location_name: Nombre de ubicación preferida (opcional)
 
         Returns:
             ID de la ubicación principal o None si no hay ubicaciones
         """
         try:
             locations = await self.get_locations()
-            if locations:
-                primary_location = locations[0]
-                logger.info(f"Using primary location: {primary_location['name']} ({primary_location['id']})")
-                return primary_location["id"]
-            else:
+            if not locations:
                 logger.warning("No active locations found")
                 return None
+
+            logger.info(f"Found {len(locations)} active locations:")
+            for i, loc in enumerate(locations):
+                logger.info(f"  {i+1}. {loc['name']} (ID: {loc['id']})")
+                if loc.get('address'):
+                    addr = loc['address']
+                    logger.info(f"     Address: {addr.get('address1', '')}, {addr.get('city', '')}, {addr.get('country', '')}")
+
+            # Si se especifica una ubicación preferida, buscarla
+            if preferred_location_name:
+                for location in locations:
+                    if location['name'].lower() == preferred_location_name.lower():
+                        logger.info(f"Using configured primary location: {location['name']} ({location['id']})")
+                        return location["id"]
+                logger.warning(f"Preferred location '{preferred_location_name}' not found")
+
+            # Buscar ubicaciones con nombres que sugieran ser principales
+            primary_keywords = ['main', 'primary', 'principal', 'headquarters', 'default', 'warehouse', 'almacen', 'central']
+            
+            for location in locations:
+                location_name = location['name'].lower()
+                for keyword in primary_keywords:
+                    if keyword in location_name:
+                        logger.info(f"Found primary location by name pattern '{keyword}': {location['name']} ({location['id']})")
+                        return location["id"]
+
+            # Si solo hay una ubicación, usarla
+            if len(locations) == 1:
+                primary_location = locations[0]
+                logger.info(f"Using single active location as primary: {primary_location['name']} ({primary_location['id']})")
+                return primary_location["id"]
+
+            # Usar la primera como fallback pero advertir
+            primary_location = locations[0]
+            logger.warning(f"No clear primary location found, using first active location: {primary_location['name']} ({primary_location['id']})")
+            logger.warning("Consider configuring a preferred location name to avoid ambiguity")
+            return primary_location["id"]
+
         except Exception as e:
             logger.error(f"Error getting primary location: {e}")
             return None
 
-    async def search_taxonomy_categories(self, search_term: str) -> List[Dict[str, str]]:
+    async def search_taxonomy_categories(self, search_term: str) -> List[Dict[str, Any]]:
         """
         Busca categorías en la taxonomía de Shopify.
 
@@ -307,7 +344,7 @@ class ShopifyGraphQLClient:
             search_term: Término de búsqueda para encontrar categorías
 
         Returns:
-            Lista de categorías con id, name y fullName
+            Lista de categorías con id, name, fullName y attributes
         """
         try:
             variables = {"search": search_term}
@@ -316,7 +353,11 @@ class ShopifyGraphQLClient:
             categories = []
             for edge in result.get("taxonomy", {}).get("categories", {}).get("edges", []):
                 node = edge.get("node", {})
-                categories.append({"id": node.get("id"), "name": node.get("name"), "fullName": node.get("fullName")})
+                categories.append({
+                    "id": node.get("id"),
+                    "name": node.get("name"),
+                    "fullName": node.get("fullName")
+                })
 
             logger.info(f"Found {len(categories)} categories for search term: '{search_term}'")
             return categories
@@ -324,6 +365,151 @@ class ShopifyGraphQLClient:
         except Exception as e:
             logger.error(f"Error searching taxonomy categories: {e}")
             return []
+
+    async def get_taxonomy_category_details(self, category_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene detalles completos de una categoría de taxonomía.
+
+        Args:
+            category_id: ID de la categoría de taxonomía
+
+        Returns:
+            Dict con detalles de la categoría o None si no se encuentra
+        """
+        try:
+            from .shopify_graphql_queries import TAXONOMY_CATEGORY_DETAILS_QUERY
+            
+            variables = {"categoryId": category_id}
+            result = await self._execute_query(TAXONOMY_CATEGORY_DETAILS_QUERY, variables)
+
+            category_data = result.get("taxonomy", {}).get("category")
+            if category_data:
+                logger.info(f"Retrieved details for taxonomy category: {category_data.get('fullName')}")
+                return category_data
+            else:
+                logger.warning(f"Taxonomy category not found: {category_id}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting taxonomy category details: {e}")
+            return None
+
+    async def find_best_taxonomy_match(self, search_terms: List[str]) -> Optional[Dict[str, Any]]:
+        """
+        Encuentra la mejor coincidencia de taxonomía para una lista de términos de búsqueda.
+
+        Args:
+            search_terms: Lista de términos de búsqueda ordenados por prioridad
+
+        Returns:
+            Mejor categoría encontrada o None
+        """
+        try:
+            best_match = None
+            best_score = 0
+
+            for i, term in enumerate(search_terms):
+                categories = await self.search_taxonomy_categories(term)
+                
+                for category in categories:
+                    # Calcular puntuación basada en prioridad del término y exactitud del nombre
+                    term_priority_score = (len(search_terms) - i) * 10  # Términos anteriores tienen mayor prioridad
+                    name_match_score = 0
+                    
+                    # Bonificación por coincidencia exacta en nombre
+                    if term.lower() == category["name"].lower():
+                        name_match_score = 50
+                    elif term.lower() in category["name"].lower():
+                        name_match_score = 25
+                    elif term.lower() in category["fullName"].lower():
+                        name_match_score = 15
+                    
+                    total_score = term_priority_score + name_match_score
+                    
+                    if total_score > best_score:
+                        best_score = total_score
+                        best_match = category
+                        logger.debug(f"New best match: {category['fullName']} (score: {total_score})")
+
+            if best_match:
+                logger.info(f"Best taxonomy match: {best_match['fullName']} (score: {best_score})")
+            else:
+                logger.warning(f"No taxonomy match found for search terms: {search_terms}")
+
+            return best_match
+
+        except Exception as e:
+            logger.error(f"Error finding best taxonomy match: {e}")
+            return None
+
+    async def create_metafields_bulk(self, metafields_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Crea múltiples metafields en una sola operación (hasta 25).
+
+        Args:
+            metafields_data: Lista de datos de metafields a crear
+
+        Returns:
+            Lista de metafields creados
+        """
+        try:
+            from .shopify_graphql_queries import METAFIELDS_SET_MUTATION
+            
+            if len(metafields_data) > 25:
+                logger.warning(f"Attempted to create {len(metafields_data)} metafields, but max is 25. Truncating.")
+                metafields_data = metafields_data[:25]
+
+            variables = {"metafields": metafields_data}
+            result = await self._execute_query(METAFIELDS_SET_MUTATION, variables)
+
+            metafields_set_result = result.get("metafieldsSet", {})
+            created_metafields = metafields_set_result.get("metafields", [])
+            user_errors = metafields_set_result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"Errors creating metafields: {user_errors}")
+            else:
+                logger.info(f"Successfully created {len(created_metafields)} metafields")
+
+            return created_metafields
+
+        except Exception as e:
+            logger.error(f"Error creating metafields bulk: {e}")
+            raise
+
+    async def create_metafield_definition(self, definition_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Crea una definición de metafield.
+
+        Args:
+            definition_data: Datos de la definición del metafield
+
+        Returns:
+            Definición creada o None si falla
+        """
+        try:
+            from .shopify_graphql_queries import CREATE_METAFIELD_DEFINITION_MUTATION
+            
+            variables = {"definition": definition_data}
+            result = await self._execute_query(CREATE_METAFIELD_DEFINITION_MUTATION, variables)
+
+            metafield_definition_result = result.get("metafieldDefinitionCreate", {})
+            created_definition = metafield_definition_result.get("metafieldDefinition")
+            user_errors = metafield_definition_result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"Errors creating metafield definition: {user_errors}")
+                return None
+            elif created_definition:
+                logger.info(f"Successfully created metafield definition: {created_definition['namespace']}.{created_definition['key']}")
+                return created_definition
+            else:
+                logger.error("Unknown error creating metafield definition")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error creating metafield definition: {e}")
+            return None
 
     async def get_products(self, limit: int = 250, cursor: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -548,9 +734,11 @@ class ShopifyGraphQLClient:
             "create_product_with_variants for new products."
         )
 
-    async def update_inventory(self, inventory_item_id: str, location_id: str, available_quantity: int) -> bool:
+    async def update_inventory(
+        self, inventory_item_id: str, location_id: str, available_quantity: int
+    ) -> Dict[str, Any]:
         """
-        Actualiza el inventario de un producto en una ubicación específica.
+        Actualiza el inventario de un producto en una ubicación específica con mejor tracking.
 
         Args:
             inventory_item_id: ID del item de inventario
@@ -558,39 +746,72 @@ class ShopifyGraphQLClient:
             available_quantity: Nueva cantidad disponible
 
         Returns:
-            bool: True si la actualización fue exitosa
+            Dict: Resultado detallado de la actualización
         """
+        import time
+
+        start_time = time.time()
+
         try:
-            # Use inventory set mutation for absolute quantity
+            # Usar inventorySetOnHandQuantities mutation optimizada
             variables = {
                 "input": {
-                    "reason": "correction",
-                    "name": "RMS Sync",
-                    "quantities": [
-                        {"inventoryItemId": inventory_item_id, "locationId": location_id, "onHand": available_quantity}
+                    "reason": "RMS Sync",
+                    "referenceDocumentUri": f"rms://sync/{inventory_item_id}",
+                    "setQuantities": [
+                        {
+                            "inventoryItemId": inventory_item_id,
+                            "locationId": location_id,
+                            "quantity": available_quantity,
+                        }
                     ],
                 }
             }
 
             result = await self._execute_query(INVENTORY_SET_MUTATION, variables)
-
             inventory_result = result.get("inventorySetOnHandQuantities", {})
-            user_errors = inventory_result.get("userErrors", [])
 
+            # Manejo mejorado de errores
+            user_errors = inventory_result.get("userErrors", [])
             if user_errors:
                 error_messages = [f"{e['field']}: {e['message']}" for e in user_errors]
                 logger.error(f"Inventory update failed: {', '.join(error_messages)}")
-                return False
+                return {"success": False, "errors": user_errors}
 
-            if inventory_result.get("inventoryAdjustmentGroup"):
-                logger.info(f"Updated inventory for {inventory_item_id} at {location_id}: {available_quantity}")
-                return True
+            # Extraer información de cambios
+            adjustment_group = inventory_result.get("inventoryAdjustmentGroup", {})
+            changes = adjustment_group.get("changes", [])
+            available_change = next((c for c in changes if c["name"] == "available"), None)
 
-            return False
+            duration = time.time() - start_time
+
+            result_data = {
+                "success": True,
+                "inventory_item_id": inventory_item_id,
+                "location_id": location_id,
+                "new_quantity": available_quantity,
+                "delta": available_change["delta"] if available_change else 0,
+                "adjustment_id": adjustment_group.get("id"),
+                "duration_ms": round(duration * 1000, 2),
+            }
+
+            logger.info(
+                f"✅ Inventory updated successfully: {inventory_item_id} → {available_quantity} units "
+                f"(delta: {result_data['delta']}) in {result_data['duration_ms']}ms"
+            )
+
+            return result_data
 
         except Exception as e:
-            logger.error(f"Error updating inventory: {e}")
-            return False
+            duration = time.time() - start_time
+            logger.error(f"❌ Inventory update failed: {e} (duration: {round(duration * 1000, 2)}ms)")
+            return {
+                "success": False,
+                "error": str(e),
+                "inventory_item_id": inventory_item_id,
+                "location_id": location_id,
+                "duration_ms": round(duration * 1000, 2),
+            }
 
     async def get_orders(
         self,
@@ -776,4 +997,3 @@ class ShopifyGraphQLClient:
     def reset_retry_metrics(self):
         """Reinicia las métricas de reintentos."""
         self.retry_handler.reset_metrics()
-

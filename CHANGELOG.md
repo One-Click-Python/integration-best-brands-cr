@@ -4,11 +4,106 @@ Todas las modificaciones notables a este proyecto serán documentadas en este ar
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Sin versionar] - 2025-06-25
+
+### 🚀 Sistema de Taxonomías y Metafields Mejorado
+
+#### Agregado - Sistema Avanzado de Mapeo
+- ✨ **Sistema completo de taxonomías** para mapeo RMS → Shopify Standard Product Taxonomy
+- 🗺️ **Mapeo comprehensivo** de 5 familias RMS y 22 categorías a taxonomías Shopify
+- 📊 **Metafields estructurados** para talla, color y atributos RMS con tipos específicos
+- 🔍 **Búsqueda inteligente** de taxonomías con algoritmo de puntuación multi-término
+- ⚡ **Operaciones bulk** de metafields (hasta 25 simultáneos) para eficiencia
+- 🔧 **Sistema de validación** integrado para mapeos antes de sincronización
+
+#### Normalización Avanzada de Datos
+- 🔢 **Normalización automática de tallas**: `23½` → `23.5`, `24¼` → `24.25`
+- 📝 **Preservación de datos originales** en metafields separados cuando hay cambios
+- 🏷️ **Generación inteligente de tags** basados en datos RMS y taxonomías
+- 📋 **Opciones de producto** automáticas para talla y color
+
+#### Nuevos Componentes Implementados
+- 🏗️ **RMSTaxonomyMapper** (`app/core/taxonomy_mapping.py`) - Sistema de mapeo centralizado
+- 🔄 **EnhancedDataMapper** (`app/services/enhanced_data_mapper.py`) - Servicio avanzado de mapeo
+- 📡 **Consultas GraphQL mejoradas** - Soporte completo para taxonomías y metafields 2024-04
+- 🌐 **Cliente GraphQL extendido** - Funciones avanzadas de taxonomía
+
+#### Metafields Estructurados Implementados
+```
+rms.familia          - Familia del producto (Zapatos, Ropa, Accesorios)
+rms.categoria        - Categoría específica (Tenis, Botas, Vestir)
+rms.talla           - Talla normalizada (23.5, M, L)
+rms.talla_original  - Talla original RMS (23½, si difiere)
+rms.color           - Color del producto
+rms.extended_category - Categoría jerárquica (Zapatos > Tenis)
+rms.product_attributes - JSON con todos los atributos RMS
+```
+
+#### Mapeos de Taxonomía Implementados
+- **Zapatos** → Footwear (Tenis→Athletic Shoes, Botas→Boots, Sandalias→Sandals)
+- **Ropa** → Apparel (MUJER-VEST→Women's Dresses, NIÑO-CASU→Boys Casual)
+- **Accesorios** → Accessories (Bolsos→Handbags, ACCESORIOS CALZADO→Shoe Care)
+- **Miscelaneos** → Miscellaneous con fallbacks inteligentes
+
+### Cambiado - Sincronización Mejorada
+- 🔄 Sincronización de productos ahora excluye productos sin stock por defecto (`include_zero_stock: false`)
+- ✨ Mejorada lógica de selección de ubicación principal de Shopify con múltiples estrategias
+- 📊 Agregado logging detallado para ubicaciones de inventario y taxonomías
+- 🏷️ Productos ahora se categorizan usando Standard Product Taxonomy de Shopify
+
+### Arreglado
+- 🐛 Corregido comportamiento de sincronización que actualizaba productos sin stock a Shopify
+- 🔧 Mejorado `get_primary_location_id` con lógica más robusta para detectar ubicación principal
+- 🌐 Corregidas consultas GraphQL de taxonomía para compatibilidad con API 2024-04
+
+### Técnico - Arquitectura Mejorada
+- 🏗️ **Cache de taxonomías** para optimización de rendimiento
+- 📋 Modelo `SyncRequest` extendido con campo `include_zero_stock`
+- 🔄 Propagación de parámetros a través de toda la cadena de sincronización
+- 📡 Nuevas mutaciones GraphQL: `METAFIELDS_SET_MUTATION`, `CREATE_METAFIELD_DEFINITION_MUTATION`
+- 🔍 Funciones avanzadas: `find_best_taxonomy_match()`, `create_metafields_bulk()`
+
+### Verificado - Pruebas Completas
+- ✅ **Normalización de tallas**: 8 casos de prueba exitosos
+- ✅ **Mapeo de taxonomías**: 22 categorías RMS mapeadas correctamente
+- ✅ **Creación de metafields**: 7 metafields por producto generados
+- ✅ **Conexión Shopify**: Establecida (Best Brands cr)
+- ✅ **Validación de sistema**: 3 productos de prueba validados exitosamente
+- ✅ **Type checking**: 0 errores en PyRight
+- ✅ **Funcionalidad de filtrado**: Productos sin stock excluidos por defecto
+
+### Documentación
+- 📚 **Documentación completa** del sistema en `docs/enhanced_taxonomy_system.md`
+- 📝 **CLAUDE.md actualizado** con información del sistema mejorado
+- 🔧 **Ejemplos de uso** y guías de integración incluidas
+
+## [0.1.0] - 2025-06-15
+
+### Agregado - Implementación Inicial
+- ✨ **Implementación inicial** del sistema de integración RMS-Shopify
+- 🔄 **Sincronización bidireccional básica** entre RMS y Shopify
+- 📡 **Sistema de webhooks** para captura de eventos Shopify
+- 📊 **Logging estructurado** y sistema de monitoreo
+- 🐛 **Manejo robusto de errores** con reintentos automáticos
+- 🏗️ **Arquitectura modular** con servicios independientes
+- ⚙️ **Configuración centralizada** con variables de entorno
+- 🔐 **Sistema de autenticación** para APIs
+- 📈 **Métricas y KPIs** de sincronización
+- 🐳 **Soporte para Docker** y contenedores
+
+### Configuración Inicial
+- 🛠️ **FastAPI** como framework web principal
+- 🗄️ **SQLAlchemy** para manejo de base de datos SQL Server
+- 🔄 **Sistema de tareas asíncronas** con Celery + Redis
+- 📋 **Validación de datos** con Pydantic
+- 🧪 **Suite de testing** con pytest
+- 📚 **Documentación automática** con Swagger/OpenAPI
+
 ## [Sin versionar] - 2025-06-24
 
 ### Arreglado
 - 🐛 Mejorado el manejo de sesiones HTTP de aiohttp para evitar warnings de sesiones no cerradas
-- 🔧 Agregado logging detallado para debugging de inicialización de sesiones Shopify
+- 🔧 Agregado logging detallado para debugging de inicialización de sesiones Shopify  
 - 🔄 Mejorado el método close() del cliente GraphQL para verificar estado de sesión antes de cerrar
 
 ## [Sin versionar] - 2025-06-23

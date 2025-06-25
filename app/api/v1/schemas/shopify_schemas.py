@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class ProductStatus(str, Enum):
     """Estados disponibles para productos en Shopify."""
+
     ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"
     DRAFT = "DRAFT"
@@ -22,6 +23,7 @@ class ProductStatus(str, Enum):
 
 class FulfillmentStatus(str, Enum):
     """Estados de cumplimiento de pedidos."""
+
     UNFULFILLED = "UNFULFILLED"
     PARTIALLY_FULFILLED = "PARTIALLY_FULFILLED"
     FULFILLED = "FULFILLED"
@@ -31,6 +33,7 @@ class FulfillmentStatus(str, Enum):
 
 class FinancialStatus(str, Enum):
     """Estados financieros de pedidos."""
+
     PENDING = "PENDING"
     AUTHORIZED = "AUTHORIZED"
     PARTIALLY_PAID = "PARTIALLY_PAID"
@@ -42,8 +45,10 @@ class FinancialStatus(str, Enum):
 
 # Product Models
 
+
 class ShopifyOption(BaseModel):
     """Modelo para opciones de producto (ej: Talla, Color)."""
+
     id: Optional[str] = None
     name: str
     values: List[str]
@@ -51,12 +56,14 @@ class ShopifyOption(BaseModel):
 
 class ShopifySelectedOption(BaseModel):
     """Modelo para opción seleccionada en una variante."""
+
     name: str
     value: str
 
 
 class ShopifyInventoryItem(BaseModel):
     """Modelo para item de inventario."""
+
     id: str
     tracked: bool = True
     requires_shipping: bool = True
@@ -64,6 +71,7 @@ class ShopifyInventoryItem(BaseModel):
 
 class ShopifyVariant(BaseModel):
     """Modelo para variante de producto."""
+
     id: Optional[str] = None
     sku: str
     title: Optional[str] = None
@@ -74,7 +82,7 @@ class ShopifyVariant(BaseModel):
     selectedOptions: List[ShopifySelectedOption] = Field(default_factory=list)
     weight: Optional[float] = None
     weightUnit: Optional[str] = "KILOGRAMS"
-    
+
     @field_validator("price", "compareAtPrice", mode="before")
     @classmethod
     def validate_price(cls, v):
@@ -88,6 +96,7 @@ class ShopifyVariant(BaseModel):
 
 class ShopifyProduct(BaseModel):
     """Modelo para producto de Shopify."""
+
     id: Optional[str] = None
     title: str
     handle: Optional[str] = None
@@ -99,7 +108,7 @@ class ShopifyProduct(BaseModel):
     variants: List[ShopifyVariant] = Field(default_factory=list)
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
-    
+
     @field_validator("tags", mode="before")
     @classmethod
     def parse_tags(cls, v):
@@ -111,15 +120,17 @@ class ShopifyProduct(BaseModel):
 
 # Input Models for Mutations
 
+
 class ShopifyVariantInput(BaseModel):
     """Input para crear/actualizar variantes."""
+
     id: Optional[str] = None
     sku: str
     price: str
     compareAtPrice: Optional[str] = None
     options: Optional[List[str]] = None
     inventoryQuantities: Optional[List[Dict[str, Any]]] = None
-    
+
     @field_validator("price", "compareAtPrice", mode="before")
     @classmethod
     def validate_price_input(cls, v):
@@ -133,6 +144,7 @@ class ShopifyVariantInput(BaseModel):
 
 class ShopifyProductInput(BaseModel):
     """Input para crear/actualizar productos."""
+
     id: Optional[str] = None
     title: str
     handle: Optional[str] = None
@@ -144,49 +156,53 @@ class ShopifyProductInput(BaseModel):
     options: Optional[List[str]] = None
     variants: Optional[List[ShopifyVariantInput]] = None
     description: Optional[str] = None  # HTML description
-    
+
     def to_graphql_input(self) -> Dict[str, Any]:
         """Convierte el modelo a formato de input GraphQL para productCreate."""
         # Create a minimal product without options, variants, and description
         # These will be added through separate API calls
         data = self.model_dump(exclude_none=True, exclude={"id", "variants", "options", "description"})
-        
+
         # Convert tags list to comma-separated string
         if data.get("tags"):
             data["tags"] = ", ".join(data["tags"])
-        
+
         return data
-    
+
     def get_variant_data_for_creation(self) -> Optional[Dict[str, Any]]:
         """Obtiene datos de variante formateados para creación separada."""
         if not self.variants:
             return None
-            
+
         variant = self.variants[0]
         variant_data = variant.model_dump(exclude_none=True, exclude={"id"})
-        
+
         # For productVariantCreate, we use options array directly
         # No need for selectedOptions when creating the first variant
         # Shopify will automatically create the product options
-        
+
         return variant_data
 
 
 # Order Models
 
+
 class ShopifyMoney(BaseModel):
     """Modelo para representar dinero en Shopify."""
+
     amount: str
     currencyCode: str
 
 
 class ShopifyMoneySet(BaseModel):
     """Modelo para conjunto de valores monetarios."""
+
     shopMoney: ShopifyMoney
 
 
 class ShopifyAddress(BaseModel):
     """Modelo para direcciones."""
+
     address1: Optional[str] = None
     address2: Optional[str] = None
     city: Optional[str] = None
@@ -200,6 +216,7 @@ class ShopifyAddress(BaseModel):
 
 class ShopifyCustomer(BaseModel):
     """Modelo para cliente."""
+
     id: str
     email: Optional[str] = None
     firstName: Optional[str] = None
@@ -209,6 +226,7 @@ class ShopifyCustomer(BaseModel):
 
 class ShopifyLineItem(BaseModel):
     """Modelo para línea de pedido."""
+
     id: str
     title: str
     sku: Optional[str] = None
@@ -220,6 +238,7 @@ class ShopifyLineItem(BaseModel):
 
 class ShopifyOrder(BaseModel):
     """Modelo para pedido de Shopify."""
+
     id: str
     name: str  # Order number like #1001
     createdAt: datetime
@@ -235,17 +254,17 @@ class ShopifyOrder(BaseModel):
     subtotalPriceSet: ShopifyMoneySet
     totalTaxSet: ShopifyMoneySet
     lineItems: List[ShopifyLineItem] = Field(default_factory=list)
-    
+
     @property
     def order_number(self) -> str:
         """Extrae el número de orden sin el #."""
         return self.name.replace("#", "")
-    
+
     @property
     def total_amount(self) -> Decimal:
         """Obtiene el monto total como Decimal."""
         return Decimal(self.totalPriceSet.shopMoney.amount)
-    
+
     @property
     def tax_amount(self) -> Decimal:
         """Obtiene el monto de impuestos como Decimal."""
@@ -254,8 +273,10 @@ class ShopifyOrder(BaseModel):
 
 # Inventory Models
 
+
 class ShopifyInventoryLevel(BaseModel):
     """Modelo para nivel de inventario."""
+
     id: Optional[str] = None
     available: int
     inventoryItemId: str
@@ -264,6 +285,7 @@ class ShopifyInventoryLevel(BaseModel):
 
 class ShopifyLocation(BaseModel):
     """Modelo para ubicación de inventario."""
+
     id: str
     name: str
     isActive: bool = True
@@ -272,8 +294,10 @@ class ShopifyLocation(BaseModel):
 
 # Bulk Operation Models
 
+
 class BulkOperationStatus(str, Enum):
     """Estados de operación bulk."""
+
     CREATED = "CREATED"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
@@ -284,6 +308,7 @@ class BulkOperationStatus(str, Enum):
 
 class ShopifyBulkOperation(BaseModel):
     """Modelo para operación bulk."""
+
     id: str
     status: BulkOperationStatus
     errorCode: Optional[str] = None
@@ -297,8 +322,10 @@ class ShopifyBulkOperation(BaseModel):
 
 # Response Models
 
+
 class ShopifyProductResponse(BaseModel):
     """Respuesta de productos con paginación."""
+
     products: List[ShopifyProduct]
     pageInfo: Dict[str, Any]
     hasNextPage: bool
@@ -307,6 +334,7 @@ class ShopifyProductResponse(BaseModel):
 
 class ShopifyOrderResponse(BaseModel):
     """Respuesta de pedidos con paginación."""
+
     orders: List[ShopifyOrder]
     pageInfo: Dict[str, Any]
     hasNextPage: bool
@@ -315,6 +343,7 @@ class ShopifyOrderResponse(BaseModel):
 
 class ShopifyError(BaseModel):
     """Modelo para errores de Shopify."""
+
     field: Optional[List[str]] = None
     message: str
     code: Optional[str] = None
@@ -322,13 +351,14 @@ class ShopifyError(BaseModel):
 
 class ShopifyMutationResponse(BaseModel):
     """Respuesta base para mutaciones."""
+
     userErrors: List[ShopifyError] = Field(default_factory=list)
-    
+
     @property
     def has_errors(self) -> bool:
         """Verifica si hay errores."""
         return len(self.userErrors) > 0
-    
+
     @property
     def error_messages(self) -> List[str]:
         """Obtiene lista de mensajes de error."""
@@ -337,8 +367,10 @@ class ShopifyMutationResponse(BaseModel):
 
 # Webhook Models
 
+
 class ShopifyWebhookTopic(str, Enum):
     """Topics disponibles para webhooks."""
+
     PRODUCTS_CREATE = "PRODUCTS_CREATE"
     PRODUCTS_UPDATE = "PRODUCTS_UPDATE"
     PRODUCTS_DELETE = "PRODUCTS_DELETE"
@@ -350,6 +382,7 @@ class ShopifyWebhookTopic(str, Enum):
 
 class ShopifyWebhookPayload(BaseModel):
     """Modelo base para payloads de webhook."""
+
     id: str
     admin_graphql_api_id: str
     created_at: Optional[datetime] = None

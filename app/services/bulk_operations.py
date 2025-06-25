@@ -569,4 +569,3 @@ class ShopifyBulkOperations:
             "error_summary": self.error_aggregator.get_summary(),
             "retry_metrics": self.retry_handler.get_metrics() if self.retry_handler else None,
         }
-

@@ -286,4 +286,3 @@ async def cleanup_old_history(days_to_keep: int = 30):
 
     except Exception as e:
         logger.error(f"Error cleaning up sync history: {e}")
-

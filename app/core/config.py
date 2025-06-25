@@ -179,11 +179,11 @@ class Settings(BaseSettings):
     def rms_connection_string(self) -> str:
         """Genera string de conexión para RMS/SQL Server."""
         # If host already includes port (with comma), use it as is
-        if ',' in self.RMS_DB_HOST:
+        if "," in self.RMS_DB_HOST:
             host_part = self.RMS_DB_HOST
         else:
             host_part = f"{self.RMS_DB_HOST}:{self.RMS_DB_PORT}"
-        
+
         return (
             f"mssql+pyodbc://{self.RMS_DB_USER}:{self.RMS_DB_PASSWORD}"
             f"@{host_part}/{self.RMS_DB_NAME}"

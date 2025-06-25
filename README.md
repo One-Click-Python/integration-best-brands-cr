@@ -4,9 +4,12 @@ Sistema de integración bidireccional entre Microsoft Retail Management System (
 
 ## 🎯 Características Principales
 
-- **Sincronización Bidireccional**: RMS ↔ Shopify
+- **Sincronización Bidireccional**: RMS ↔ Shopify con taxonomías estándar
+- **Sistema de Taxonomías Avanzado**: Mapeo inteligente a Standard Product Taxonomy de Shopify
+- **Metafields Estructurados**: Talla, color y atributos RMS preservados como metafields
+- **Normalización Automática**: Tallas (`23½` → `23.5`) y datos RMS optimizados
 - **Arquitectura de Microservicios**: Modular y escalable
-- **API REST**: Control manual y programado
+- **API REST**: Control manual y programado con filtros avanzados
 - **Webhooks**: Captura en tiempo real de eventos Shopify
 - **Sistema de Alertas**: Notificaciones de errores y estado
 - **Logging Estructurado**: Auditoría completa de operaciones
@@ -94,7 +97,7 @@ RMS_DB_DRIVER=ODBC Driver 17 for SQL Server
 # Shopify API
 SHOPIFY_SHOP_URL=your-shop.myshopify.com
 SHOPIFY_ACCESS_TOKEN=your_access_token
-SHOPIFY_API_VERSION=2024-01
+SHOPIFY_API_VERSION=2024-04
 SHOPIFY_WEBHOOK_SECRET=your_webhook_secret
 
 # Redis (para Celery)
@@ -145,7 +148,9 @@ celery -A app.core.celery_app beat --loglevel=info
 POST /api/v1/sync/rms-to-shopify
 {
   "force_update": false,
-  "batch_size": 100
+  "batch_size": 100,
+  "include_zero_stock": false,
+  "filter_categories": ["Zapatos", "Ropa"]
 }
 
 # Sincronizar pedidos Shopify → RMS  
@@ -203,14 +208,18 @@ rms-shopify-integration/
 │   ├── core/                       # Configuración central
 │   │   ├── __init__.py
 │   │   ├── config.py              # Configuración de la app
+│   │   ├── taxonomy_mapping.py    # Sistema de mapeo de taxonomías
 │   │   └── logging_config.py      # Configuración de logging
 │   ├── db/                        # Acceso a bases de datos
 │   │   ├── __init__.py
 │   │   ├── rms_handler.py         # Conexión y operaciones RMS
-│   │   └── shopify_client.py      # Cliente API Shopify
+│   │   ├── shopify_client.py      # Cliente API Shopify (legacy)
+│   │   ├── shopify_graphql_client.py # Cliente GraphQL Shopify avanzado
+│   │   └── shopify_graphql_queries.py # Consultas GraphQL
 │   ├── services/                  # Lógica de negocio
 │   │   ├── __init__.py
 │   │   ├── rms_to_shopify.py     # Servicio RMS → Shopify
+│   │   ├── enhanced_data_mapper.py # Mapeador avanzado con taxonomías
 │   │   └── shopify_to_rms.py     # Servicio Shopify → RMS
 │   └── utils/                     # Utilidades
 │       ├── __init__.py
@@ -225,13 +234,17 @@ rms-shopify-integration/
 
 ## 🔄 Flujos de Sincronización
 
-### RMS → Shopify (Productos)
+### RMS → Shopify (Productos) - Sistema Mejorado
 
-1. **Extracción**: Lee vista `View_Items` de RMS
-2. **Transformación**: Mapea datos a formato Shopify
-3. **Validación**: Verifica integridad de datos
-4. **Carga**: Actualiza/crea productos en Shopify
-5. **Confirmación**: Registra resultado y métricas
+1. **Extracción**: Lee vista `View_Items` de RMS con campos familia, categoria, talla, color
+2. **Mapeo de Taxonomías**: Utiliza `RMSTaxonomyMapper` para mapear a Standard Product Taxonomy
+3. **Normalización**: Convierte tallas (`23½` → `23.5`) y limpia datos
+4. **Resolución Inteligente**: Busca mejores coincidencias de taxonomía con algoritmo de puntuación
+5. **Metafields Estructurados**: Crea hasta 7 metafields con datos RMS organizados
+6. **Validación**: Verifica integridad de datos y mapeos
+7. **Filtrado**: Excluye productos sin stock por defecto (`include_zero_stock: false`)
+8. **Carga**: Crea productos con categoría y metafields usando GraphQL
+9. **Confirmación**: Registra resultado y métricas detalladas
 
 ### Shopify → RMS (Pedidos)
 
@@ -241,19 +254,68 @@ rms-shopify-integration/
 4. **Inserción**: Crea registro en tablas `ORDER`/`ORDERENTRY`
 5. **Confirmación**: Actualiza estado en Shopify
 
-## 🔧 Configuración Avanzada
+## 🏷️ Sistema de Taxonomías y Metafields
 
-### Mapeo de Campos Personalizado
+### Mapeo Avanzado RMS → Shopify
+
+El sistema incluye un mapeador comprehensivo que convierte datos RMS a taxonomías estándar de Shopify:
+
+#### Familias RMS Soportadas
+- **Zapatos** → Footwear (Tenis, Botas, Sandalias, Tacones, etc.)
+- **Ropa** → Apparel (MUJER-VEST, NIÑO-CASU, etc.)
+- **Accesorios** → Accessories (Bolsos, ACCESORIOS CALZADO, etc.)
+- **Miscelaneos** → Miscellaneous
+
+#### Metafields Creados Automáticamente
+```json
+{
+  "rms.familia": "Zapatos",
+  "rms.categoria": "Tenis", 
+  "rms.talla": "23.5",
+  "rms.talla_original": "23½",
+  "rms.color": "Negro",
+  "rms.extended_category": "Zapatos > Tenis",
+  "rms.product_attributes": {
+    "familia": "Zapatos",
+    "categoria": "Tenis",
+    "ccod": "TEN001",
+    "price": 129.99
+  }
+}
+```
+
+#### Normalización de Tallas
+- `23½` → `23.5`
+- `24¼` → `24.25`
+- `25¾` → `25.75`
+- Preserva talla original cuando hay cambios
+
+### Uso del Sistema Mejorado
 
 ```python
-# app/core/field_mapping.py
-RMS_TO_SHOPIFY_MAPPING = {
-    'C_ARTICULO': 'sku',
-    'Name': 'title',
-    'Price': 'price',
-    'Quantity': 'inventory_quantity',
-    # ... más campos
-}
+from app.services.enhanced_data_mapper import EnhancedDataMapper
+
+# Inicializar
+mapper = EnhancedDataMapper(shopify_client)
+await mapper.initialize()
+
+# Validar mapeo
+validation = await mapper.validate_product_mapping(rms_item)
+
+# Mapear producto completo
+product_data = await mapper.map_rms_item_to_shopify_product(rms_item)
+```
+
+## 🔧 Configuración Avanzada
+
+### Configuración de Sincronización
+
+```bash
+# Variables de entorno adicionales
+SHOPIFY_API_VERSION=2024-04           # Versión API con soporte taxonomías
+SYNC_INCLUDE_ZERO_STOCK=false        # Excluir productos sin stock
+SYNC_USE_ENHANCED_MAPPER=true        # Usar mapeador avanzado
+TAXONOMY_CACHE_TTL=3600              # Cache de taxonomías (segundos)
 ```
 
 ### Filtros de Sincronización
@@ -328,17 +390,19 @@ docker-compose up -d
 
 Este proyecto está licenciado bajo [MIT License](LICENSE).
 
+## 📚 Documentación Adicional
+
+- **[Sistema de Taxonomías y Metafields](docs/enhanced_taxonomy_system.md)** - Guía completa del sistema avanzado
+- **[CLAUDE.md](CLAUDE.md)** - Instrucciones para Claude Code y arquitectura detallada
+- **[API Docs](http://localhost:8080/docs)** - Documentación interactiva Swagger (cuando la app esté corriendo)
+- **[CHANGELOG.md](CHANGELOG.md)** - Historial completo de cambios
+
 ## 📧 Soporte
 
 Para soporte técnico o consultas:
 - **Email**: leonardo@live.com.ar
-- **Documentación**: [API Docs](http://localhost:8080/docs) (cuando la app esté corriendo)
+- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
 
-## 📝 Changelog
+## 📝 Historial de Cambios
 
-### v0.1.0 (2025-06-15)
-- ✨ Implementación inicial
-- 🔄 Sincronización bidireccional básica
-- 📡 Sistema de webhooks
-- 📊 Logging y monitoreo
-- 🐛 Manejo de errores robusto
+Para ver el historial completo de cambios, consulte el archivo [CHANGELOG.md](CHANGELOG.md).

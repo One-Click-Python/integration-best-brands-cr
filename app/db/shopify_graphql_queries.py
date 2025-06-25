@@ -22,6 +22,57 @@ query GetTaxonomyCategories($search: String) {
 }
 """
 
+# Enhanced taxonomy query with full details
+TAXONOMY_CATEGORY_DETAILS_QUERY = """
+query GetTaxonomyCategoryDetails($categoryId: ID!) {
+  taxonomy {
+    category(id: $categoryId) {
+      id
+      name
+      fullName
+      isRoot
+      isLeaf
+      level
+      attributes {
+        id
+        name
+        choices
+      }
+      ancestors {
+        id
+        name
+        fullName
+      }
+      children {
+        id
+        name
+        fullName
+      }
+    }
+  }
+}
+"""
+
+# Query to browse taxonomy categories by level
+TAXONOMY_BROWSE_QUERY = """
+query BrowseTaxonomyCategories($parentId: ID, $first: Int = 50) {
+  taxonomy {
+    categories(parentId: $parentId, first: $first) {
+      edges {
+        node {
+          id
+          name
+          fullName
+          isLeaf
+          level
+          childrenCount
+        }
+      }
+    }
+  }
+}
+"""
+
 # Product Queries
 PRODUCT_QUERY = """
 query GetProduct($id: ID!) {
@@ -544,6 +595,191 @@ mutation UpdateMetafield($input: MetafieldInput!) {
     userErrors {
       field
       message
+    }
+  }
+}
+"""
+
+# Bulk metafields mutation (up to 25 metafields at once)
+METAFIELDS_SET_MUTATION = """
+mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) {
+    metafields {
+      id
+      namespace
+      key
+      value
+      type
+      createdAt
+      updatedAt
+    }
+    userErrors {
+      field
+      message
+      code
+    }
+  }
+}
+"""
+
+# Create metafield definition
+CREATE_METAFIELD_DEFINITION_MUTATION = """
+mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+  metafieldDefinitionCreate(definition: $definition) {
+    metafieldDefinition {
+      id
+      name
+      namespace
+      key
+      type {
+        name
+        category
+        supportsVariants
+      }
+      description
+      ownerType
+      validations {
+        name
+        type
+        value
+      }
+    }
+    userErrors {
+      field
+      message
+      code
+    }
+  }
+}
+"""
+
+# Query metafield definitions
+METAFIELD_DEFINITIONS_QUERY = """
+query GetMetafieldDefinitions($ownerType: MetafieldOwnerType!, $first: Int = 50) {
+  metafieldDefinitions(ownerType: $ownerType, first: $first) {
+    edges {
+      node {
+        id
+        name
+        namespace
+        key
+        type {
+          name
+          category
+          supportsVariants
+        }
+        description
+        ownerType
+        validations {
+          name
+          type
+          value
+        }
+      }
+    }
+  }
+}
+"""
+
+# Enhanced product creation with category and metafields
+CREATE_PRODUCT_WITH_CATEGORY_MUTATION = """
+mutation CreateProductWithCategory($input: ProductInput!) {
+  productCreate(input: $input) {
+    product {
+      id
+      title
+      handle
+      status
+      productType
+      vendor
+      tags
+      category {
+        id
+        name
+        fullName
+      }
+      metafields(first: 50) {
+        edges {
+          node {
+            id
+            namespace
+            key
+            value
+            type
+          }
+        }
+      }
+      options {
+        id
+        name
+        values
+      }
+      variants(first: 250) {
+        edges {
+          node {
+            id
+            sku
+            title
+            price
+            compareAtPrice
+            inventoryQuantity
+            metafields(first: 20) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                  type
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+      code
+    }
+  }
+}
+"""
+
+# Enhanced product update with category and metafields
+UPDATE_PRODUCT_WITH_CATEGORY_MUTATION = """
+mutation UpdateProductWithCategory($input: ProductInput!) {
+  productUpdate(input: $input) {
+    product {
+      id
+      title
+      handle
+      status
+      productType
+      vendor
+      tags
+      category {
+        id
+        name
+        fullName
+      }
+      metafields(first: 50) {
+        edges {
+          node {
+            id
+            namespace
+            key
+            value
+            type
+          }
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+      code
     }
   }
 }

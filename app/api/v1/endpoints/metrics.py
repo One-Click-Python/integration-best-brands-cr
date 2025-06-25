@@ -486,4 +486,3 @@ async def metrics_health():
             "error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-

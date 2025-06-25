@@ -140,4 +140,3 @@ async def schedule_sync_task(sync_type: str, schedule_time: datetime, parameters
     except Exception as e:
         logger.error(f"Error scheduling sync task: {e}")
         raise
-

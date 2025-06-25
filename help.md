@@ -63,7 +63,7 @@ query getProducts {
 - tags: Combinar categoria + familia + color
 ```
 
-#### **4.2 Operaciones por Producto**
+#### **4.2 Operaciones por Producto con Inventario**
 ```python
 for batch in productos_lotes:
     for producto in batch:
@@ -71,11 +71,19 @@ for batch in productos_lotes:
             if force_update or datos_diferentes:
                 # ACTUALIZAR producto existente
                 await shopify_client.update_product(id, datos)
+                # ACTUALIZAR inventario después del producto
+                await inventory_manager.update_inventory(sku, quantity)
+            else:
+                # Verificar si solo necesita actualización de inventario
+                if inventario_cambio:
+                    await inventory_manager.update_inventory(sku, quantity)
         else:
             # CREAR nuevo producto
             await shopify_client.create_product(datos)
             # Actualizar descripción HTML por separado
             await shopify_client.update_product(id, {"descriptionHtml": html})
+            # ACTUALIZAR inventario del producto nuevo
+            await inventory_manager.update_inventory(sku, quantity)
 ```
 
 ### **Fase 5: Creación/Actualización en Shopify** (`app/db/shopify_graphql_client.py`)
@@ -100,19 +108,67 @@ mutation productUpdate($input: ProductInput!) {
 }
 ```
 
-### **Fase 6: Manejo de Errores y Agregación**
+### **Fase 6: Actualización de Inventario** (`app/services/inventory_manager.py`)
+
+#### **6.1 Inventario por Producto** (Nuevo)
 ```python
-# Agregar errores por tipo
+# Buscar producto por SKU
+product = await shopify_client.get_product_by_sku(sku)
+inventory_item_id = product.variants[0].inventoryItem.id
+
+# Actualizar inventario usando inventorySetOnHandQuantities
+result = await shopify_client.update_inventory(
+    inventory_item_id=inventory_item_id,
+    location_id=primary_location_id,
+    available_quantity=rms_quantity
+)
+```
+
+#### **6.2 Mutation de Inventario Optimizada**
+```graphql
+mutation inventorySetOnHandQuantities($input: InventorySetOnHandQuantitiesInput!) {
+  inventorySetOnHandQuantities(input: $input) {
+    inventoryAdjustmentGroup {
+      id
+      createdAt
+      reason
+      changes {
+        name
+        delta
+        quantityAfterChange
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+```
+
+#### **6.3 Rate Limiting Optimizado**
+```python
+# Configuración optimizada para inventario
+batch_size = 8  # Reducido para mejor compliance
+concurrency_limit = 2  # Máximo 2 actualizaciones paralelas
+rate_limit_delay = 1.5  # 1.5 segundos entre lotes
+```
+
+### **Fase 7: Manejo de Errores y Agregación**
+```python
+# Agregar errores por tipo con estadísticas de inventario
 sync_stats = {
     "processed": 150,
     "created": 45,
     "updated": 105,
     "errors": 2,
-    "skipped": 3
+    "skipped": 3,
+    "inventory_updated": 140,
+    "inventory_failed": 10
 }
 ```
 
-### **Fase 7: Reporte Final** (`rms_to_shopify.py:455-480`)
+### **Fase 8: Reporte Final** (`rms_to_shopify.py:618-650`)
 ```json
 {
     "success": true,
@@ -120,11 +176,15 @@ sync_stats = {
     "created": 45,
     "updated": 105,
     "errors": 2,
+    "inventory_updated": 140,
+    "inventory_failed": 10,
     "execution_time": "00:05:23",
+    "success_rate": 98.7,
     "details": {
         "rms_products_found": 150,
         "shopify_products_existing": 105,
         "batch_size": 25,
+        "inventory_success_rate": 93.3,
         "error_details": [...]
     }
 }
@@ -144,6 +204,12 @@ SYNC_TIMEOUT_MINUTES=30
 
 # Base de datos RMS
 RMS_VIEW_ITEMS_TABLE=View_Items
+
+# ⭐ Configuración de Inventario (Nuevo)
+INVENTORY_RATE_LIMIT_BATCH_SIZE=8
+INVENTORY_RATE_LIMIT_DELAY=1.5
+INVENTORY_MAX_CONCURRENT_UPDATES=2
+INVENTORY_TIMEOUT_SECONDS=30
 ```
 
 ## 🔧 **Puntos de Entrada**
@@ -254,4 +320,41 @@ POST /api/v1/sync/rms-to-shopify
 {"force_update": true}
 ```
 
-La sincronización es robusta con manejo de errores, procesamiento por lotes, y logging detallado en cada paso.
+## 📦 **Gestión de Inventario Integrada**
+
+### **Características Principales**
+- **Sincronización Automática**: El inventario se actualiza automáticamente después de cada creación/actualización de producto
+- **Rate Limiting Optimizado**: Configuración específica para cumplir con límites de API de Shopify
+- **Tracking Detallado**: Métricas específicas de inventario con deltas y tiempos de respuesta
+- **Manejo de Errores**: Errores de inventario se reportan por separado sin afectar la sincronización de productos
+
+### **Flujo de Inventario**
+1. **Detección de Cambios**: Compara quantity de RMS vs Shopify
+2. **Búsqueda de Item**: Encuentra inventory_item_id por SKU
+3. **Actualización**: Usa `inventorySetOnHandQuantities` mutation
+4. **Tracking**: Registra delta, tiempo de respuesta y estado
+5. **Estadísticas**: Reporta éxito/fallo independientemente
+
+### **Configuración Optimizada**
+```python
+# Configuración recomendada para inventario
+INVENTORY_RATE_LIMIT_BATCH_SIZE=8      # Lotes pequeños
+INVENTORY_RATE_LIMIT_DELAY=1.5         # Pausa entre lotes  
+INVENTORY_MAX_CONCURRENT_UPDATES=2     # Máximo 2 paralelos
+```
+
+### **Monitoreo de Inventario**
+```json
+{
+    "inventory_metrics": {
+        "total_products": 150,
+        "inventory_updated": 140,
+        "inventory_failed": 10,
+        "success_rate": 93.3,
+        "avg_response_time_ms": 245,
+        "rate_limit_compliance": "OK"
+    }
+}
+```
+
+La sincronización es robusta con manejo de errores, procesamiento por lotes, gestión completa de inventario, y logging detallado en cada paso.

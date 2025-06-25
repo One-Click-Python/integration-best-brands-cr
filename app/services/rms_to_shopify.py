@@ -39,6 +39,7 @@ class RMSToShopifySync:
         """Inicializa el servicio de sincronización."""
         self.rms_handler = None
         self.shopify_client = None
+        self.inventory_manager = None
         self.primary_location_id = None
         self.error_aggregator = ErrorAggregator()
         self.sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: F821
@@ -62,6 +63,12 @@ class RMSToShopifySync:
 
             self.shopify_client = ShopifyGraphQLClient()
             await self.shopify_client.initialize()
+
+            # Inicializar gestor de inventario
+            from app.services.inventory_manager import InventoryManager
+
+            self.inventory_manager = InventoryManager(self.shopify_client)
+            await self.inventory_manager.initialize()
 
             # Obtener ubicación principal para inventario
             self.primary_location_id = await self.shopify_client.get_primary_location_id()
@@ -98,7 +105,7 @@ class RMSToShopifySync:
         force_update: bool = False,
         batch_size: int = None,
         filter_categories: Optional[List[str]] = None,
-        include_zero_stock: bool = True,
+        include_zero_stock: bool = False,
     ) -> Dict[str, Any]:
         """
         Sincroniza productos de RMS a Shopify.
@@ -230,9 +237,9 @@ class RMSToShopifySync:
                         talla=product_data.get("size"),
                         quantity=int(product_data.get("Quantity", 0)),
                         price=Decimal(str(product_data.get("Price", 0))),
-                        sale_price=Decimal(str(product_data.get("SalePrice", 0)))
-                        if product_data.get("SalePrice")
-                        else None,
+                        sale_price=(
+                            Decimal(str(product_data.get("SalePrice", 0))) if product_data.get("SalePrice") else None
+                        ),
                         extended_category=product_data.get("ExtendedCategory"),
                         tax=int(product_data.get("Tax", 13)),
                     )
@@ -322,6 +329,8 @@ class RMSToShopifySync:
             "updated": 0,
             "skipped": 0,
             "errors": 0,
+            "inventory_updated": 0,
+            "inventory_failed": 0,
         }
 
         # Procesar en lotes
@@ -367,6 +376,8 @@ class RMSToShopifySync:
             "updated": 0,
             "skipped": 0,
             "errors": 0,
+            "inventory_updated": 0,
+            "inventory_failed": 0,
         }
 
         for product_data in batch:
@@ -380,13 +391,36 @@ class RMSToShopifySync:
                     # Producto existe - decidir si actualizar
                     if force_update or DataComparator.needs_update(rms_item, existing_product):
                         await self._update_shopify_product(shopify_input, existing_product)
+                        # Actualizar inventario después de actualizar producto
+                        inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
+                        if inventory_success:
+                            stats["inventory_updated"] += 1
+                        else:
+                            stats["inventory_failed"] += 1
                         stats["updated"] += 1
                         log_sync_operation("update", "shopify", sku=sku)
                     else:
-                        stats["skipped"] += 1
+                        # Verificar si solo necesita actualización de inventario
+                        if DataComparator._inventory_changed(rms_item, existing_product):
+                            inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
+                            if inventory_success:
+                                stats["inventory_updated"] += 1
+                                stats["updated"] += 1
+                                log_sync_operation("inventory_update", "shopify", sku=sku)
+                            else:
+                                stats["inventory_failed"] += 1
+                                stats["skipped"] += 1
+                        else:
+                            stats["skipped"] += 1
                 else:
                     # Producto nuevo - crear
                     await self._create_shopify_product(shopify_input)
+                    # Actualizar inventario después de crear producto
+                    inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
+                    if inventory_success:
+                        stats["inventory_updated"] += 1
+                    else:
+                        stats["inventory_failed"] += 1
                     stats["created"] += 1
                     log_sync_operation("create", "shopify", sku=sku)
 
@@ -555,6 +589,47 @@ class RMSToShopifySync:
         logger.warning("Using legacy update data preparation. Consider updating to use ShopifyProductInput.")
         return {}
 
+    async def _update_product_inventory(self, sku: str, quantity: int) -> bool:
+        """
+        Actualiza el inventario de un producto en Shopify.
+
+        Args:
+            sku: SKU del producto
+            quantity: Cantidad a establecer
+
+        Returns:
+            bool: True si la actualización fue exitosa
+        """
+        try:
+            if not self.inventory_manager:
+                logger.warning(f"Inventory manager not initialized, skipping inventory update for SKU {sku}")
+                return False
+
+            if not self.primary_location_id:
+                logger.warning(f"No primary location found, skipping inventory update for SKU {sku}")
+                return False
+
+            # Usar el inventory manager para actualizar inventario
+            success = await self.inventory_manager.update_inventory_single_location(
+                sku=sku, available_quantity=quantity, location_id=self.primary_location_id
+            )
+
+            if success:
+                logger.info(f"✅ Updated inventory for SKU {sku}: {quantity} units")
+            else:
+                logger.warning(f"❌ Failed to update inventory for SKU {sku}")
+                self.error_aggregator.add_error(
+                    Exception(f"Inventory update failed for SKU {sku}"),
+                    {"sku": sku, "quantity": quantity, "location_id": self.primary_location_id},
+                )
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error updating inventory for SKU {sku}: {e}")
+            self.error_aggregator.add_error(e, {"sku": sku, "quantity": quantity})
+            return False
+
     def _generate_sync_report(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """
         Genera reporte final de sincronización.
@@ -627,6 +702,7 @@ async def sync_rms_to_shopify(
     force_update: bool = False,
     batch_size: int = None,
     filter_categories: Optional[List[str]] = None,
+    include_zero_stock: bool = False,
 ) -> Dict[str, Any]:
     """
     Función de conveniencia para sincronización RMS → Shopify.
@@ -635,6 +711,7 @@ async def sync_rms_to_shopify(
         force_update: Forzar actualización
         batch_size: Tamaño del lote
         filter_categories: Categorías a filtrar
+        include_zero_stock: Incluir productos sin stock
 
     Returns:
         Dict: Resultado de la sincronización
@@ -647,6 +724,7 @@ async def sync_rms_to_shopify(
             force_update=force_update,
             batch_size=batch_size,
             filter_categories=filter_categories,
+            include_zero_stock=include_zero_stock,
         )
         return result
 

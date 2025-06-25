@@ -22,7 +22,7 @@ _graphql_client: Optional[ShopifyGraphQLClient] = None
 def get_graphql_client() -> ShopifyGraphQLClient:
     """
     Obtiene la instancia global del cliente GraphQL.
-    
+
     Returns:
         ShopifyGraphQLClient: Cliente GraphQL configurado
     """
@@ -63,11 +63,8 @@ async def get_shopify_products(
     """
     try:
         client = get_graphql_client()
-        result = await client.get_products(
-            limit=limit or 50,
-            cursor=page_info
-        )
-        
+        result = await client.get_products(limit=limit or 50, cursor=page_info)
+
         return {
             "products": result.get("products", []),
             "page_info": result.get("pageInfo", {}),
@@ -100,12 +97,8 @@ async def get_shopify_orders(
     """
     try:
         client = get_graphql_client()
-        result = await client.get_orders(
-            limit=limit or 50,
-            cursor=page_info,
-            status=status
-        )
-        
+        result = await client.get_orders(limit=limit or 50, cursor=page_info, status=status)
+
         return {
             "orders": result.get("orders", []),
             "page_info": result.get("pageInfo", {}),
@@ -160,11 +153,8 @@ async def update_shopify_inventory(
     """
     try:
         client = get_graphql_client()
-        return await client.update_inventory(
-            inventory_item_id,
-            location_id,
-            available
-        )
+        result = await client.update_inventory(inventory_item_id, location_id, available)
+        return isinstance(result, dict) and result.get("success", False)
     except Exception as e:
         logger.error(f"Error updating Shopify inventory: {e}")
         return False
@@ -223,11 +213,8 @@ class ShopifyClient:
         Returns:
             Dict: Respuesta con productos y metadatos
         """
-        result = await self._graphql_client.get_products(
-            limit=limit or 50,
-            cursor=page_info
-        )
-        
+        result = await self._graphql_client.get_products(limit=limit or 50, cursor=page_info)
+
         return {
             "products": result.get("products", []),
             "page_info": result.get("endCursor"),
@@ -270,11 +257,8 @@ class ShopifyClient:
         Returns:
             Dict: Respuesta con pedidos
         """
-        result = await self._graphql_client.get_orders(
-            limit=limit or 50,
-            status=status
-        )
-        
+        result = await self._graphql_client.get_orders(limit=limit or 50, status=status)
+
         return {
             "orders": result.get("orders", []),
             "page_info": result.get("endCursor"),
@@ -293,11 +277,8 @@ class ShopifyClient:
         Returns:
             bool: True si la actualización fue exitosa
         """
-        return await self._graphql_client.update_inventory(
-            inventory_item_id,
-            location_id,
-            available
-        )
+        result = await self._graphql_client.update_inventory(inventory_item_id, location_id, available)
+        return isinstance(result, dict) and result.get("success", False)
 
     async def get_product_by_sku(self, sku: str) -> Optional[Dict[str, Any]]:
         """

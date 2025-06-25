@@ -46,6 +46,7 @@ class SyncRequest(BaseModel):
     force_update: bool = Field(default=False, description="Forzar actualización de productos existentes")
     batch_size: Optional[int] = Field(default=None, ge=1, le=1000, description="Tamaño del lote para procesamiento")
     filter_categories: Optional[List[str]] = Field(default=None, description="Filtrar por categorías específicas")
+    include_zero_stock: bool = Field(default=False, description="Incluir productos sin stock (cantidad = 0)")
     dry_run: bool = Field(default=False, description="Ejecutar en modo simulación sin hacer cambios")
 
     @field_validator("batch_size")
@@ -220,6 +221,7 @@ async def sync_rms_to_shopify_endpoint(
                     force_update=sync_request.force_update,
                     batch_size=sync_request.batch_size,
                     filter_categories=sync_request.filter_categories,
+                    include_zero_stock=sync_request.include_zero_stock,
                 )
 
             return SyncResponse(
@@ -464,6 +466,7 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
             force_update=sync_request.force_update,
             batch_size=sync_request.batch_size,
             filter_categories=sync_request.filter_categories,
+            include_zero_stock=sync_request.include_zero_stock,
         )
 
         logger.info(f"Background RMS sync completed: {sync_id}")

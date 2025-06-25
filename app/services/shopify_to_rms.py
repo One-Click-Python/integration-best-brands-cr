@@ -345,4 +345,3 @@ async def get_shopify_sync_status() -> Dict[str, Any]:
         "active_syncs": [],
         "last_sync": None,
     }
-

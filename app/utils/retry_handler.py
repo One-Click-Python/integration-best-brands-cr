@@ -614,4 +614,3 @@ def get_all_metrics() -> Dict[str, Dict[str, Any]]:
         "rms": RMS_RETRY_HANDLER.get_metrics(),
         "sync": SYNC_RETRY_HANDLER.get_metrics(),
     }
-

@@ -215,14 +215,21 @@ class InventoryManager:
                 )
 
             # Actualizar inventario
-            success = await self.shopify_client.update_inventory(inventory_item_id, location_id, available_quantity)
+            result = await self.shopify_client.update_inventory(inventory_item_id, location_id, available_quantity)
 
-            if success:
-                logger.info(f"Updated inventory for SKU {sku}: {available_quantity} at location {location_id}")
+            # Ensure result is a dictionary
+            if isinstance(result, dict) and result.get("success"):
+                logger.info(
+                    f"✅ Updated inventory for SKU {sku}: {available_quantity} at location {location_id} "
+                    f"(delta: {result.get('delta', 0)}) in {result.get('duration_ms', 0)}ms"
+                )
+                return True
             else:
-                logger.warning(f"Failed to update inventory for SKU {sku}")
-
-            return success
+                error_msg = "Unknown error"
+                if isinstance(result, dict):
+                    error_msg = result.get("error", "Unknown error")
+                logger.warning(f"❌ Failed to update inventory for SKU {sku}: {error_msg}")
+                return False
 
         except Exception as e:
             self.error_aggregator.add_error(e, {"sku": sku, "quantity": available_quantity, "location_id": location_id})
@@ -261,8 +268,8 @@ class InventoryManager:
                     details={"sku": sku, "provided_locations": list(location_quantities.keys())},
                 )
 
-            # Actualizar en paralelo con límite de concurrencia
-            semaphore = asyncio.Semaphore(3)  # Máximo 3 actualizaciones paralelas
+            # Actualizar en paralelo con límite de concurrencia optimizado
+            semaphore = asyncio.Semaphore(2)  # Reducido a 2 para mejor rate limiting
 
             async def update_location(location_id: str, quantity: int) -> Tuple[str, bool]:
                 async with semaphore:
@@ -398,8 +405,8 @@ class InventoryManager:
                 "errors": [],
             }
 
-            # Procesar en lotes para no sobrecargar la API
-            batch_size = 10
+            # Procesar en lotes con rate limiting optimizado
+            batch_size = 8  # Reducido para mejor rate limiting
             for i in range(0, len(rms_inventory_data), batch_size):
                 batch = rms_inventory_data[i : i + batch_size]
 
@@ -415,9 +422,9 @@ class InventoryManager:
                         sync_stats["failed_updates"] += 1
                         sync_stats["errors"].append(result.get("error"))
 
-                # Pausa entre lotes
+                # Rate limiting más conservador
                 if i + batch_size < len(rms_inventory_data):
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.5)  # Aumentado para mejor compliance con API limits
 
             # Finalizar estadísticas
             end_time = datetime.now(timezone.utc)
@@ -526,4 +533,3 @@ class InventoryManager:
                 {"id": loc.id, "name": loc.name, "is_active": loc.is_active} for loc in self.locations_cache.values()
             ],
         }
-

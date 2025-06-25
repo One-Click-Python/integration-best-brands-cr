@@ -84,9 +84,7 @@ class RMSHandler:
                     {"store_id": settings.RMS_STORE_ID},
                 )
                 orders_count = result.scalar()
-                logger.info(
-                    f"Order table contains {orders_count} orders for store {settings.RMS_STORE_ID}"
-                )
+                logger.info(f"Order table contains {orders_count} orders for store {settings.RMS_STORE_ID}")
 
         except Exception as e:
             logger.error(f"Table access verification failed: {e}")
@@ -198,9 +196,7 @@ class RMSHandler:
                 if limit:
                     query += f" OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
 
-                logger.debug(
-                    f"Executing View_Items query with {len(params)} parameters"
-                )
+                logger.debug(f"Executing View_Items query with {len(params)} parameters")
 
                 result = await session.execute(text(query), params)
                 rows = result.fetchall()
@@ -214,9 +210,7 @@ class RMSHandler:
                         product = RMSViewItem(**row_dict)
                         products.append(product)
                     except Exception as e:
-                        logger.warning(
-                            f"Error converting row to RMSViewItem: {e} - SKU: {row.c_articulo}"
-                        )
+                        logger.warning(f"Error converting row to RMSViewItem: {e} - SKU: {row.c_articulo}")
                         continue
 
                 logger.info(f"Retrieved {len(products)} products from View_Items")
@@ -276,9 +270,7 @@ class RMSHandler:
 
         # Filtro incremental por tiempo
         if incremental_hours:
-            cutoff_time = datetime.now(timezone.utc) - timedelta(
-                hours=incremental_hours
-            )
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=incremental_hours)
             query += " AND LastModified >= :cutoff_time"
             params["cutoff_time"] = cutoff_time
 
@@ -295,9 +287,7 @@ class RMSHandler:
             RMSViewItem o None si no se encuentra
         """
         if not self.is_initialized():
-            raise RMSConnectionException(
-                message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST
-            )
+            raise RMSConnectionException(message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST)
 
         try:
             async with self.conn_db.get_session() as session:
@@ -354,9 +344,7 @@ class RMSHandler:
             RMSConnectionException: Si falla la creación
         """
         if not self.is_initialized():
-            raise RMSConnectionException(
-                message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST
-            )
+            raise RMSConnectionException(message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST)
 
         try:
             async with self.conn_db.get_session() as session:
@@ -424,9 +412,7 @@ class RMSHandler:
             int: ID de la entrada creada
         """
         if not self.is_initialized():
-            raise RMSConnectionException(
-                message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST
-            )
+            raise RMSConnectionException(message="RMSHandler not initialized", db_host=settings.RMS_DB_HOST)
 
         try:
             async with self.conn_db.get_session() as session:
@@ -606,9 +592,7 @@ class RMSHandler:
             logger.error(f"Error retrieving products by CCOD {ccod}: {e}")
             return []
 
-    async def execute_custom_query(
-        self, query: str, params: Optional[Dict] = None
-    ) -> List[Dict[str, Any]]:
+    async def execute_custom_query(self, query: str, params: Optional[Dict] = None) -> List[Dict[str, Any]]:
         """
         Ejecuta una consulta SQL personalizada.
 

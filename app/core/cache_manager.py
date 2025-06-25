@@ -340,4 +340,3 @@ async def get_cached_sync_result(sync_id: str) -> Optional[Dict[str, Any]]:
         Sync result data or None if not cached
     """
     return await get_cached_data(f"sync_result:{sync_id}")
-

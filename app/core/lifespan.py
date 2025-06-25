@@ -140,12 +140,12 @@ async def startup_verify_connections():
         # Verificar conexión a RMS usando la nueva infraestructura
         try:
             from app.db.connection import get_db_connection
-            
+
             conn_db = get_db_connection()
             if not conn_db.is_initialized():
                 logger.info("Inicializando conexión a base de datos RMS...")
                 await conn_db.initialize()
-            
+
             rms_ok = await conn_db.test_connection()
             connection_results["rms"] = rms_ok
             if rms_ok:
@@ -195,7 +195,7 @@ async def startup_verify_connections():
 
         if failed_critical:
             raise ConnectionError(f"Servicios críticos no disponibles: {failed_critical}")
-        
+
         # Advertir si RMS no está disponible
         if not connection_results.get("rms", False):
             logger.warning("⚠️ RMS no está disponible - Las funciones de sincronización con RMS estarán deshabilitadas")
@@ -223,14 +223,16 @@ async def startup_initialize_services():
         # Inicializar conexión a base de datos RMS
         try:
             from app.db.connection import get_db_connection
-            
+
             conn_db = get_db_connection()
             if not conn_db.is_initialized():
                 await conn_db.initialize()
             logger.info("✅ Conexión RMS inicializada")
         except Exception as e:
             logger.error(f"❌ Error inicializando conexión RMS: {e}")
-            logger.warning("⚠️ Continuando sin conexión RMS - Las funciones de sincronización con RMS estarán deshabilitadas")
+            logger.warning(
+                "⚠️ Continuando sin conexión RMS - Las funciones de sincronización con RMS estarán deshabilitadas"
+            )
             # No lanzar la excepción para permitir que la app arranque sin RMS
 
         # Inicializar cliente HTTP para Shopify

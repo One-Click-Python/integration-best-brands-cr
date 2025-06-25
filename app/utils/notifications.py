@@ -125,26 +125,26 @@ async def test_email_configuration() -> bool:
         if not settings.ALERT_EMAIL_ENABLED:
             logger.info("Email alerts disabled, skipping configuration test")
             return True
-            
+
         # TODO: Implement actual email configuration test
         # This would include testing SMTP connection, authentication, etc.
         logger.info("Email configuration test (simulated)")
-        
+
         # Simulate checking required email settings
-        required_settings = ['ALERT_EMAIL_FROM', 'ALERT_EMAIL_TO']
+        required_settings = ["ALERT_EMAIL_FROM", "ALERT_EMAIL_TO"]
         missing_settings = []
-        
+
         for setting in required_settings:
             if not getattr(settings, setting, None):
                 missing_settings.append(setting)
-        
+
         if missing_settings:
             logger.warning(f"Missing email settings: {missing_settings}")
             return False
-            
+
         logger.info("Email configuration test passed")
         return True
-        
+
     except Exception as e:
         logger.error(f"Email configuration test failed: {e}")
         return False
