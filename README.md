@@ -401,7 +401,7 @@ Este proyecto está licenciado bajo [MIT License](LICENSE).
 
 Para soporte técnico o consultas:
 - **Email**: leonardo@live.com.ar
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
+- **Issues**: [GitHub Issues](https://github.com/One-Click-Python/integration-best-brands-cr/issues)
 
 ## 📝 Historial de Cambios
 
