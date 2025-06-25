@@ -97,7 +97,7 @@ RMS_DB_DRIVER=ODBC Driver 17 for SQL Server
 # Shopify API
 SHOPIFY_SHOP_URL=your-shop.myshopify.com
 SHOPIFY_ACCESS_TOKEN=your_access_token
-SHOPIFY_API_VERSION=2024-04
+SHOPIFY_API_VERSION=2025-04
 SHOPIFY_WEBHOOK_SECRET=your_webhook_secret
 
 # Redis (para Celery)
@@ -312,7 +312,7 @@ product_data = await mapper.map_rms_item_to_shopify_product(rms_item)
 
 ```bash
 # Variables de entorno adicionales
-SHOPIFY_API_VERSION=2024-04           # Versión API con soporte taxonomías
+SHOPIFY_API_VERSION=2025-04           # Versión API con soporte taxonomías
 SYNC_INCLUDE_ZERO_STOCK=false        # Excluir productos sin stock
 SYNC_USE_ENHANCED_MAPPER=true        # Usar mapeador avanzado
 TAXONOMY_CACHE_TTL=3600              # Cache de taxonomías (segundos)
@@ -386,14 +386,9 @@ docker-compose up -d
 4. Push al branch (`git push origin feature/nueva-funcionalidad`)
 5. Crear Pull Request
 
-## 📄 Licencia
-
-Este proyecto está licenciado bajo [MIT License](LICENSE).
-
 ## 📚 Documentación Adicional
 
 - **[Sistema de Taxonomías y Metafields](docs/enhanced_taxonomy_system.md)** - Guía completa del sistema avanzado
-- **[CLAUDE.md](CLAUDE.md)** - Instrucciones para Claude Code y arquitectura detallada
 - **[API Docs](http://localhost:8080/docs)** - Documentación interactiva Swagger (cuando la app esté corriendo)
 - **[CHANGELOG.md](CHANGELOG.md)** - Historial completo de cambios
 
