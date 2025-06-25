@@ -5,6 +5,23 @@ This module contains all GraphQL queries and mutations used to interact
 with the Shopify API, following the 2024-10 API version specifications.
 """
 
+# Taxonomy Queries
+TAXONOMY_CATEGORIES_QUERY = """
+query GetTaxonomyCategories($search: String) {
+  taxonomy {
+    categories(search: $search, first: 50) {
+      edges {
+        node {
+          id
+          name
+          fullName
+        }
+      }
+    }
+  }
+}
+"""
+
 # Product Queries
 PRODUCT_QUERY = """
 query GetProduct($id: ID!) {
@@ -129,15 +146,25 @@ mutation CreateProduct($input: ProductInput!) {
       title
       handle
       status
+      options {
+        id
+        name
+        values
+      }
       variants(first: 100) {
         edges {
           node {
             id
             sku
             price
+            compareAtPrice
             inventoryQuantity
             inventoryItem {
               id
+            }
+            selectedOptions {
+              name
+              value
             }
           }
         }
@@ -146,7 +173,6 @@ mutation CreateProduct($input: ProductInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -174,25 +200,55 @@ mutation UpdateProduct($input: ProductInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }
 """
 
-UPDATE_VARIANT_MUTATION = """
-mutation UpdateVariant($input: ProductVariantInput!) {
-  productVariantUpdate(input: $input) {
+CREATE_VARIANT_MUTATION = """
+mutation productVariantCreate($input: ProductVariantInput!) {
+  productVariantCreate(input: $input) {
     productVariant {
       id
       sku
       price
+      compareAtPrice
+      inventoryQuantity
+      inventoryItem {
+        id
+      }
+      selectedOptions {
+        name
+        value
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+UPDATE_VARIANTS_BULK_MUTATION = """
+mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(
+    productId: $productId
+    variants: $variants
+  ) {
+    product {
+      id
+    }
+    productVariants {
+      id
+      sku
+      price
+      compareAtPrice
       inventoryQuantity
     }
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -209,7 +265,6 @@ mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!, $available: 
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -225,7 +280,6 @@ mutation AdjustInventory($input: InventoryAdjustQuantityInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -242,7 +296,21 @@ mutation SetInventory($input: InventorySetOnHandQuantitiesInput!) {
     userErrors {
       field
       message
-      code
+    }
+  }
+}
+"""
+
+INVENTORY_ADJUST_QUANTITIES_MUTATION = """
+mutation InventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
+  inventoryAdjustQuantities(input: $input) {
+    inventoryAdjustmentGroup {
+      id
+      reason
+    }
+    userErrors {
+      field
+      message
     }
   }
 }
@@ -458,7 +526,6 @@ mutation CreateMetafield($input: MetafieldInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -477,7 +544,6 @@ mutation UpdateMetafield($input: MetafieldInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }

@@ -29,10 +29,10 @@ poetry export -f requirements.txt --output requirements.txt
 ### Running the Application
 ```bash
 # Development mode with auto-reload
-poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 # Production mode
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+poetry run uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
 
 # Using environment file
 poetry run uvicorn app.main:app --env-file .env --reload

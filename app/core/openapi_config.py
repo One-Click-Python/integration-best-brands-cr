@@ -43,7 +43,7 @@ def get_custom_openapi_schema(app: FastAPI) -> Dict[str, Any]:
     openapi_schema["info"].update(
         {
             "contact": {
-                "name": "Leonardo Illañez",
+                "name": "Leonardo Illanez",
                 "email": "leonardo@live.com.ar",
                 "url": "https://github.com/leoillanez777",
             },

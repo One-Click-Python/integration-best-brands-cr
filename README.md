@@ -120,10 +120,10 @@ ALERT_EMAIL_PASSWORD=your_email_password
 
 ```bash
 # Desarrollo
-poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 # Producción
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
 ```
 
 ### Iniciar Celery (tareas asíncronas)
@@ -332,7 +332,7 @@ Este proyecto está licenciado bajo [MIT License](LICENSE).
 
 Para soporte técnico o consultas:
 - **Email**: leonardo@live.com.ar
-- **Documentación**: [API Docs](http://localhost:8000/docs) (cuando la app esté corriendo)
+- **Documentación**: [API Docs](http://localhost:8080/docs) (cuando la app esté corriendo)
 
 ## 📝 Changelog
 

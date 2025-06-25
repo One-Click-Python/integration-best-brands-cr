@@ -80,9 +80,6 @@ class RMSHandler:
 
                 # Verificar acceso a tablas Order
                 result = await session.execute(
-                    text("SELECT COUNT(*) FROM [Order] WHERE StoreID = :store_id")
-                )
-                result = await session.execute(
                     text("SELECT COUNT(*) FROM [Order] WHERE StoreID = :store_id"),
                     {"store_id": settings.RMS_STORE_ID},
                 )

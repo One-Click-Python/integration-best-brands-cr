@@ -115,7 +115,7 @@ class RMSShopifyMapper:
                 title = re.sub(r"\b" + re.escape(word) + r"\b", "", title, flags=re.IGNORECASE)
 
         # Limpiar espacios extra y normalizar
-        title = " ".join(title.split())
+        title = re.sub(r'\s+', ' ', title)  # Reemplazar múltiples espacios con uno solo
         title = title.strip()
 
         # Fallback si el título queda muy corto

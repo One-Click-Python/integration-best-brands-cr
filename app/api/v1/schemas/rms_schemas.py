@@ -69,11 +69,15 @@ class RMSViewItem(BaseModel):
     @property
     def is_on_sale(self) -> bool:
         """Verifica si el producto está en oferta."""
-        if not self.sale_price or not self.sale_start_date or not self.sale_end_date:
-            return False
-
-        now = datetime.now()
-        return self.sale_start_date <= now <= self.sale_end_date
+        # Si hay precio de oferta y es menor al precio normal, está en oferta
+        if self.sale_price and self.sale_price > 0 and self.sale_price < self.price:
+            # Si hay fechas definidas, verificar vigencia
+            if self.sale_start_date and self.sale_end_date:
+                now = datetime.now()
+                return self.sale_start_date <= now <= self.sale_end_date
+            # Si no hay fechas, asumir que está en oferta
+            return True
+        return False
 
     @property
     def effective_price(self) -> Decimal:

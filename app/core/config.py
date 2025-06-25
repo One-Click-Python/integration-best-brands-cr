@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # === CONFIGURACIÓN DEL SERVIDOR ===
     HOST: str = Field(default="0.0.0.0", env="HOST")
-    PORT: int = Field(default=8000, env="PORT")
+    PORT: int = Field(default=8080, env="PORT")
     WORKERS: int = Field(default=1, env="WORKERS")
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
 
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # === CONFIGURACIÓN DE SHOPIFY ===
     SHOPIFY_SHOP_URL: str = Field(default="your-shop.myshopify.com", env="SHOPIFY_SHOP_URL")
     SHOPIFY_ACCESS_TOKEN: str = Field(default="your-access-token", env="SHOPIFY_ACCESS_TOKEN")
-    SHOPIFY_API_VERSION: str = Field(default="2024-01", env="SHOPIFY_API_VERSION")
+    SHOPIFY_API_VERSION: str = Field(default="2025-04", env="SHOPIFY_API_VERSION")
     SHOPIFY_WEBHOOK_SECRET: Optional[str] = Field(default=None, env="SHOPIFY_WEBHOOK_SECRET")
     SHOPIFY_RATE_LIMIT_PER_SECOND: int = Field(default=2, env="SHOPIFY_RATE_LIMIT_PER_SECOND")
     SHOPIFY_MAX_RETRIES: int = Field(default=3, env="SHOPIFY_MAX_RETRIES")

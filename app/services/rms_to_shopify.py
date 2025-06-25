@@ -7,7 +7,7 @@ desde Microsoft Retail Management System hacia Shopify.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +39,7 @@ class RMSToShopifySync:
         """Inicializa el servicio de sincronización."""
         self.rms_handler = None
         self.shopify_client = None
+        self.primary_location_id = None
         self.error_aggregator = ErrorAggregator()
         self.sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: F821
 
@@ -61,6 +62,13 @@ class RMSToShopifySync:
 
             self.shopify_client = ShopifyGraphQLClient()
             await self.shopify_client.initialize()
+
+            # Obtener ubicación principal para inventario
+            self.primary_location_id = await self.shopify_client.get_primary_location_id()
+            if self.primary_location_id:
+                logger.info(f"Using primary location: {self.primary_location_id}")
+            else:
+                logger.warning("No primary location found - inventory updates may fail")
 
             logger.info(f"Sync service initialized - ID: {self.sync_id}")
 
@@ -90,6 +98,7 @@ class RMSToShopifySync:
         force_update: bool = False,
         batch_size: int = None,
         filter_categories: Optional[List[str]] = None,
+        include_zero_stock: bool = True,
     ) -> Dict[str, Any]:
         """
         Sincroniza productos de RMS a Shopify.
@@ -98,6 +107,7 @@ class RMSToShopifySync:
             force_update: Forzar actualización de productos existentes
             batch_size: Tamaño del lote para procesamiento
             filter_categories: Filtrar por categorías específicas
+            include_zero_stock: Incluir productos sin stock
 
         Returns:
             Dict: Resultado de la sincronización
@@ -107,17 +117,23 @@ class RMSToShopifySync:
         """
         batch_size = batch_size or settings.SYNC_BATCH_SIZE
 
+        # Configurar opciones de filtrado
+        self._include_zero_stock = include_zero_stock
+
         with LogContext(sync_id=self.sync_id, operation="sync_products"):
-            logger.info(f"Starting product sync - Force: {force_update}, Batch: {batch_size}")
+            logger.info(
+                f"Starting product sync - Force: {force_update}, Batch: {batch_size}, "
+                f"Include zero stock: {include_zero_stock}"
+            )
 
             try:
                 # 1. Extraer productos de RMS
                 rms_products = await self._extract_rms_products(filter_categories)
-                logger.info(f"Extracted {len(rms_products)} products from RMS")
+                logger.info(f"❗️Extracted {len(rms_products)} products from RMS")
 
                 # 2. Obtener productos existentes de Shopify
                 shopify_products = await self._get_existing_shopify_products()
-                logger.info(f"Found {len(shopify_products)} existing products in Shopify")
+                logger.info(f"💎Found {len(shopify_products)} existing products in Shopify")
 
                 # 3. Procesar en lotes
                 sync_stats = await self._process_products_in_batches(
@@ -162,36 +178,38 @@ class RMSToShopifySync:
             query = """
             SELECT 
                 C_ARTICULO as sku,
-                Name as title,
-                Category,
-                Family,
-                Color,
-                Size,
+                Description as title,
+                Categoria as category,
+                Familia as family,
+                color,
+                talla as size,
                 Price,
                 SalePrice,
                 SaleStartDate,
                 SaleEndDate,
                 Quantity,
                 Tax,
-                Gender,
+                Genero as gender,
                 Description,
                 ExtendedCategory,
-                LastModified
+                CCOD as ccod,
+                ItemID as item_id
             FROM View_Items 
-            WHERE Active = 1
+            WHERE C_ARTICULO IS NOT NULL
+            AND Description IS NOT NULL
+            AND Price > 0
             """
 
             # Agregar filtro de categorías si se especifica
             if filter_categories:
                 categories_str = "', '".join(filter_categories)
-                query += f" AND Category IN ('{categories_str}')"
+                query += f" AND Categoria IN ('{categories_str}')"
 
-            # Agregar filtro de fecha para sync incremental
-            if not getattr(self, "_force_full_sync", False):
-                cutoff_date = datetime.now(timezone.utc) - timedelta(hours=24)
-                query += f" AND LastModified >= '{cutoff_date.isoformat()}'"
+            # Agregar filtro para productos con stock (opcional)
+            if not getattr(self, "_include_zero_stock", True):
+                query += " AND Quantity > 0"
 
-            query += " ORDER BY LastModified DESC"
+            query += " ORDER BY ItemID DESC"
 
             products = await self.rms_handler.execute_custom_query(query)
 
@@ -201,15 +219,15 @@ class RMSToShopifySync:
                 try:
                     # Convertir a RMSViewItem para validación
                     rms_item = RMSViewItem(
-                        familia=product_data.get("Family"),
-                        genero=product_data.get("Gender"),
-                        categoria=product_data.get("Category"),
-                        ccod=product_data.get("sku", ""),  # Usar sku como ccod por ahora
+                        familia=product_data.get("family"),
+                        genero=product_data.get("gender"),
+                        categoria=product_data.get("category"),
+                        ccod=product_data.get("ccod", ""),
                         c_articulo=product_data.get("sku"),
                         item_id=product_data.get("item_id", 0),
-                        description=product_data.get("title"),
-                        color=product_data.get("Color"),
-                        talla=product_data.get("Size"),
+                        description=product_data.get("Description"),
+                        color=product_data.get("color"),
+                        talla=product_data.get("size"),
                         quantity=int(product_data.get("Quantity", 0)),
                         price=Decimal(str(product_data.get("Price", 0))),
                         sale_price=Decimal(str(product_data.get("SalePrice", 0)))
@@ -219,8 +237,10 @@ class RMSToShopifySync:
                         tax=int(product_data.get("Tax", 13)),
                     )
 
-                    # Mapear a formato Shopify GraphQL
-                    shopify_product = RMSToShopifyMapper.map_product_to_shopify(rms_item)
+                    # Mapear a formato Shopify GraphQL con categoría de taxonomía
+                    shopify_product = await RMSToShopifyMapper.map_product_to_shopify_with_category(
+                        rms_item, self.shopify_client, self.primary_location_id
+                    )
                     processed_products.append({"rms_item": rms_item, "shopify_input": shopify_product})
                     self.error_aggregator.increment_processed()
 
@@ -390,21 +410,95 @@ class RMSToShopifySync:
 
     async def _create_shopify_product(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
-        Crea un producto en Shopify usando GraphQL.
+        Crea un producto en Shopify usando approach corregido de 3 pasos:
+        1. Crear producto básico
+        2. Actualizar precio con GraphQL bulk update
+        3. Actualizar SKU con REST API
 
         Args:
-            shopify_input: Input del producto validado
+            shopify_input: Input del producto validado con variantes
 
         Returns:
-            Dict: Producto creado
+            Dict: Producto creado con variantes actualizadas
         """
         try:
-            # Convertir a formato GraphQL
+            # Paso 1: Crear producto básico (Shopify crea automáticamente una variante por defecto)
             product_data = self._convert_to_graphql_input(shopify_input)
-
             created_product = await self.shopify_client.create_product(product_data)
+
             sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
-            logger.info(f"Created product in Shopify: {sku}")
+
+            if not created_product or not created_product.get("id"):
+                raise Exception("Product creation failed - no product ID returned")
+
+            product_id = created_product["id"]
+            logger.info(f"Created product: {product_id} - {created_product.get('title')}")
+
+            # Paso 2: Obtener variante por defecto creada automáticamente
+            if shopify_input.variants:
+                variant_info = shopify_input.variants[0]
+
+                # Buscar la variante por defecto
+                product_query = """query GetProduct($id: ID!) {
+                  product(id: $id) {
+                    variants(first: 1) {
+                      edges {
+                        node {
+                          id
+                          sku
+                          price
+                        }
+                      }
+                    }
+                  }
+                }"""
+
+                product_result = await self.shopify_client._execute_query(product_query, {"id": product_id})
+
+                if product_result and product_result.get("product"):
+                    variants = product_result["product"].get("variants", {}).get("edges", [])
+
+                    if variants:
+                        default_variant_id = variants[0]["node"]["id"]
+
+                        # Paso 3: Actualizar precio con GraphQL
+                        try:
+                            price_data = {"id": default_variant_id, "price": variant_info.price}
+
+                            await self.shopify_client.update_variants_bulk(product_id, [price_data])
+                            logger.info(f"Updated variant price: {variant_info.price}")
+
+                        except Exception as price_error:
+                            logger.warning(f"Failed to update variant price: {price_error}")
+
+                        # Paso 4: Actualizar SKU con REST API
+                        try:
+                            sku_data = {"sku": variant_info.sku}
+                            await self.shopify_client.update_variant_rest(default_variant_id, sku_data)
+                            logger.info(f"Updated variant SKU: {variant_info.sku}")
+
+                        except Exception as sku_error:
+                            logger.warning(f"Failed to update variant SKU: {sku_error}")
+
+                        # Paso 5: Actualizar descripción HTML si existe
+                        if hasattr(shopify_input, "description") and shopify_input.description:
+                            try:
+                                description_data = {"id": product_id, "descriptionHtml": shopify_input.description}
+                                await self.shopify_client.update_product(product_id, description_data)
+                                logger.info("Updated product description")
+
+                            except Exception as desc_error:
+                                logger.warning(f"Failed to update product description: {desc_error}")
+
+                        # Actualizar respuesta del producto
+                        if not created_product.get("variants"):
+                            created_product["variants"] = {"edges": []}
+
+                        created_product["variants"]["edges"] = [
+                            {"node": {"id": default_variant_id, "sku": variant_info.sku, "price": variant_info.price}}
+                        ]
+
+            logger.info(f"Successfully created and updated product: {sku}")
             return created_product
 
         except Exception as e:

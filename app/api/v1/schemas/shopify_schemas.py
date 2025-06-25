@@ -139,29 +139,37 @@ class ShopifyProductInput(BaseModel):
     status: Optional[ProductStatus] = ProductStatus.DRAFT
     productType: Optional[str] = None
     vendor: Optional[str] = None
+    category: Optional[str] = None  # Shopify Standard Product Taxonomy category ID
     tags: Optional[List[str]] = None
     options: Optional[List[str]] = None
     variants: Optional[List[ShopifyVariantInput]] = None
+    description: Optional[str] = None  # HTML description
     
     def to_graphql_input(self) -> Dict[str, Any]:
-        """Convierte el modelo a formato de input GraphQL."""
-        data = self.model_dump(exclude_none=True, exclude={"id"})
+        """Convierte el modelo a formato de input GraphQL para productCreate."""
+        # Create a minimal product without options, variants, and description
+        # These will be added through separate API calls
+        data = self.model_dump(exclude_none=True, exclude={"id", "variants", "options", "description"})
         
         # Convert tags list to comma-separated string
         if data.get("tags"):
             data["tags"] = ", ".join(data["tags"])
         
-        # Format variants for GraphQL
-        if data.get("variants"):
-            formatted_variants = []
-            for variant in data["variants"]:
-                if isinstance(variant, dict):
-                    # Remove id from variant if creating new
-                    variant_data = {k: v for k, v in variant.items() if k != "id"}
-                    formatted_variants.append(variant_data)
-            data["variants"] = formatted_variants
-        
         return data
+    
+    def get_variant_data_for_creation(self) -> Optional[Dict[str, Any]]:
+        """Obtiene datos de variante formateados para creación separada."""
+        if not self.variants:
+            return None
+            
+        variant = self.variants[0]
+        variant_data = variant.model_dump(exclude_none=True, exclude={"id"})
+        
+        # For productVariantCreate, we use options array directly
+        # No need for selectedOptions when creating the first variant
+        # Shopify will automatically create the product options
+        
+        return variant_data
 
 
 # Order Models

@@ -386,6 +386,8 @@ async def close_http_client():
     """
     Cierra el cliente HTTP para Shopify.
     """
-    client = get_graphql_client()
-    await client.close()
-    logger.info("Shopify HTTP client closed")
+    global _graphql_client
+    if _graphql_client is not None:
+        await _graphql_client.close()
+        _graphql_client = None
+        logger.info("Shopify HTTP client closed")

@@ -16,17 +16,112 @@ from app.api.v1.schemas.shopify_schemas import (
     ShopifyProductInput,
     ShopifyVariantInput,
 )
+from app.db.shopify_graphql_client import ShopifyGraphQLClient
 
 logger = logging.getLogger(__name__)
+
+# Mapeo de categorías RMS a términos de búsqueda de Shopify Taxonomy
+RMS_TO_SHOPIFY_CATEGORY_MAPPING = {
+    "Tenis": "Athletic Shoes",
+    "Zapatos": "Shoes", 
+    "Botas": "Boots",
+    "Sandalia": "Sandals",
+    "Flats": "Flats",
+    "Bolsos": "Handbags",
+    "Carteras": "Handbags",
+    "Mochilas": "Backpacks",
+    "Accesorios": "Accessories",
+    "Billeteras": "Wallets",
+    "Correas": "Belts",
+    "Sombreros": "Hats",
+}
+
+# Cache para categorías ya resueltas
+_category_cache: Dict[str, Optional[str]] = {}
 
 
 class RMSToShopifyMapper:
     """
     Mapeador de datos de RMS a Shopify usando GraphQL schemas.
     """
+    
+    @staticmethod
+    async def resolve_category_id(rms_categoria: Optional[str], shopify_client: ShopifyGraphQLClient) -> Optional[str]:
+        """
+        Resuelve el ID de categoría de Shopify Standard Product Taxonomy para una categoría RMS.
+        
+        Args:
+            rms_categoria: Categoría del producto RMS
+            shopify_client: Cliente de Shopify para hacer la búsqueda
+            
+        Returns:
+            ID de categoría de Shopify o None si no se encuentra
+        """
+        if not rms_categoria:
+            return None
+            
+        # Verificar cache primero
+        if rms_categoria in _category_cache:
+            return _category_cache[rms_categoria]
+        
+        # Obtener término de búsqueda
+        search_term = RMS_TO_SHOPIFY_CATEGORY_MAPPING.get(rms_categoria, rms_categoria)
+        
+        try:
+            # Buscar categorías en Shopify
+            categories = await shopify_client.search_taxonomy_categories(search_term)
+            
+            if categories:
+                # Tomar la primera categoría encontrada
+                category_id = categories[0]["id"]
+                logger.info(
+                    f"Mapped RMS category '{rms_categoria}' to Shopify category "
+                    f"'{categories[0]['name']}' (ID: {category_id})"
+                )
+                
+                # Guardar en cache
+                _category_cache[rms_categoria] = category_id
+                return category_id
+            else:
+                logger.warning(
+                    f"No Shopify category found for RMS category '{rms_categoria}' (search: '{search_term}')"
+                )
+                _category_cache[rms_categoria] = None
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error resolving category for '{rms_categoria}': {e}")
+            _category_cache[rms_categoria] = None
+            return None
 
     @staticmethod
-    def map_product_to_shopify(rms_item: RMSViewItem) -> ShopifyProductInput:
+    async def map_product_to_shopify_with_category(
+        rms_item: RMSViewItem, 
+        shopify_client: ShopifyGraphQLClient,
+        location_id: Optional[str] = None
+    ) -> ShopifyProductInput:
+        """
+        Convierte un item RMS a formato de producto Shopify GraphQL con categoría de taxonomía.
+        
+        Args:
+            rms_item: Item de RMS a convertir
+            shopify_client: Cliente de Shopify para resolución de categorías
+            location_id: ID de ubicación para inventario (opcional)
+            
+        Returns:
+            ShopifyProductInput: Producto mapeado con categoría de taxonomía
+        """
+        # Obtener el mapeo básico
+        shopify_input = RMSToShopifyMapper.map_product_to_shopify(rms_item, location_id)
+        
+        # Resolver categoría de taxonomía
+        category_id = await RMSToShopifyMapper.resolve_category_id(rms_item.categoria, shopify_client)
+        shopify_input.category = category_id
+        
+        return shopify_input
+
+    @staticmethod
+    def map_product_to_shopify(rms_item: RMSViewItem, location_id: Optional[str] = None) -> ShopifyProductInput:
         """
         Convierte un item RMS a formato de producto Shopify GraphQL.
         
@@ -47,20 +142,28 @@ class RMSToShopifyMapper:
             options = RMSToShopifyMapper._generate_options(rms_item)
             
             # Crear variante
-            variant = RMSToShopifyMapper._map_variant(rms_item)
+            variant = RMSToShopifyMapper._map_variant(rms_item, location_id)
             
-            # Determinar estado del producto
-            status = ProductStatus.ACTIVE if rms_item.quantity > 0 else ProductStatus.DRAFT
+            # Productos siempre como DRAFT hasta completar información visual
+            status = ProductStatus.DRAFT
+            
+            # Generar descripción HTML completa
+            description_html = RMSToShopifyMapper.create_product_description(rms_item)
+            
+            # Limpiar título - eliminar espacios múltiples
+            clean_title = (rms_item.description or f"Producto {rms_item.c_articulo}").strip()
+            clean_title = re.sub(r'\s+', ' ', clean_title)
             
             return ShopifyProductInput(
-                title=rms_item.description or f"Producto {rms_item.c_articulo}",
+                title=clean_title,
                 handle=handle,
                 status=status,
                 productType=rms_item.categoria or "",
                 vendor=rms_item.familia or "",
                 tags=tags,
                 options=[opt.name for opt in options] if options else None,
-                variants=[variant] if variant else None
+                variants=[variant] if variant else None,
+                description=description_html
             )
             
         except Exception as e:
@@ -68,7 +171,7 @@ class RMSToShopifyMapper:
             raise
 
     @staticmethod
-    def _map_variant(rms_item: RMSViewItem) -> ShopifyVariantInput:
+    def _map_variant(rms_item: RMSViewItem, location_id: Optional[str] = None) -> ShopifyVariantInput:
         """
         Mapea una variante de RMS a Shopify.
         
@@ -99,15 +202,20 @@ class RMSToShopifyMapper:
         if not variant_options:
             variant_options = ["Default"]
         
+        # Preparar inventario si se proporciona location_id
+        inventory_quantities = None
+        if location_id and rms_item.quantity > 0:
+            inventory_quantities = [{
+                "availableQuantity": rms_item.quantity,
+                "locationId": location_id
+            }]
+        
         return ShopifyVariantInput(
             sku=rms_item.c_articulo,
             price=str(effective_price),
             compareAtPrice=compare_at_price,
             options=variant_options,
-            inventoryQuantities=[{
-                "availableQuantity": rms_item.quantity,
-                "locationId": "gid://shopify/Location/main"  # Se actualizará con la ubicación real
-            }]
+            inventoryQuantities=inventory_quantities
         )
 
     @staticmethod
@@ -210,52 +318,120 @@ class RMSToShopifyMapper:
     @staticmethod
     def create_product_description(rms_item: RMSViewItem) -> str:
         """
-        Crea una descripción HTML para el producto.
+        Crea una descripción HTML completa para el producto.
         
         Args:
             rms_item: Item RMS
             
         Returns:
-            str: Descripción HTML
+            str: Descripción HTML rica en información
         """
         description_parts = []
         
-        # Descripción base
-        if rms_item.description:
-            description_parts.append(f"<h2>{rms_item.description}</h2>")
+        # Título principal
+        clean_title = (rms_item.description or f"Producto {rms_item.c_articulo}").strip()
+        clean_title = re.sub(r'\s+', ' ', clean_title)  # Eliminar espacios múltiples
+        description_parts.append(f"<h1>{clean_title}</h1>")
         
-        # Detalles del producto
-        details = []
-        if rms_item.categoria:
-            details.append(f"<strong>Categoría:</strong> {rms_item.categoria}")
+        # Información principal del producto
+        description_parts.append("<div class='product-details' style='font-family: Arial, sans-serif; line-height: 1.6;'>")
         
-        if rms_item.familia:
-            details.append(f"<strong>Familia:</strong> {rms_item.familia}")
+        # Sección de especificaciones
+        description_parts.append("<h3>Especificaciones del Producto</h3>")
+        description_parts.append("<table style='width:100%; border-collapse: collapse; margin-bottom: 20px;'>")
         
-        if rms_item.color:
-            details.append(f"<strong>Color:</strong> {rms_item.color}")
+        # Descripción original del producto (si existe y es diferente del título)
+        product_description = None
+        if rms_item.description and len(rms_item.description.strip()) > 0:
+            product_description = rms_item.description.strip()
         
-        if rms_item.talla:
-            details.append(f"<strong>Talla:</strong> {rms_item.talla}")
+        specs = [
+            ("SKU", rms_item.c_articulo),
+            ("Descripción", product_description),
+            ("Familia", rms_item.familia),
+            ("Categoría", rms_item.categoria),
+            ("Género", rms_item.genero),
+            ("Color", rms_item.color),
+            ("Talla", rms_item.talla),
+            ("Categoría Extendida", rms_item.extended_category),
+            ("Código", rms_item.ccod),
+        ]
         
-        if rms_item.genero:
-            details.append(f"<strong>Género:</strong> {rms_item.genero}")
+        for label, value in specs:
+            if value:
+                description_parts.append(
+                    f"<tr style='border-bottom: 1px solid #eee;'>" 
+                    f"<td style='padding: 8px; font-weight: bold; background-color: #f8f9fa; width: 30%;'>{label}:</td>"
+                    f"<td style='padding: 8px;'>{value}</td></tr>"
+                )
         
-        if details:
-            description_parts.append("<ul>")
-            for detail in details:
-                description_parts.append(f"<li>{detail}</li>")
-            description_parts.append("</ul>")
+        description_parts.append("</table>")
         
-        # Información de precios si está en oferta
-        if rms_item.is_on_sale:
+        # Información de precios
+        description_parts.append("<h3>Precio</h3>")
+        
+        # Verificar si hay oferta
+        has_sale = rms_item.sale_price and rms_item.sale_price > 0 and rms_item.sale_price < rms_item.price
+        
+        if has_sale and rms_item.sale_price is not None:
+            savings = rms_item.price - rms_item.sale_price
             description_parts.append(
-                f"<p><strong>¡En Oferta!</strong> "
-                f"Precio especial válido hasta {rms_item.sale_end_date.strftime('%d/%m/%Y') if rms_item.sale_end_date else 'fecha límite'}</p>"
+                f"<div style='background: #f0f8ff; padding: 10px; border-left: 4px solid #007cba; margin: 10px 0;'>" 
+                f"<strong>🎉 ¡OFERTA ESPECIAL!</strong><br>"
+                f"Precio promocional: <span style='color: #e74c3c; font-size: 1.2em; font-weight: bold;'>"
+                f"₡{rms_item.sale_price:,.2f}</span><br>"
+                f"Precio original: <span style='text-decoration: line-through;'>₡{rms_item.price:,.2f}</span><br>"
+                f"Ahorro: ₡{savings:,.2f}"
+            )
+            
+            if rms_item.sale_start_date:
+                description_parts.append(f"<br>Válido desde: {rms_item.sale_start_date.strftime('%d/%m/%Y')}")
+            if rms_item.sale_end_date:
+                description_parts.append(f"<br>Válido hasta: {rms_item.sale_end_date.strftime('%d/%m/%Y')}")
+            
+            description_parts.append("</div>")
+        else:
+            description_parts.append(f"<p><strong>Precio:</strong> ₡{rms_item.price:,.2f}</p>")
+        
+        # Información de inventario
+        description_parts.append("<h3>Disponibilidad</h3>")
+        if rms_item.quantity > 0:
+            description_parts.append(
+                f"<p style='color: green;'><strong>✓ En stock:</strong> "
+                f"{rms_item.quantity} unidad(es) disponible(s)</p>"
+            )
+        else:
+            description_parts.append(
+                "<p style='color: red;'><strong>⚠ Agotado</strong> - Consulte disponibilidad</p>"
             )
         
-        # SKU al final
-        description_parts.append(f"<p><small>SKU: {rms_item.c_articulo}</small></p>")
+        # Información fiscal
+        description_parts.append("<h3>Información Fiscal</h3>")
+        if rms_item.tax:
+            description_parts.append(
+                f"<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>"
+                f"<p><strong>Impuestos aplicables:</strong> {rms_item.tax}%</p>"
+                f"</div>"
+            )
+        else:
+            description_parts.append(
+                f"<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>"
+                f"<p><strong>Impuestos:</strong> No especificado</p>"
+                f"</div>"
+            )
+        
+        # Cerrar div de detalles del producto
+        description_parts.append("</div>")
+        
+        # Pie de página
+        description_parts.append(
+            "<hr style='margin: 20px 0;'>"
+            "<p style='text-align: center; color: #666; font-size: 0.9em;'>"
+            "<em>Información sincronizada automáticamente desde RMS</em>"
+            "</p>"
+        )
+        
+        description_parts.append("</div>")
         
         return "".join(description_parts)
 
