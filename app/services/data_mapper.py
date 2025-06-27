@@ -152,6 +152,9 @@ class RMSToShopifyMapper:
             clean_title = (rms_item.description or f"Producto {rms_item.c_articulo}").strip()
             clean_title = re.sub(r"\s+", " ", clean_title)
 
+            # Generar metafields incluyendo los específicos de categoría
+            metafields = RMSToShopifyMapper._generate_complete_metafields(rms_item)
+
             return ShopifyProductInput(
                 title=clean_title,
                 handle=handle,
@@ -162,6 +165,7 @@ class RMSToShopifyMapper:
                 options=[opt.name for opt in options] if options else None,
                 variants=[variant] if variant else None,
                 description=description_html,
+                metafields=metafields,
             )
 
         except Exception as e:
@@ -211,6 +215,8 @@ class RMSToShopifyMapper:
             compareAtPrice=compare_at_price,
             options=variant_options,
             inventoryQuantities=inventory_quantities,
+            inventoryManagement="SHOPIFY",  # Enable inventory tracking
+            inventoryPolicy="DENY",  # Deny purchases when out of stock
         )
 
     @staticmethod
@@ -313,122 +319,184 @@ class RMSToShopifyMapper:
     @staticmethod
     def create_product_description(rms_item: RMSViewItem) -> str:
         """
-        Crea una descripción HTML completa para el producto.
+        Crea una descripción simple para el producto (solo el título, sin HTML).
 
         Args:
             rms_item: Item RMS
 
         Returns:
-            str: Descripción HTML rica en información
+            str: Descripción simple igual al título
         """
-        description_parts = []
-
-        # Título principal
+        # Solo retornar el título limpio, sin HTML
         clean_title = (rms_item.description or f"Producto {rms_item.c_articulo}").strip()
         clean_title = re.sub(r"\s+", " ", clean_title)  # Eliminar espacios múltiples
-        description_parts.append(f"<h1>{clean_title}</h1>")
+        return clean_title
 
-        # Información principal del producto
-        description_parts.append(
-            "<div class='product-details' style='font-family: Arial, sans-serif; line-height: 1.6;'>"
-        )
+    @staticmethod
+    def _generate_complete_metafields(rms_item: RMSViewItem) -> List[Dict[str, Any]]:
+        """
+        Genera metafields completos incluyendo los específicos de categoría.
 
-        # Sección de especificaciones
-        description_parts.append("<h3>Especificaciones del Producto</h3>")
-        description_parts.append("<table style='width:100%; border-collapse: collapse; margin-bottom: 20px;'>")
+        Args:
+            rms_item: Item RMS
 
-        # Descripción original del producto (si existe y es diferente del título)
-        product_description = None
-        if rms_item.description and len(rms_item.description.strip()) > 0:
-            product_description = rms_item.description.strip()
+        Returns:
+            List: Metafields completos
+        """
+        from datetime import datetime, timezone
+        
+        metafields = []
 
-        specs = [
-            ("SKU", rms_item.c_articulo),
-            ("Descripción", product_description),
-            ("Familia", rms_item.familia),
-            ("Categoría", rms_item.categoria),
-            ("Género", rms_item.genero),
-            ("Color", rms_item.color),
-            ("Talla", rms_item.talla),
-            ("Categoría Extendida", rms_item.extended_category),
-            ("Código", rms_item.ccod),
-        ]
+        # Información básica de RMS
+        if rms_item.familia:
+            metafields.append({
+                "namespace": "rms",
+                "key": "familia",
+                "value": str(rms_item.familia),
+                "type": "single_line_text_field"
+            })
 
-        for label, value in specs:
-            if value:
-                description_parts.append(
-                    f"<tr style='border-bottom: 1px solid #eee;'>"
-                    f"<td style='padding: 8px; font-weight: bold; background-color: #f8f9fa; width: 30%;'>{label}:</td>"
-                    f"<td style='padding: 8px;'>{value}</td></tr>"
-                )
+        if rms_item.categoria:
+            metafields.append({
+                "namespace": "rms",
+                "key": "categoria",
+                "value": str(rms_item.categoria),
+                "type": "single_line_text_field"
+            })
 
-        description_parts.append("</table>")
+        if rms_item.color:
+            metafields.append({
+                "namespace": "rms",
+                "key": "color",
+                "value": str(rms_item.color),
+                "type": "single_line_text_field"
+            })
 
-        # Información de precios
-        description_parts.append("<h3>Precio</h3>")
+        if rms_item.talla:
+            metafields.append({
+                "namespace": "rms",
+                "key": "talla",
+                "value": str(rms_item.talla),
+                "type": "single_line_text_field"
+            })
 
-        # Verificar si hay oferta
-        has_sale = rms_item.sale_price and rms_item.sale_price > 0 and rms_item.sale_price < rms_item.price
+        if rms_item.ccod:
+            metafields.append({
+                "namespace": "rms",
+                "key": "ccod",
+                "value": str(rms_item.ccod),
+                "type": "single_line_text_field"
+            })
 
-        if has_sale and rms_item.sale_price is not None:
-            savings = rms_item.price - rms_item.sale_price
-            description_parts.append(
-                f"<div style='background: #f0f8ff; padding: 10px; border-left: 4px solid #007cba; margin: 10px 0;'>"
-                f"<strong>🎉 ¡OFERTA ESPECIAL!</strong><br>"
-                f"Precio promocional: <span style='color: #e74c3c; font-size: 1.2em; font-weight: bold;'>"
-                f"₡{rms_item.sale_price:,.2f}</span><br>"
-                f"Precio original: <span style='text-decoration: line-through;'>₡{rms_item.price:,.2f}</span><br>"
-                f"Ahorro: ₡{savings:,.2f}"
-            )
+        if rms_item.item_id:
+            metafields.append({
+                "namespace": "rms",
+                "key": "item_id",
+                "value": str(rms_item.item_id),
+                "type": "number_integer"
+            })
 
-            if rms_item.sale_start_date:
-                description_parts.append(f"<br>Válido desde: {rms_item.sale_start_date.strftime('%d/%m/%Y')}")
-            if rms_item.sale_end_date:
-                description_parts.append(f"<br>Válido hasta: {rms_item.sale_end_date.strftime('%d/%m/%Y')}")
+        if rms_item.extended_category:
+            metafields.append({
+                "namespace": "rms",
+                "key": "extended_category",
+                "value": str(rms_item.extended_category),
+                "type": "single_line_text_field"
+            })
 
-            description_parts.append("</div>")
-        else:
-            description_parts.append(f"<p><strong>Precio:</strong> ₡{rms_item.price:,.2f}</p>")
-
-        # Información de inventario
-        description_parts.append("<h3>Disponibilidad</h3>")
+        # Metafields específicos de categoría basados en datos RMS reales
+        # APLICAR PARA TODOS LOS TIPOS DE PRODUCTOS, no solo zapatos
+        
+        # Color - aplicar para cualquier producto que tenga color en RMS
+        if rms_item.color:
+            metafields.append({
+                "namespace": "custom",
+                "key": "color",
+                "value": str(rms_item.color),
+                "type": "single_line_text_field"
+            })
+        
+        # Target gender - aplicar para cualquier producto que tenga género en RMS
+        if rms_item.genero:
+            metafields.append({
+                "namespace": "custom",
+                "key": "target_gender",
+                "value": str(rms_item.genero),
+                "type": "single_line_text_field"
+            })
+        
+        # Age group - determinar para cualquier producto basado en género
+        if rms_item.genero:
+            if "Niño" in rms_item.genero or "Niña" in rms_item.genero:
+                metafields.append({
+                    "namespace": "custom",
+                    "key": "age_group",
+                    "value": "Kids",
+                    "type": "single_line_text_field"
+                })
+            else:
+                metafields.append({
+                    "namespace": "custom",
+                    "key": "age_group",
+                    "value": "Adult", 
+                    "type": "single_line_text_field"
+                })
+        
+        # Size mapping - aplicar para CUALQUIER producto que tenga talla
+        if rms_item.talla:
+            # Mapear según el tipo de producto
+            if rms_item.familia == "Zapatos":
+                # Para zapatos usar shoe_size
+                metafields.append({
+                    "namespace": "custom",
+                    "key": "shoe_size",
+                    "value": str(rms_item.talla),
+                    "type": "single_line_text_field"
+                })
+            elif rms_item.familia == "Ropa":
+                # Para ropa usar clothing_size
+                metafields.append({
+                    "namespace": "custom", 
+                    "key": "clothing_size",
+                    "value": str(rms_item.talla),
+                    "type": "single_line_text_field"
+                })
+            else:
+                # Para otros productos usar size genérico
+                metafields.append({
+                    "namespace": "custom",
+                    "key": "size",
+                    "value": str(rms_item.talla),
+                    "type": "single_line_text_field"
+                })
+        
+        # Activity - solo para productos deportivos/tenis
+        if rms_item.categoria == "Tenis":
+            metafields.append({
+                "namespace": "custom",
+                "key": "activity",
+                "value": "Running",
+                "type": "single_line_text_field"
+            })
+        
+        # Track quantity - para cualquier producto con inventario
         if rms_item.quantity > 0:
-            description_parts.append(
-                f"<p style='color: green;'><strong>✓ En stock:</strong> "
-                f"{rms_item.quantity} unidad(es) disponible(s)</p>"
-            )
-        else:
-            description_parts.append("<p style='color: red;'><strong>⚠ Agotado</strong> - Consulte disponibilidad</p>")
+            metafields.append({
+                "namespace": "custom",
+                "key": "track_quantity",
+                "value": "true",
+                "type": "boolean"
+            })
 
-        # Información fiscal
-        description_parts.append("<h3>Información Fiscal</h3>")
-        if rms_item.tax:
-            description_parts.append(
-                f"<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>"
-                f"<p><strong>Impuestos aplicables:</strong> {rms_item.tax}%</p>"
-                f"</div>"
-            )
-        else:
-            description_parts.append(
-                "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>"
-                "<p><strong>Impuestos:</strong> No especificado</p>"
-                "</div>"
-            )
+        # Información de sincronización
+        metafields.append({
+            "namespace": "sync",
+            "key": "last_synced",
+            "value": datetime.now(timezone.utc).isoformat(),
+            "type": "date_time"
+        })
 
-        # Cerrar div de detalles del producto
-        description_parts.append("</div>")
-
-        # Pie de página
-        description_parts.append(
-            "<hr style='margin: 20px 0;'>"
-            "<p style='text-align: center; color: #666; font-size: 0.9em;'>"
-            "<em>Información sincronizada automáticamente desde RMS</em>"
-            "</p>"
-        )
-
-        description_parts.append("</div>")
-
-        return "".join(description_parts)
+        return metafields
 
 
 class ShopifyToRMSMapper:
@@ -630,3 +698,4 @@ class DataComparator:
             changes["changes"].append("status")
 
         return changes
+

@@ -5,6 +5,7 @@ Este módulo define todos los endpoints relacionados con operaciones
 de sincronización entre RMS y Shopify.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -28,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 # Crear router
 router = APIRouter()
+
+# Sistema simple de locks para evitar múltiples sincronizaciones simultáneas
+# Esto previene la acumulación de precios por múltiples procesos concurrentes
+_sync_locks = {
+    "rms_to_shopify": asyncio.Lock(),
+    "shopify_to_rms": asyncio.Lock(),
+    "full_sync": asyncio.Lock(),
+}
 
 # Query parameter singletons para evitar B008
 DEFAULT_QUERY_LIMIT = Query(default=50, ge=1, le=1000)
@@ -189,6 +198,18 @@ async def sync_rms_to_shopify_endpoint(
         SyncResponse: Resultado de la sincronización
     """
     logger.debug("health_check", health_check)
+    
+    # NUEVO: Verificar si ya hay una sincronización en progreso
+    if _sync_locks["rms_to_shopify"].locked():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "sync_in_progress",
+                "message": "Una sincronización RMS → Shopify ya está en progreso. Por favor espere a que termine.",
+                "recommendation": "Use GET /api/v1/sync/status para verificar el estado actual"
+            }
+        )
+    
     try:
         log_sync_operation(
             operation="start",
@@ -459,27 +480,29 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
         sync_request: Parámetros de sincronización
         sync_id: ID de la sincronización
     """
-    try:
-        logger.info(f"Starting background RMS sync: {sync_id}")
+    # NUEVO: Usar lock para prevenir múltiples sincronizaciones simultáneas
+    async with _sync_locks["rms_to_shopify"]:
+        try:
+            logger.info(f"🔒 Starting background RMS sync with LOCK: {sync_id}")
 
-        result = await sync_rms_to_shopify(
-            force_update=sync_request.force_update,
-            batch_size=sync_request.batch_size,
-            filter_categories=sync_request.filter_categories,
-            include_zero_stock=sync_request.include_zero_stock,
-        )
+            result = await sync_rms_to_shopify(
+                force_update=sync_request.force_update,
+                batch_size=sync_request.batch_size,
+                filter_categories=sync_request.filter_categories,
+                include_zero_stock=sync_request.include_zero_stock,
+            )
 
-        logger.info(f"Background RMS sync completed: {sync_id}")
-        log_sync_operation(
-            operation="complete",
-            service="rms_to_shopify",
-            sync_id=sync_id,
-            success_rate=result.get("success_rate", 0),
-        )
+            logger.info(f"✅ Background RMS sync completed with LOCK: {sync_id}")
+            log_sync_operation(
+                operation="complete",
+                service="rms_to_shopify",
+                sync_id=sync_id,
+                success_rate=result.get("success_rate", 0),
+            )
 
-    except Exception as e:
-        logger.error(f"Background RMS sync failed: {sync_id} - {e}")
-        log_sync_operation(operation="error", service="rms_to_shopify", sync_id=sync_id, error=str(e))
+        except Exception as e:
+            logger.error(f"❌ Background RMS sync failed with LOCK: {sync_id} - {e}")
+            log_sync_operation(operation="error", service="rms_to_shopify", sync_id=sync_id, error=str(e))
 
 
 async def _execute_shopify_to_rms_sync(sync_request: ShopifyOrderSyncRequest, sync_id: str):

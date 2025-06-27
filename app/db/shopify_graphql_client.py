@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.db.shopify_graphql_queries import (
     CREATE_PRODUCT_MUTATION,
     CREATE_VARIANT_MUTATION,
+    CREATE_VARIANTS_BULK_MUTATION,
     INVENTORY_SET_MUTATION,
     LOCATIONS_QUERY,
     ORDERS_QUERY,
@@ -298,37 +299,55 @@ class ShopifyGraphQLClient:
             logger.info(f"Found {len(locations)} active locations:")
             for i, loc in enumerate(locations):
                 logger.info(f"  {i+1}. {loc['name']} (ID: {loc['id']})")
-                if loc.get('address'):
-                    addr = loc['address']
-                    logger.info(f"     Address: {addr.get('address1', '')}, {addr.get('city', '')}, {addr.get('country', '')}")
+                if loc.get("address"):
+                    addr = loc["address"]
+                    logger.info(
+                        f"     Address: {addr.get('address1', '')}, {addr.get('city', '')}, {addr.get('country', '')}"
+                    )
 
             # Si se especifica una ubicación preferida, buscarla
             if preferred_location_name:
                 for location in locations:
-                    if location['name'].lower() == preferred_location_name.lower():
+                    if location["name"].lower() == preferred_location_name.lower():
                         logger.info(f"Using configured primary location: {location['name']} ({location['id']})")
                         return location["id"]
                 logger.warning(f"Preferred location '{preferred_location_name}' not found")
 
             # Buscar ubicaciones con nombres que sugieran ser principales
-            primary_keywords = ['main', 'primary', 'principal', 'headquarters', 'default', 'warehouse', 'almacen', 'central']
-            
+            primary_keywords = [
+                "main",
+                "primary",
+                "principal",
+                "headquarters",
+                "default",
+                "warehouse",
+                "almacen",
+                "central",
+            ]
+
             for location in locations:
-                location_name = location['name'].lower()
+                location_name = location["name"].lower()
                 for keyword in primary_keywords:
                     if keyword in location_name:
-                        logger.info(f"Found primary location by name pattern '{keyword}': {location['name']} ({location['id']})")
+                        logger.info(
+                            f"Found primary location by name pattern '{keyword}': {location['name']} ({location['id']})"
+                        )
                         return location["id"]
 
             # Si solo hay una ubicación, usarla
             if len(locations) == 1:
                 primary_location = locations[0]
-                logger.info(f"Using single active location as primary: {primary_location['name']} ({primary_location['id']})")
+                logger.info(
+                    f"Using single active location as primary: {primary_location['name']} ({primary_location['id']})"
+                )
                 return primary_location["id"]
 
             # Usar la primera como fallback pero advertir
             primary_location = locations[0]
-            logger.warning(f"No clear primary location found, using first active location: {primary_location['name']} ({primary_location['id']})")
+            logger.warning(
+                f"No clear primary location found, using first active location: "
+                f"{primary_location['name']} ({primary_location['id']})"
+            )
             logger.warning("Consider configuring a preferred location name to avoid ambiguity")
             return primary_location["id"]
 
@@ -353,11 +372,7 @@ class ShopifyGraphQLClient:
             categories = []
             for edge in result.get("taxonomy", {}).get("categories", {}).get("edges", []):
                 node = edge.get("node", {})
-                categories.append({
-                    "id": node.get("id"),
-                    "name": node.get("name"),
-                    "fullName": node.get("fullName")
-                })
+                categories.append({"id": node.get("id"), "name": node.get("name"), "fullName": node.get("fullName")})
 
             logger.info(f"Found {len(categories)} categories for search term: '{search_term}'")
             return categories
@@ -378,7 +393,7 @@ class ShopifyGraphQLClient:
         """
         try:
             from .shopify_graphql_queries import TAXONOMY_CATEGORY_DETAILS_QUERY
-            
+
             variables = {"categoryId": category_id}
             result = await self._execute_query(TAXONOMY_CATEGORY_DETAILS_QUERY, variables)
 
@@ -410,12 +425,12 @@ class ShopifyGraphQLClient:
 
             for i, term in enumerate(search_terms):
                 categories = await self.search_taxonomy_categories(term)
-                
+
                 for category in categories:
                     # Calcular puntuación basada en prioridad del término y exactitud del nombre
                     term_priority_score = (len(search_terms) - i) * 10  # Términos anteriores tienen mayor prioridad
                     name_match_score = 0
-                    
+
                     # Bonificación por coincidencia exacta en nombre
                     if term.lower() == category["name"].lower():
                         name_match_score = 50
@@ -423,9 +438,9 @@ class ShopifyGraphQLClient:
                         name_match_score = 25
                     elif term.lower() in category["fullName"].lower():
                         name_match_score = 15
-                    
+
                     total_score = term_priority_score + name_match_score
-                    
+
                     if total_score > best_score:
                         best_score = total_score
                         best_match = category
@@ -454,7 +469,7 @@ class ShopifyGraphQLClient:
         """
         try:
             from .shopify_graphql_queries import METAFIELDS_SET_MUTATION
-            
+
             if len(metafields_data) > 25:
                 logger.warning(f"Attempted to create {len(metafields_data)} metafields, but max is 25. Truncating.")
                 metafields_data = metafields_data[:25]
@@ -489,19 +504,22 @@ class ShopifyGraphQLClient:
         """
         try:
             from .shopify_graphql_queries import CREATE_METAFIELD_DEFINITION_MUTATION
-            
+
             variables = {"definition": definition_data}
             result = await self._execute_query(CREATE_METAFIELD_DEFINITION_MUTATION, variables)
 
             metafield_definition_result = result.get("metafieldDefinitionCreate", {})
-            created_definition = metafield_definition_result.get("metafieldDefinition")
+            created_definition = metafield_definition_result.get("createdDefinition")
             user_errors = metafield_definition_result.get("userErrors", [])
 
             if user_errors:
                 logger.error(f"Errors creating metafield definition: {user_errors}")
                 return None
             elif created_definition:
-                logger.info(f"Successfully created metafield definition: {created_definition['namespace']}.{created_definition['key']}")
+                logger.info(
+                    f"Successfully created metafield definition: "
+                    f"{created_definition['namespace']}.{created_definition['key']}"
+                )
                 return created_definition
             else:
                 logger.error("Unknown error creating metafield definition")
@@ -677,6 +695,44 @@ class ShopifyGraphQLClient:
             logger.error(f"Error updating variants for product {product_id}: {e}")
             raise
 
+    async def create_variants_bulk(self, product_id: str, variants_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Crea múltiples variantes de producto en lote usando productVariantsBulkCreate.
+
+        Args:
+            product_id: ID del producto
+            variants_data: Lista de datos de variantes a crear
+
+        Returns:
+            Resultado de la creación masiva de variantes
+        """
+        try:
+            variables = {"productId": product_id, "variants": variants_data}
+            result = await self._execute_query(CREATE_VARIANTS_BULK_MUTATION, variables)
+
+            bulk_result = result.get("productVariantsBulkCreate", {})
+            user_errors = bulk_result.get("userErrors", [])
+
+            if user_errors:
+                error_messages = [f"{e['field']}: {e['message']}" for e in user_errors]
+                raise ShopifyAPIException(f"Bulk variant creation failed: {', '.join(error_messages)}")
+
+            variants = bulk_result.get("productVariants", [])
+            product = bulk_result.get("product", {})
+            
+            if variants:
+                logger.info(f"✅ Created {len(variants)} variants for product {product_id}")
+                for variant in variants:
+                    options_str = " / ".join([opt['value'] for opt in variant.get('selectedOptions', [])])
+                    logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
+                return bulk_result
+
+            raise ShopifyAPIException("Bulk variant creation failed: No variants returned")
+
+        except Exception as e:
+            logger.error(f"Error creating variants for product {product_id}: {e}")
+            raise
+
     async def create_variant(self, product_id: str, variant_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Crea una nueva variante para un producto existente.
@@ -733,6 +789,78 @@ class ShopifyGraphQLClient:
             "update_variant requires product_id. Use update_variants_bulk instead or "
             "create_product_with_variants for new products."
         )
+
+    async def activate_inventory_tracking(
+        self, inventory_item_id: str, location_id: str, available_quantity: int = None
+    ) -> Dict[str, Any]:
+        """
+        Activa el tracking de inventario para un item usando un approach de dos pasos.
+
+        Args:
+            inventory_item_id: ID del item de inventario
+            location_id: ID de la ubicación
+            available_quantity: Cantidad disponible inicial (no usado en esta función)
+
+        Returns:
+            Resultado de la activación
+        """
+        try:
+            from .shopify_graphql_queries import INVENTORY_ITEM_UPDATE_MUTATION, INVENTORY_ACTIVATE_MUTATION
+            
+            # Step 1: Enable tracking en el inventory item
+            update_variables = {
+                "id": inventory_item_id,
+                "input": {
+                    "tracked": True
+                }
+            }
+            
+            update_result = await self._execute_query(INVENTORY_ITEM_UPDATE_MUTATION, update_variables)
+            
+            update_result_data = update_result.get("inventoryItemUpdate", {})
+            update_errors = update_result_data.get("userErrors", [])
+            
+            if update_errors:
+                error_messages = [f"{e.get('field', 'unknown')}: {e.get('message', 'unknown error')}" for e in update_errors]
+                logger.error(f"❌ Errors enabling inventory tracking: {error_messages}")
+                return {"success": False, "errors": update_errors}
+            
+            inventory_item = update_result_data.get("inventoryItem", {})
+            is_tracked = inventory_item.get("tracked", False)
+            
+            if not is_tracked:
+                logger.warning(f"⚠️ Inventory item tracking may not be enabled: {inventory_item_id}")
+            else:
+                logger.info(f"✅ Enabled inventory tracking for item: {inventory_item_id}")
+            
+            # Step 2: Activate inventory en la ubicación
+            activation_variables = {
+                "inventoryItemId": inventory_item_id,
+                "locationId": location_id
+            }
+            
+            activation_result = await self._execute_query(INVENTORY_ACTIVATE_MUTATION, activation_variables)
+            
+            activation_result_data = activation_result.get("inventoryActivate", {})
+            activation_errors = activation_result_data.get("userErrors", [])
+            
+            if activation_errors:
+                error_messages = [f"{e.get('field', 'unknown')}: {e.get('message', 'unknown error')}" for e in activation_errors]
+                logger.error(f"❌ Errors activating inventory at location: {error_messages}")
+                return {"success": False, "errors": activation_errors}
+            
+            inventory_level = activation_result_data.get("inventoryLevel", {})
+            logger.info(f"✅ Activated inventory tracking: {inventory_level.get('id', 'unknown')}")
+            
+            return {
+                "success": True,
+                "inventoryLevel": inventory_level,
+                "tracked": is_tracked
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to activate inventory tracking: {e}")
+            return {"success": False, "error": str(e)}
 
     async def update_inventory(
         self, inventory_item_id: str, location_id: str, available_quantity: int

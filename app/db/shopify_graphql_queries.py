@@ -305,13 +305,68 @@ mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsB
 }
 """
 
+# NOTE: productVariantUpdate mutation doesn't exist in API 2025-04
+# Use REST API for individual variant updates or productVariantsBulkUpdate for batch updates
+
+CREATE_VARIANTS_BULK_MUTATION = """
+mutation productVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkCreate(
+    productId: $productId
+    variants: $variants
+  ) {
+    product {
+      id
+      title
+      options {
+        name
+        values
+      }
+    }
+    productVariants {
+      id
+      sku
+      price
+      compareAtPrice
+      inventoryQuantity
+      selectedOptions {
+        name
+        value
+      }
+      inventoryItem {
+        id
+        tracked
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
 # Inventory Mutations
 INVENTORY_ACTIVATE_MUTATION = """
-mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!, $available: Int) {
-  inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId, available: $available) {
+mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!) {
+  inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
     inventoryLevel {
       id
-      available
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
+# Enable inventory tracking for an inventory item
+INVENTORY_ITEM_UPDATE_MUTATION = """
+mutation UpdateInventoryItem($id: ID!, $input: InventoryItemInput!) {
+  inventoryItemUpdate(id: $id, input: $input) {
+    inventoryItem {
+      id
+      tracked
     }
     userErrors {
       field
@@ -337,12 +392,15 @@ mutation AdjustInventory($input: InventoryAdjustQuantityInput!) {
 """
 
 INVENTORY_SET_MUTATION = """
-mutation SetInventory($input: InventorySetOnHandQuantitiesInput!) {
-  inventorySetOnHandQuantities(input: $input) {
+mutation SetInventory($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
     inventoryAdjustmentGroup {
-      id
-      createdAt
       reason
+      referenceDocumentUri
+      changes {
+        name
+        delta
+      }
     }
     userErrors {
       field
@@ -626,7 +684,7 @@ mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
 CREATE_METAFIELD_DEFINITION_MUTATION = """
 mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
   metafieldDefinitionCreate(definition: $definition) {
-    metafieldDefinition {
+    createdDefinition {
       id
       name
       namespace
@@ -634,7 +692,6 @@ mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
       type {
         name
         category
-        supportsVariants
       }
       description
       ownerType
@@ -666,7 +723,6 @@ query GetMetafieldDefinitions($ownerType: MetafieldOwnerType!, $first: Int = 50)
         type {
           name
           category
-          supportsVariants
         }
         description
         ownerType

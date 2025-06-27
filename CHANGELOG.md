@@ -50,11 +50,14 @@ rms.product_attributes - JSON con todos los atributos RMS
 - ✨ Mejorada lógica de selección de ubicación principal de Shopify con múltiples estrategias
 - 📊 Agregado logging detallado para ubicaciones de inventario y taxonomías
 - 🏷️ Productos ahora se categorizan usando Standard Product Taxonomy de Shopify
+- 📝 **Campos title y description ahora son iguales** - solo contienen el título del producto sin HTML
 
 ### Arreglado
 - 🐛 Corregido comportamiento de sincronización que actualizaba productos sin stock a Shopify
 - 🔧 Mejorado `get_primary_location_id` con lógica más robusta para detectar ubicación principal
 - 🌐 Corregidas consultas GraphQL de taxonomía para compatibilidad con API 2024-04
+- 🔧 **Corregido error de GraphQL metafield definitions**: Campo `metafieldDefinition` → `createdDefinition`
+- 🔧 **Corregido campo inexistente**: Removido `supportsVariants` de consultas GraphQL tipo MetafieldDefinition
 
 ### Técnico - Arquitectura Mejorada
 - 🏗️ **Cache de taxonomías** para optimización de rendimiento
@@ -68,9 +71,12 @@ rms.product_attributes - JSON con todos los atributos RMS
 - ✅ **Mapeo de taxonomías**: 22 categorías RMS mapeadas correctamente
 - ✅ **Creación de metafields**: 7 metafields por producto generados
 - ✅ **Conexión Shopify**: Establecida (Best Brands cr)
-- ✅ **Validación de sistema**: 3 productos de prueba validados exitosamente
+- ✅ **Validación de sistema**: 10 productos de prueba validados exitosamente
 - ✅ **Type checking**: 0 errores en PyRight
 - ✅ **Funcionalidad de filtrado**: Productos sin stock excluidos por defecto
+- ✅ **GraphQL metafield definitions**: 7 definiciones creadas exitosamente en Shopify
+- ✅ **Taxonomía resolutiva**: 9 taxonomías resueltas con algoritmo de puntuación
+- ✅ **Mapeo completo**: 9/10 productos mapeados (1 excluido por stock=0)
 
 ### Documentación
 - 📚 **Documentación completa** del sistema en `docs/enhanced_taxonomy_system.md`

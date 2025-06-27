@@ -130,6 +130,8 @@ class ShopifyVariantInput(BaseModel):
     compareAtPrice: Optional[str] = None
     options: Optional[List[str]] = None
     inventoryQuantities: Optional[List[Dict[str, Any]]] = None
+    inventoryManagement: Optional[str] = "SHOPIFY"  # Enable inventory tracking by default
+    inventoryPolicy: Optional[str] = "DENY"  # Deny purchases when out of stock
 
     @field_validator("price", "compareAtPrice", mode="before")
     @classmethod
@@ -156,12 +158,12 @@ class ShopifyProductInput(BaseModel):
     options: Optional[List[str]] = None
     variants: Optional[List[ShopifyVariantInput]] = None
     description: Optional[str] = None  # HTML description
+    metafields: Optional[List[Dict[str, Any]]] = None  # Product metafields
 
     def to_graphql_input(self) -> Dict[str, Any]:
         """Convierte el modelo a formato de input GraphQL para productCreate."""
-        # Create a minimal product without options, variants, and description
-        # These will be added through separate API calls
-        data = self.model_dump(exclude_none=True, exclude={"id", "variants", "options", "description"})
+        # Create product data including category, exclude metafields for separate creation
+        data = self.model_dump(exclude_none=True, exclude={"id", "variants", "options", "description", "metafields"})
 
         # Convert tags list to comma-separated string
         if data.get("tags"):

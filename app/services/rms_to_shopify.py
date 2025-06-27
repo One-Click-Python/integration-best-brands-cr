@@ -16,14 +16,11 @@ from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 from app.core.config import get_settings
 from app.core.logging_config import LogContext, log_sync_operation
 from app.services.data_mapper import (
-    DataComparator,
-    RMSToShopifyMapper,
     ShopifyToRMSMapper,
 )
 from app.utils.error_handler import (
     ErrorAggregator,
     SyncException,
-    ValidationException,
 )
 
 settings = get_settings()
@@ -167,42 +164,36 @@ class RMSToShopifySync:
                     },
                     "errors": self.error_aggregator.get_summary(),
                     "success_rate": 0.0,
-                    "recommendations": ["Fix critical sync errors before retrying"],
+                    "recommendations": [
+                        "Fix critical sync errors before retrying"
+                    ],
                 }
 
-    async def _extract_rms_products(self, filter_categories: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    async def _extract_rms_products_with_variants(
+        self, filter_categories: Optional[List[str]] = None
+    ) -> List[ShopifyProductInput]:
         """
-        Extrae productos de la vista RMS.
+        Extrae productos de RMS usando el nuevo sistema de múltiples variantes por CCOD.
 
         Args:
             filter_categories: Categorías a filtrar
 
         Returns:
-            List: Lista de productos RMS
+            List: Lista de productos Shopify con múltiples variantes
         """
         try:
-            # Query para extraer productos de View_Items
+            logger.info("🔄 Extrayendo productos con sistema de múltiples variantes por CCOD")
+            
+            # Query para extraer TODOS los items de RMS para agrupar por CCOD
             query = """
             SELECT 
-                C_ARTICULO as sku,
-                Description as title,
-                Categoria as category,
-                Familia as family,
-                color,
-                talla as size,
-                Price,
-                SalePrice,
-                SaleStartDate,
-                SaleEndDate,
-                Quantity,
-                Tax,
-                Genero as gender,
-                Description,
-                ExtendedCategory,
-                CCOD as ccod,
-                ItemID as item_id
+                Familia, Genero, Categoria, CCOD, C_ARTICULO,
+                ItemID, Description, color, talla, Quantity,
+                Price, SalePrice, ExtendedCategory, Tax
             FROM View_Items 
-            WHERE C_ARTICULO IS NOT NULL
+            WHERE CCOD IS NOT NULL 
+            AND CCOD != ''
+            AND C_ARTICULO IS NOT NULL
             AND Description IS NOT NULL
             AND Price > 0
             """
@@ -216,52 +207,65 @@ class RMSToShopifySync:
             if not getattr(self, "_include_zero_stock", True):
                 query += " AND Quantity > 0"
 
-            query += " ORDER BY ItemID DESC"
+            query += " ORDER BY CCOD, talla"
 
-            products = await self.rms_handler.execute_custom_query(query)
+            logger.info("📋 Ejecutando query para extraer items de RMS...")
+            items_data = await self.rms_handler.execute_custom_query(query)
+            logger.info(f"📊 Extraídos {len(items_data)} items de RMS")
 
-            # Validar y procesar productos usando Pydantic schemas
-            processed_products = []
-            for product_data in products:
+            # Convertir a RMSViewItem objects
+            rms_items = []
+            for item_data in items_data:
                 try:
-                    # Convertir a RMSViewItem para validación
                     rms_item = RMSViewItem(
-                        familia=product_data.get("family"),
-                        genero=product_data.get("gender"),
-                        categoria=product_data.get("category"),
-                        ccod=product_data.get("ccod", ""),
-                        c_articulo=product_data.get("sku"),
-                        item_id=product_data.get("item_id", 0),
-                        description=product_data.get("Description"),
-                        color=product_data.get("color"),
-                        talla=product_data.get("size"),
-                        quantity=int(product_data.get("Quantity", 0)),
-                        price=Decimal(str(product_data.get("Price", 0))),
-                        sale_price=(
-                            Decimal(str(product_data.get("SalePrice", 0))) if product_data.get("SalePrice") else None
-                        ),
-                        extended_category=product_data.get("ExtendedCategory"),
-                        tax=int(product_data.get("Tax", 13)),
+                        familia=item_data.get("Familia", ""),
+                        genero=item_data.get("Genero", ""),
+                        categoria=item_data.get("Categoria", ""),
+                        ccod=item_data.get("CCOD", ""),
+                        c_articulo=item_data.get("C_ARTICULO", ""),
+                        item_id=item_data.get("ItemID", 0),
+                        description=item_data.get("Description", ""),
+                        color=item_data.get("color", ""),
+                        talla=item_data.get("talla", ""),
+                        quantity=int(item_data.get("Quantity", 0)),
+                        price=Decimal(str(item_data.get("Price", 0))),
+                        sale_price=Decimal(str(item_data.get("SalePrice", 0))) if item_data.get("SalePrice") else None,
+                        extended_category=item_data.get("ExtendedCategory", ""),
+                        tax=int(item_data.get("Tax", 13))
                     )
+                    rms_items.append(rms_item)
+                except Exception as e:
+                    logger.warning(f"❌ Error procesando item RMS: {e}")
+                    continue
 
-                    # Mapear a formato Shopify GraphQL con categoría de taxonomía
-                    shopify_product = await RMSToShopifyMapper.map_product_to_shopify_with_category(
-                        rms_item, self.shopify_client, self.primary_location_id
-                    )
-                    processed_products.append({"rms_item": rms_item, "shopify_input": shopify_product})
-                    self.error_aggregator.increment_processed()
+            logger.info(f"✅ Procesados {len(rms_items)} items válidos de RMS")
 
-                except (ValidationException, ValueError) as e:
-                    self.error_aggregator.add_error(e, {"sku": product_data.get("sku")})
+            # Usar el nuevo sistema de variantes para agrupar por CCOD
+            from app.services.variant_mapper import create_products_with_variants
+            
+            logger.info("🔄 Agrupando items por CCOD y creando productos con variantes...")
+            shopify_products = await create_products_with_variants(
+                rms_items, self.shopify_client, self.primary_location_id
+            )
 
-            return processed_products
+            logger.info(f"🎯 Creados {len(shopify_products)} productos con múltiples variantes")
+            logger.info(f"📈 Reducción: {len(rms_items)} items → {len(shopify_products)} productos")
+
+            return shopify_products
 
         except Exception as e:
-            raise SyncException(
-                message=f"Failed to extract RMS products: {str(e)}",
-                service="rms",
-                operation="extract_products",
-            ) from e
+            logger.error(f"❌ Error extracting RMS products with variants: {e}")
+            raise SyncException(f"Failed to extract RMS products: {e}") from e
+
+    async def _extract_rms_products(self, filter_categories: Optional[List[str]] = None) -> List[ShopifyProductInput]:
+        """
+        Extrae productos de RMS usando el sistema de múltiples variantes por CCOD.
+        
+        Returns:
+            List[ShopifyProductInput]: Lista de productos con múltiples variantes
+        """
+        logger.info("🔄 Using new variants system for product extraction")
+        return await self._extract_rms_products_with_variants(filter_categories)
 
     def _convert_to_graphql_input(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
@@ -277,24 +281,45 @@ class RMSToShopifySync:
 
     async def _get_existing_shopify_products(self) -> Dict[str, Dict[str, Any]]:
         """
-        Obtiene productos existentes de Shopify indexados por SKU.
+        Obtiene productos existentes de Shopify indexados por CCOD y SKU.
 
         Returns:
-            Dict: Productos existentes indexados por SKU
+            Dict: Productos existentes con doble indexación:
+            {
+                "by_ccod": {ccod: product},
+                "by_sku": {sku: product}
+            }
         """
         try:
             products = await self.shopify_client.get_all_products()
 
-            # Indexar por SKU usando el nuevo parser
-            indexed_products = {}
+            # Indexación dual: por CCOD y por SKU individual
+            indexed_products = {
+                "by_ccod": {},
+                "by_sku": {}
+            }
+            
             for product in products:
+                # Indexar por SKU (lógica original)
                 parsed_product = ShopifyToRMSMapper.parse_product_for_updates(product)
                 for variant in parsed_product.get("variants", []):
                     sku = variant.get("sku")
                     if sku:
-                        indexed_products[sku] = product
-                        break  # Solo necesitamos el primer SKU válido
+                        indexed_products["by_sku"][sku] = product
+                
+                # Indexar por CCOD (nueva lógica para variantes múltiples)
+                # Buscar CCOD en los tags del producto
+                tags = product.get("tags", [])
+                for tag in tags:
+                    if tag.startswith("ccod_"):
+                        ccod = tag.replace("ccod_", "").upper()
+                        indexed_products["by_ccod"][ccod] = product
+                        break
 
+            logger.info(
+                f"📋 Indexed {len(indexed_products['by_sku'])} products by SKU "
+                f"and {len(indexed_products['by_ccod'])} by CCOD"
+            )
             return indexed_products
 
         except Exception as e:
@@ -306,17 +331,17 @@ class RMSToShopifySync:
 
     async def _process_products_in_batches(
         self,
-        rms_products: List[Dict[str, Any]],
+        rms_products: List[ShopifyProductInput],
         shopify_products: Dict[str, Dict[str, Any]],
         force_update: bool,
         batch_size: int,
     ) -> Dict[str, Any]:
         """
-        Procesa productos en lotes.
+        Procesa productos con múltiples variantes en lotes.
 
         Args:
-            rms_products: Productos de RMS
-            shopify_products: Productos existentes de Shopify
+            rms_products: Lista de ShopifyProductInput con múltiples variantes
+            shopify_products: Productos existentes indexados por CCOD y SKU
             force_update: Forzar actualización
             batch_size: Tamaño del lote
 
@@ -349,22 +374,32 @@ class RMSToShopifySync:
 
             # Pausa entre lotes para no sobrecargar la API
             if i + batch_size < len(rms_products):
-                await asyncio.sleep(1)
+                # Rate limiting condicional basado en batch_size
+                if batch_size > 2:
+                    # Para lotes grandes, aplicar rate limit más estricto
+                    sleep_time = 5  # 5 segundos entre lotes grandes
+                    logger.info(f"🕐 Rate limiting: sleeping {sleep_time}s (batch_size={batch_size} > 2)")
+                else:
+                    # Para lotes pequeños, pausa mínima
+                    sleep_time = 1
+                    logger.debug(f"🕐 Minimal pause: {sleep_time}s (batch_size={batch_size} <= 2)")
+                
+                await asyncio.sleep(sleep_time)
 
         return stats
 
     async def _process_product_batch(
         self,
-        batch: List[Dict[str, Any]],
+        batch: List[ShopifyProductInput],
         shopify_products: Dict[str, Dict[str, Any]],
         force_update: bool,
     ) -> Dict[str, Any]:
         """
-        Procesa un lote de productos.
+        Procesa un lote de productos con múltiples variantes.
 
         Args:
-            batch: Lote de productos
-            shopify_products: Productos existentes
+            batch: Lote de ShopifyProductInput con múltiples variantes
+            shopify_products: Productos existentes indexados por CCOD y SKU
             force_update: Forzar actualización
 
         Returns:
@@ -380,49 +415,55 @@ class RMSToShopifySync:
             "inventory_failed": 0,
         }
 
-        for product_data in batch:
+        for shopify_input in batch:
+            ccod = None  # Initialize ccod before try block
             try:
-                rms_item = product_data["rms_item"]
-                shopify_input = product_data["shopify_input"]
-                sku = rms_item.c_articulo
-                existing_product = shopify_products.get(sku)
+                # Extraer CCOD de los tags del producto
+                for tag in shopify_input.tags or []:
+                    if tag.startswith("ccod_"):
+                        ccod = tag.replace("ccod_", "").upper()
+                        break
+                
+                if not ccod:
+                    logger.warning(
+                        f"⚠️ No CCOD found in product tags: {shopify_input.title}"
+                    )
+                    stats["errors"] += 1
+                    continue
+
+                # Buscar producto existente por CCOD
+                existing_product = shopify_products["by_ccod"].get(ccod)
 
                 if existing_product:
                     # Producto existe - decidir si actualizar
-                    if force_update or DataComparator.needs_update(rms_item, existing_product):
+                    if force_update:
+                        # Forzar actualización del producto completo (con todas las variantes)
                         await self._update_shopify_product(shopify_input, existing_product)
-                        # Actualizar inventario después de actualizar producto
-                        inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
+                        # Actualizar inventario para todas las variantes
+                        inventory_success = await self._update_product_variants_inventory(shopify_input)
                         if inventory_success:
                             stats["inventory_updated"] += 1
                         else:
                             stats["inventory_failed"] += 1
                         stats["updated"] += 1
-                        log_sync_operation("update", "shopify", sku=sku)
+                        log_sync_operation("update", "shopify", ccod=ccod)
+                        logger.info(f"✅ Updated existing product: {ccod} - {shopify_input.title}")
                     else:
-                        # Verificar si solo necesita actualización de inventario
-                        if DataComparator._inventory_changed(rms_item, existing_product):
-                            inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
-                            if inventory_success:
-                                stats["inventory_updated"] += 1
-                                stats["updated"] += 1
-                                log_sync_operation("inventory_update", "shopify", sku=sku)
-                            else:
-                                stats["inventory_failed"] += 1
-                                stats["skipped"] += 1
-                        else:
-                            stats["skipped"] += 1
+                        # TODO: Implementar comparación inteligente para productos con múltiples variantes
+                        # Por ahora, skip si no es force_update
+                        stats["skipped"] += 1
+                        logger.info(f"⏭️ Skipped existing product: {ccod} - {shopify_input.title}")
                 else:
-                    # Producto nuevo - crear
+                    # Producto nuevo - crear con todas las variantes
                     await self._create_shopify_product(shopify_input)
-                    # Actualizar inventario después de crear producto
-                    inventory_success = await self._update_product_inventory(sku, rms_item.quantity)
-                    if inventory_success:
-                        stats["inventory_updated"] += 1
-                    else:
-                        stats["inventory_failed"] += 1
                     stats["created"] += 1
-                    log_sync_operation("create", "shopify", sku=sku)
+                    log_sync_operation(
+                    "create", "shopify", ccod=ccod
+                )
+                    logger.info(
+                        f"✅ Created new product: {ccod} - {shopify_input.title} "
+                        f"({len(shopify_input.variants)} variants)"
+                    )
 
                 stats["total_processed"] += 1
 
@@ -430,10 +471,50 @@ class RMSToShopifySync:
                 stats["errors"] += 1
                 self.error_aggregator.add_error(
                     e,
-                    {"sku": rms_item.c_articulo if "rms_item" in product_data else "unknown"},  # type: ignore
+                    {"ccod": ccod or "unknown", "title": shopify_input.title},
                 )
 
         return stats
+
+    async def _update_product_variants_inventory(self, shopify_input: ShopifyProductInput) -> bool:
+        """
+        Actualiza el inventario para todas las variantes de un producto.
+
+        Args:
+            shopify_input: Producto con variantes e información de inventario
+
+        Returns:
+            bool: True si todas las actualizaciones fueron exitosas
+        """
+        try:
+            success_count = 0
+            total_variants = len(shopify_input.variants)
+            
+            for variant in shopify_input.variants or []:
+                if variant.sku and variant.inventoryQuantities:
+                    for inv_qty in variant.inventoryQuantities:
+                        success = await self._update_product_inventory(
+                            variant.sku, 
+                            inv_qty.get("availableQuantity", 0)
+                        )
+                        if success:
+                            success_count += 1
+                        else:
+                            logger.warning(f"❌ Failed to update inventory for variant {variant.sku}")
+            
+            success_rate = success_count / max(
+                total_variants, 1
+            )
+            logger.info(
+                f"📊 Inventory update: {success_count}/{total_variants} variants "
+                f"successful ({success_rate:.1%})"
+            )
+            
+            return success_rate >= 0.8  # Consider successful if 80%+ variants updated
+
+        except Exception as e:
+            logger.error(f"❌ Error updating product variants inventory: {e}")
+            return False
 
     def _should_update_product_legacy(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> bool:
         """
@@ -444,95 +525,28 @@ class RMSToShopifySync:
 
     async def _create_shopify_product(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
-        Crea un producto en Shopify usando approach corregido de 3 pasos:
-        1. Crear producto básico
-        2. Actualizar precio con GraphQL bulk update
-        3. Actualizar SKU con REST API
+        Crea un producto en Shopify con múltiples variantes:
+        1. Crear producto básico sin variantes específicas
+        2. Crear todas las variantes usando productVariantsBulkCreate
+        3. Activar inventory tracking para cada variante
+        4. Crear metafields
 
         Args:
             shopify_input: Input del producto validado con variantes
 
         Returns:
-            Dict: Producto creado con variantes actualizadas
+            Dict: Producto creado con todas las variantes
         """
         try:
-            # Paso 1: Crear producto básico (Shopify crea automáticamente una variante por defecto)
-            product_data = self._convert_to_graphql_input(shopify_input)
-            created_product = await self.shopify_client.create_product(product_data)
+            # Usar el nuevo creador de múltiples variantes
+            from app.services.multiple_variants_creator import MultipleVariantsCreator
+            
+            variants_creator = MultipleVariantsCreator(self.shopify_client, self.primary_location_id)
+            created_product = await variants_creator.create_product_with_variants(shopify_input)
 
             sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
-
-            if not created_product or not created_product.get("id"):
-                raise Exception("Product creation failed - no product ID returned")
-
-            product_id = created_product["id"]
-            logger.info(f"Created product: {product_id} - {created_product.get('title')}")
-
-            # Paso 2: Obtener variante por defecto creada automáticamente
-            if shopify_input.variants:
-                variant_info = shopify_input.variants[0]
-
-                # Buscar la variante por defecto
-                product_query = """query GetProduct($id: ID!) {
-                  product(id: $id) {
-                    variants(first: 1) {
-                      edges {
-                        node {
-                          id
-                          sku
-                          price
-                        }
-                      }
-                    }
-                  }
-                }"""
-
-                product_result = await self.shopify_client._execute_query(product_query, {"id": product_id})
-
-                if product_result and product_result.get("product"):
-                    variants = product_result["product"].get("variants", {}).get("edges", [])
-
-                    if variants:
-                        default_variant_id = variants[0]["node"]["id"]
-
-                        # Paso 3: Actualizar precio con GraphQL
-                        try:
-                            price_data = {"id": default_variant_id, "price": variant_info.price}
-
-                            await self.shopify_client.update_variants_bulk(product_id, [price_data])
-                            logger.info(f"Updated variant price: {variant_info.price}")
-
-                        except Exception as price_error:
-                            logger.warning(f"Failed to update variant price: {price_error}")
-
-                        # Paso 4: Actualizar SKU con REST API
-                        try:
-                            sku_data = {"sku": variant_info.sku}
-                            await self.shopify_client.update_variant_rest(default_variant_id, sku_data)
-                            logger.info(f"Updated variant SKU: {variant_info.sku}")
-
-                        except Exception as sku_error:
-                            logger.warning(f"Failed to update variant SKU: {sku_error}")
-
-                        # Paso 5: Actualizar descripción HTML si existe
-                        if hasattr(shopify_input, "description") and shopify_input.description:
-                            try:
-                                description_data = {"id": product_id, "descriptionHtml": shopify_input.description}
-                                await self.shopify_client.update_product(product_id, description_data)
-                                logger.info("Updated product description")
-
-                            except Exception as desc_error:
-                                logger.warning(f"Failed to update product description: {desc_error}")
-
-                        # Actualizar respuesta del producto
-                        if not created_product.get("variants"):
-                            created_product["variants"] = {"edges": []}
-
-                        created_product["variants"]["edges"] = [
-                            {"node": {"id": default_variant_id, "sku": variant_info.sku, "price": variant_info.price}}
-                        ]
-
-            logger.info(f"Successfully created and updated product: {sku}")
+            
+            logger.info(f"🎉 Successfully created product with multiple variants: {sku}")
             return created_product
 
         except Exception as e:
