@@ -41,7 +41,10 @@ class VariantMapper:
             # Priorizar CCOD si existe (más confiable para agrupar variantes)
             if item.ccod and item.ccod.strip():
                 # Usar solo CCOD como clave, aplicando strip() para eliminar espacios
-                model_key = f"ccod_{item.ccod.strip()}".replace(" ", "_").lower()
+                # IMPORTANTE: Normalizar CCOD completamente
+                normalized_ccod = item.ccod.strip().upper()
+                model_key = f"ccod_{normalized_ccod}".replace(" ", "_").lower()
+                logger.debug(f"Agrupando item con CCOD normalizado: '{item.ccod}' → '{normalized_ccod}'")
             else:
                 # Usar descripción base sin talla/color específicos
                 base_description = item.description or ""
@@ -262,8 +265,11 @@ class VariantMapper:
             # Solo un color, pero incluirlo como opción
             options.append(ShopifyOption(name="Color", values=colors))
         
-        # Analizar variaciones de talla (aplicar strip() para eliminar espacios)
-        sizes = sorted(set(item.talla.strip() for item in items if item.talla), key=VariantMapper._sort_size_key)
+        # Analizar variaciones de talla (aplicar strip() y normalizar)
+        sizes = sorted(
+            set(item.talla.strip() for item in items if item.talla and item.talla.strip()), 
+            key=VariantMapper._sort_size_key
+        )
         if sizes and len(sizes) > 1:
             options.append(ShopifyOption(name="Size", values=sizes))
         elif sizes:
@@ -307,28 +313,39 @@ class VariantMapper:
         NUEVA LÓGICA: Siempre toma el precio directamente del item RMS específico,
         asegurando que no sea acumulativo sin importar cuántas veces se ejecute.
         """
-        # PRECIO DETERMINÍSTICO: Siempre calculado directamente del item RMS
-        # Sin dependencia de valores previos o estados externos
-        effective_price = item.effective_price
-        compare_at_price = None
-        if item.is_on_sale and item.sale_price:
-            compare_at_price = str(item.price)
+        # CORRECCIÓN DE FORMATO RMS: Los precios de RMS a veces vienen mal formateados
+        # Ej: 221239000000 debería ser 22,123.90 (dividir por 10,000,000)
+        def correct_rms_price(price: Decimal) -> Decimal:
+            """Corrige precios mal formateados de RMS."""
+            if price > 100000000:  # Si es mayor a 100 millones, probablemente está mal formateado
+                corrected = price / Decimal("10000000")
+                logger.warning(
+                    f"⚠️ Corrigiendo precio RMS mal formateado: ₡{price:,.0f} → ₡{corrected:,.2f}"
+                )
+                return corrected
+            return price
         
-        # VALIDACIÓN DE PRECIO: Rechazar precios irracionales
+        # Aplicar corrección a los precios
+        corrected_price = correct_rms_price(item.price)
+        corrected_sale_price = correct_rms_price(item.sale_price) if item.sale_price else None
+        
+        # PRECIO DETERMINÍSTICO: Usar precios corregidos
+        if item.is_on_sale and corrected_sale_price:
+            effective_price = corrected_sale_price
+            compare_at_price = str(corrected_price)
+        else:
+            effective_price = corrected_price
+            compare_at_price = None
+        
+        # VALIDACIÓN DE PRECIO: Validar después de corrección
         max_reasonable_price = 1000000  # 1 millón de colones
         if effective_price > max_reasonable_price:
-            logger.error(f"🚨 PRECIO IRRACIONAL DETECTADO para SKU {item.c_articulo}: ₡{effective_price:,.2f}")
-            
-            # Verificar si el precio base también es irracional
-            if item.price > max_reasonable_price:
-                logger.error(f"🚨 PRECIO BASE TAMBIÉN ES IRRACIONAL: ₡{item.price:,.2f}")
-                logger.error(f"   🛑 RECHAZANDO ESTA VARIANTE COMPLETAMENTE")
-                # Usar un precio mínimo seguro como último recurso
-                effective_price = Decimal("1000.00")  # Precio mínimo de emergencia
-                logger.warning(f"   🆘 Usando precio de emergencia: ₡{effective_price:,.2f}")
-            else:
-                logger.warning(f"   ✅ Usando precio base válido: ₡{item.price:,.2f}")
-                effective_price = item.price  # Usar precio base como fallback
+            logger.error(f"🚨 PRECIO AÚN IRRACIONAL después de corrección para SKU {item.c_articulo}: ₡{effective_price:,.2f}")
+            logger.error(f"   Precio original RMS: ₡{item.price:,.0f}")
+            logger.error(f"   Precio corregido: ₡{corrected_price:,.2f}")
+            # Usar precio mínimo seguro como último recurso
+            effective_price = Decimal("1000.00")  # Precio mínimo de emergencia
+            logger.warning(f"   🆘 Usando precio de emergencia: ₡{effective_price:,.2f}")
         
         # Generar opciones de la variante basadas en las opciones del producto
         variant_options = []
@@ -412,9 +429,11 @@ class VariantMapper:
         """
         tags = []
         
-        # CCOD como tag principal
+        # CCOD como tag principal (normalizado)
         if item.ccod:
-            tags.append(f"ccod_{item.ccod}")
+            normalized_ccod = item.ccod.strip().upper()
+            tags.append(f"ccod_{normalized_ccod}")
+            logger.debug(f"Generando tag CCOD normalizado: '{item.ccod}' → 'ccod_{normalized_ccod}'")
         
         if item.familia:
             tags.append(item.familia)

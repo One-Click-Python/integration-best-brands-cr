@@ -451,7 +451,7 @@ def create_shopify_retry_handler() -> RetryHandler:
         RetryHandler: Handler configurado para Shopify
     """
     retry_policy = RetryPolicy(
-        max_attempts=5,
+        max_attempts=3,
         base_delay=1.0,
         max_delay=30.0,
         exponential_base=2.0,
@@ -461,10 +461,10 @@ def create_shopify_retry_handler() -> RetryHandler:
     )
 
     circuit_breaker = CircuitBreaker(
-        failure_threshold=3,
-        success_threshold=2,
-        timeout=30.0,
-        reset_timeout=120.0,
+        failure_threshold=10,  # Increased from 3 to allow more failures before opening
+        success_threshold=3,   # Increased from 2 to ensure stability before closing
+        timeout=180.0,         # Increased to 180s for slow product creation operations
+        reset_timeout=60.0,    # Reduced from 120 to recover faster
     )
 
     return RetryHandler(

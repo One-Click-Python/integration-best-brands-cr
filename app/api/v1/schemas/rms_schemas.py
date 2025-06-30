@@ -68,16 +68,40 @@ class RMSViewItem(BaseModel):
 
     @property
     def is_on_sale(self) -> bool:
-        """Verifica si el producto está en oferta."""
-        # Si hay precio de oferta y es menor al precio normal, está en oferta
-        if self.sale_price and self.sale_price > 0 and self.sale_price < self.price:
-            # Si hay fechas definidas, verificar vigencia
-            if self.sale_start_date and self.sale_end_date:
-                now = datetime.now()
-                return self.sale_start_date <= now <= self.sale_end_date
-            # Si no hay fechas, asumir que está en oferta
-            return True
-        return False
+        """
+        Verifica si el producto está en oferta con validación de fechas.
+        
+        Criterios:
+        1. Debe tener sale_price válido y menor al precio regular
+        2. Si hay fechas de promoción, debe estar dentro del período activo
+        3. Si no hay fechas, se considera válido (promoción sin límite de tiempo)
+        """
+        # Verificar si hay precio de oferta válido
+        if not (self.sale_price and self.sale_price > 0 and self.sale_price < self.price):
+            return False
+            
+        # Si hay fechas definidas, verificar que estemos dentro del período
+        if self.sale_start_date and self.sale_end_date:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            
+            # Asegurar que las fechas tienen timezone
+            start_date = self.sale_start_date
+            end_date = self.sale_end_date
+            
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+                
+            # Verificar que estemos dentro del período de promoción
+            is_within_period = start_date <= now <= end_date
+            
+            if not is_within_period:
+                return False  # Fuera del período de promoción
+                
+        # Si llegamos aquí, está en oferta (ya sea sin fechas o dentro del período)
+        return True
 
     @property
     def effective_price(self) -> Decimal:

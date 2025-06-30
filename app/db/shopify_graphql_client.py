@@ -593,15 +593,44 @@ class ShopifyGraphQLClient:
             logger.error(f"Error finding product by SKU {sku}: {e}")
             return None
 
+    async def get_product_by_handle(self, handle: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca un producto por handle.
+
+        Args:
+            handle: Handle del producto
+
+        Returns:
+            Producto si existe, None si no se encuentra
+        """
+        try:
+            from .shopify_graphql_queries import PRODUCT_BY_HANDLE_QUERY
+            
+            variables = {"handle": f"handle:{handle}"}
+            result = await self._execute_query(PRODUCT_BY_HANDLE_QUERY, variables)
+
+            edges = result.get("products", {}).get("edges", [])
+            if edges:
+                product = edges[0].get("node")
+                # Verify handle match
+                if product.get("handle") == handle:
+                    return product
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error finding product by handle {handle}: {e}")
+            return None
+
     async def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Crea un nuevo producto en Shopify.
+        Crea un nuevo producto en Shopify o actualiza uno existente si el handle ya existe.
 
         Args:
             product_data: Datos del producto siguiendo el schema de Shopify
 
         Returns:
-            Producto creado con su ID
+            Producto creado o actualizado con su ID
 
         Raises:
             ShopifyAPIException: Si hay errores en la creación
@@ -614,6 +643,29 @@ class ShopifyGraphQLClient:
             user_errors = product_result.get("userErrors", [])
 
             if user_errors:
+                # Check if the error is about handle already in use
+                for error in user_errors:
+                    if "handle" in error.get("field", []) and "already in use" in error.get("message", ""):
+                        handle = product_data.get("handle")
+                        logger.warning(f"Handle '{handle}' already in use, checking existing product")
+                        
+                        # Try to find the existing product
+                        existing_product = await self.get_product_by_handle(handle)
+                        if existing_product:
+                            logger.info(f"Found existing product with handle '{handle}', updating instead of creating")
+                            # Update the existing product
+                            update_data = product_data.copy()
+                            update_data["id"] = existing_product["id"]
+                            return await self.update_product(existing_product["id"], update_data)
+                        else:
+                            # Generate a unique handle and try again
+                            original_handle = handle
+                            new_handle = await self._generate_unique_handle(handle)
+                            product_data["handle"] = new_handle
+                            logger.info(f"Generated new unique handle: {original_handle} -> {new_handle}")
+                            return await self.create_product(product_data)
+                
+                # If it's not a handle error, raise the original exception
                 error_messages = [f"{e['field']}: {e['message']}" for e in user_errors]
                 raise ShopifyAPIException(f"Product creation failed: {', '.join(error_messages)}")
 
@@ -627,6 +679,40 @@ class ShopifyGraphQLClient:
         except Exception as e:
             logger.error(f"Error creating product: {e}")
             raise
+
+    async def _generate_unique_handle(self, base_handle: str) -> str:
+        """
+        Genera un handle único agregando un sufijo numérico o timestamp.
+
+        Args:
+            base_handle: Handle base
+
+        Returns:
+            str: Handle único
+        """
+        import time
+        from datetime import datetime
+        
+        # Try with timestamp first
+        timestamp = str(int(time.time()))[-6:]  # Last 6 digits of timestamp
+        new_handle = f"{base_handle}-{timestamp}"
+        
+        # Check if this handle is available
+        existing = await self.get_product_by_handle(new_handle)
+        if not existing:
+            return new_handle
+        
+        # If timestamp handle is also taken, try with incremental numbers
+        for i in range(1, 100):
+            new_handle = f"{base_handle}-{i}"
+            existing = await self.get_product_by_handle(new_handle)
+            if not existing:
+                return new_handle
+        
+        # Fallback to timestamp + random suffix if all numbers are taken
+        import random
+        random_suffix = random.randint(1000, 9999)
+        return f"{base_handle}-{timestamp}-{random_suffix}"
 
     async def update_product(self, product_id: str, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1004,23 +1090,40 @@ class ShopifyGraphQLClient:
         try:
             all_products = []
             cursor = None
+            page_count = 0
 
             while True:
+                page_count += 1
+                logger.info(f"Fetching page {page_count} of products (cursor: {cursor[:50] if cursor else 'None'}...)")
+                
                 result = await self.get_products(limit=250, cursor=cursor)
                 products = result.get("products", [])
+                
+                logger.info(f"Page {page_count}: Retrieved {len(products)} products")
+                
+                if products:
+                    # Log some product details for debugging
+                    for i, product in enumerate(products[:3]):
+                        logger.info(f"  Product {i+1}: {product.get('title', 'No title')} (ID: {product.get('id', 'No ID')})")
+                
                 all_products.extend(products)
 
-                if not result.get("hasNextPage", False):
+                has_next_page = result.get("hasNextPage", False)
+                logger.info(f"Page {page_count}: hasNextPage = {has_next_page}")
+
+                if not has_next_page:
+                    logger.info(f"No more pages. Completed pagination after {page_count} pages.")
                     break
 
                 cursor = result.get("endCursor")
                 if not cursor:
+                    logger.warning(f"hasNextPage=True but no endCursor provided. Breaking pagination.")
                     break
 
                 # Small delay to be respectful of rate limits
                 await asyncio.sleep(0.1)
 
-            logger.info(f"Retrieved {len(all_products)} total products")
+            logger.info(f"Retrieved {len(all_products)} total products across {page_count} pages")
             return all_products
 
         except Exception as e:

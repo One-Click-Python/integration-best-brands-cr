@@ -29,19 +29,23 @@ class MultipleVariantsCreator:
 
     async def create_product_with_variants(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
-        Crea un producto en Shopify con múltiples variantes de manera optimizada.
+        FLUJO COMPLETO: Crea un producto en Shopify siguiendo el flujo especificado:
+        B. Crear Producto → C. Crear Variantes → D. Actualizar Inventario →
+        E. Crear Metafields → F. Verificar Precio de Oferta → G. ¿Tiene Sale Price? →
+        H. Crear Descuento Automático → J. Producto Completo
 
         Args:
             shopify_input: Input del producto con todas las variantes
 
         Returns:
-            Dict: Producto creado con todas las variantes
+            Dict: Producto creado con todas las variantes siguiendo flujo completo
 
         Raises:
             Exception: Si falla la creación del producto o variantes
         """
         try:
-            # Paso 1: Crear producto básico sin variantes específicas
+            # B. CREAR PRODUCTO básico
+            logger.info(f"🔄 STEP B: Creating base product - {shopify_input.title}")
             product_data = self._prepare_base_product_data(shopify_input)
             created_product = await self.shopify_client.create_product(product_data)
 
@@ -49,28 +53,40 @@ class MultipleVariantsCreator:
                 raise Exception("Product creation failed - no product ID returned")
 
             product_id = created_product["id"]
-            logger.info(f"📦 Created base product: {product_id} - {created_product.get('title')}")
+            logger.info(f"✅ STEP B: Created base product: {product_id} - {created_product.get('title')}")
 
-            # Paso 2: Crear todas las variantes usando productVariantsBulkCreate
+            # C. CREAR VARIANTES usando productVariantsBulkCreate
+            logger.info(f"🔄 STEP C: Creating {len(shopify_input.variants)} variants")
             if shopify_input.variants and len(shopify_input.variants) > 1:
                 # Primero obtener las variantes existentes para evitar conflictos
                 existing_variants = await self._get_existing_variants(product_id)
                 await self._create_multiple_variants(product_id, shopify_input.variants, existing_variants)
             elif shopify_input.variants and len(shopify_input.variants) == 1:
                 await self._update_default_variant(product_id, shopify_input.variants[0])
+            logger.info("✅ STEP C: Created variants successfully")
 
-            # Paso 3: Crear metafields
+            # E. CREAR METAFIELDS
+            logger.info("🔄 STEP E: Creating metafields")
             if shopify_input.metafields:
                 await self._create_metafields(product_id, shopify_input.metafields)
+            logger.info("✅ STEP E: Metafields created")
 
-            # Paso 4: Activar inventory tracking para todas las variantes
+            # D. ACTUALIZAR INVENTARIO para todas las variantes
+            logger.info("🔄 STEP D: Activating inventory tracking")
             await self._activate_inventory_for_all_variants(product_id, shopify_input.variants)
+            logger.info("✅ STEP D: Inventory tracking activated")
 
-            logger.info(f"✅ Successfully created product with {len(shopify_input.variants)} variants")
+            # F→G→H. VERIFICAR PRECIO DE OFERTA → ¿TIENE SALE PRICE? → CREAR DESCUENTO AUTOMÁTICO
+            logger.info("🔄 STEPS F-H: Checking sale prices and creating discounts")
+            await self._create_automatic_discounts(product_id, shopify_input)
+            logger.info("✅ STEPS F-H: Discount processing completed")
+
+            # J. PRODUCTO COMPLETO
+            logger.info(f"🎉 STEP J: Product creation complete with {len(shopify_input.variants)} variants")
             return created_product
 
         except Exception as e:
-            logger.error(f"❌ Error creating product with multiple variants: {e}")
+            logger.error(f"❌ Error in product creation flow: {e}")
             raise
 
     def _prepare_base_product_data(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
@@ -842,3 +858,266 @@ class MultipleVariantsCreator:
 
         except Exception as e:
             logger.warning(f"❌ Error activating inventory for variants: {e}")
+
+    async def _create_automatic_discounts(self, product_id: str, shopify_input: Any) -> None:
+        """
+        Crea descuentos automáticos para el producto si hay precios de oferta.
+
+        Args:
+            product_id: ID del producto en Shopify
+            shopify_input: Input del producto con información de variantes
+        """
+        try:
+            # Importar el gestor de descuentos
+            from app.services.discount_manager import DiscountManager
+
+            discount_manager = DiscountManager(self.shopify_client)
+            await discount_manager.initialize()
+
+            # Extraer fechas de promoción del primer ítem (asumiendo que todos tienen las mismas fechas)
+            sale_start_date = None
+            sale_end_date = None
+
+            # Buscar fechas de promoción en metafields o variantes
+            if hasattr(shopify_input, "metafields") and shopify_input.metafields:
+                for metafield in shopify_input.metafields:
+                    if metafield.get("key") == "sale_start_date":
+                        try:
+                            from datetime import datetime
+
+                            sale_start_date = datetime.fromisoformat(metafield.get("value", ""))
+                        except (ValueError, TypeError):
+                            pass
+                    elif metafield.get("key") == "sale_end_date":
+                        try:
+                            from datetime import datetime
+
+                            sale_end_date = datetime.fromisoformat(metafield.get("value", ""))
+                        except (ValueError, TypeError):
+                            pass
+
+            # Verificar si hay precio de oferta en alguna variante
+            has_sale_price = False
+            for variant in shopify_input.variants or []:
+                if hasattr(variant, "compareAtPrice") and variant.compareAtPrice:
+                    if hasattr(variant, "price") and variant.price:
+                        if float(variant.price) < float(variant.compareAtPrice):
+                            has_sale_price = True
+                            break
+
+            if not has_sale_price:
+                logger.info(f"ℹ️ No sale prices found for product {product_id}, skipping discount creation")
+                return
+
+            # Crear descuento
+            logger.info(f"🎯 Creating automatic discount for product {product_id}")
+            result = await discount_manager.check_and_update_discounts(
+                product_id, shopify_input, sale_start_date, sale_end_date
+            )
+
+            if result.get("created"):
+                logger.info(f"✅ Automatic discount created for product {product_id}")
+                if result.get("discount_id"):
+                    logger.info(f"   💳 Discount ID: {result['discount_id']}")
+            elif result.get("message"):
+                logger.info(f"ℹ️ Discount result: {result['message']}")
+            else:
+                logger.warning(f"⚠️ Failed to create discount for product {product_id}")
+
+        except Exception as e:
+            # No fallar la creación del producto por problemas con descuentos
+            logger.warning(f"⚠️ Error creating automatic discount for product {product_id}: {e}")
+            logger.info("🔄 Product creation will continue despite discount error")
+
+    async def update_product_with_variants(
+        self, product_id: str, shopify_input: ShopifyProductInput, existing_product: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Actualiza un producto existente en Shopify con múltiples variantes.
+
+        Realiza las siguientes operaciones:
+        1. Actualizar información básica del producto
+        2. Sincronizar variantes (crear nuevas, actualizar existentes)
+        3. Actualizar inventario para todas las variantes
+        4. Actualizar metafields
+
+        Args:
+            product_id: ID del producto existente en Shopify
+            shopify_input: Nuevos datos del producto con variantes
+            existing_product: Producto existente obtenido de Shopify
+
+        Returns:
+            Dict: Producto actualizado
+
+        Raises:
+            Exception: Si falla la actualización del producto
+        """
+        try:
+            logger.info(
+                f"🔄 FLUJO COMPLETO: Starting update of product {product_id} "
+                f"with {len(shopify_input.variants)} variants"
+            )
+
+            # B. ACTUALIZAR PRODUCTO básico
+            logger.info(f"🔄 STEP B: Updating base product - {shopify_input.title}")
+            product_update_data = self._prepare_product_update_data(shopify_input)
+            updated_product = await self.shopify_client.update_product(product_id, product_update_data)
+            logger.info(f"✅ STEP B: Updated basic product info: {updated_product.get('title')}")
+
+            # C. SINCRONIZAR VARIANTES (crear nuevas, actualizar existentes)
+            logger.info(f"🔄 STEP C: Syncing {len(shopify_input.variants)} variants")
+            existing_variants = await self._get_existing_variants(product_id)
+            if shopify_input.variants:
+                await self._sync_product_variants(product_id, shopify_input.variants, existing_variants)
+            logger.info("✅ STEP C: Variants synchronized successfully")
+
+            # E. ACTUALIZAR METAFIELDS
+            logger.info("🔄 STEP E: Updating metafields")
+            if shopify_input.metafields:
+                await self._update_metafields(product_id, shopify_input.metafields)
+            logger.info("✅ STEP E: Metafields updated")
+
+            # D. ACTUALIZAR INVENTARIO para todas las variantes
+            logger.info("🔄 STEP D: Updating inventory tracking")
+            await self._activate_inventory_for_all_variants(product_id, shopify_input.variants)
+            logger.info("✅ STEP D: Inventory tracking updated")
+
+            # F→G→H. VERIFICAR PRECIO DE OFERTA → ¿TIENE SALE PRICE? → ACTUALIZAR DESCUENTO AUTOMÁTICO
+            logger.info("🔄 STEPS F-H: Checking sale prices and updating discounts")
+            await self._update_automatic_discounts(product_id, shopify_input)
+            logger.info("✅ STEPS F-H: Discount processing completed")
+
+            # J. PRODUCTO COMPLETO
+            logger.info(f"🎉 STEP J: Product update complete with {len(shopify_input.variants)} variants")
+            return updated_product
+
+        except Exception as e:
+            logger.error(f"❌ Error updating product {product_id} with multiple variants: {e}")
+            raise
+
+    def _prepare_product_update_data(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
+        """
+        Prepara los datos básicos del producto para actualización.
+
+        Args:
+            shopify_input: Input del producto con nuevos datos
+
+        Returns:
+            Dict: Datos del producto para actualización
+        """
+        update_data = {}
+
+        # Solo incluir campos que han cambiado o necesitan actualización
+        if shopify_input.title:
+            update_data["title"] = shopify_input.title
+
+        if shopify_input.status:
+            update_data["status"] = (
+                shopify_input.status.value if hasattr(shopify_input.status, "value") else shopify_input.status
+            )
+
+        if shopify_input.productType:
+            update_data["productType"] = shopify_input.productType
+
+        if shopify_input.vendor:
+            update_data["vendor"] = shopify_input.vendor
+
+        if shopify_input.tags:
+            update_data["tags"] = shopify_input.tags
+
+        if shopify_input.description:
+            update_data["descriptionHtml"] = shopify_input.description
+
+        if shopify_input.category:
+            update_data["category"] = shopify_input.category
+
+        return update_data
+
+    async def _sync_product_variants(
+        self, product_id: str, new_variants: List[Any], existing_variants: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Sincroniza las variantes del producto (crear nuevas, actualizar existentes).
+
+        Args:
+            product_id: ID del producto
+            new_variants: Nuevas variantes a sincronizar
+            existing_variants: Variantes existentes en Shopify
+        """
+        try:
+            logger.info(f"🔄 Syncing {len(new_variants)} variants with {len(existing_variants)} existing variants")
+
+            # Separar variantes en crear/actualizar
+            variants_to_create = []
+            variants_to_update = []
+
+            for new_variant in new_variants:
+                # Buscar si existe una variante con las mismas opciones
+                existing_match = None
+
+                if hasattr(new_variant, "options") and new_variant.options:
+                    new_variant_options = "-".join(str(opt) for opt in new_variant.options)
+
+                    for existing in existing_variants:
+                        existing_options = existing.get("selectedOptions", [])
+                        if len(existing_options) == len(new_variant.options):
+                            existing_combo = "-".join([opt["value"] for opt in existing_options])
+                            if new_variant_options == existing_combo:
+                                existing_match = existing
+                                break
+
+                if existing_match:
+                    variants_to_update.append((existing_match, new_variant))
+                    logger.info(f"🔄 Will update variant: {new_variant.sku}")
+                else:
+                    variants_to_create.append(new_variant)
+                    logger.info(f"🆕 Will create variant: {new_variant.sku}")
+
+            # Crear nuevas variantes si las hay
+            if variants_to_create:
+                await self._create_multiple_variants(product_id, variants_to_create, existing_variants)
+
+            # Actualizar variantes existentes si las hay
+            if variants_to_update:
+                await self._update_existing_variants(variants_to_update)
+
+            logger.info(
+                f"✅ Variant sync completed: {len(variants_to_create)} created, {{len(variants_to_update)}} updated"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Error syncing product variants: {e}")
+            raise
+
+    async def _update_metafields(self, product_id: str, metafields: List[Dict[str, Any]]) -> None:
+        """
+        Actualiza metafields del producto. Si no existen, los crea.
+
+        Args:
+            product_id: ID del producto
+            metafields: Lista de metafields a actualizar/crear
+        """
+        try:
+            # Por simplicidad, usar el mismo método que crear metafields
+            # metafieldsSet es upsert (crea o actualiza según el caso)
+            await self._create_metafields(product_id, metafields)
+            logger.info(f"✅ Updated metafields for product {product_id}")
+
+        except Exception as e:
+            logger.warning(f"❌ Failed to update metafields: {e}")
+
+    async def _update_automatic_discounts(self, product_id: str, shopify_input: Any) -> None:
+        """
+        Actualiza descuentos automáticos para el producto si hay precios de oferta.
+
+        Args:
+            product_id: ID del producto en Shopify
+            shopify_input: Input del producto con información de variantes
+        """
+        try:
+            # Reutilizar la lógica de creación de descuentos
+            await self._create_automatic_discounts(product_id, shopify_input)
+
+        except Exception as e:
+            logger.warning(f"⚠️ Error updating automatic discount for product {product_id}: {e}")
+            logger.info("🔄 Product update will continue despite discount error")

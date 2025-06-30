@@ -338,6 +338,55 @@ async def reset_metrics() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to reset metrics: {str(e)}") from e
 
 
+@router.post("/reset-circuit-breakers", status_code=status.HTTP_200_OK)
+async def reset_circuit_breakers() -> Dict[str, Any]:
+    """
+    Reinicia todos los circuit breakers del sistema.
+
+    Returns:
+        Dict: Estado de los circuit breakers después del reset
+    """
+    try:
+        from app.utils.retry_handler import RMS_RETRY_HANDLER, SHOPIFY_RETRY_HANDLER, SYNC_RETRY_HANDLER
+        from app.utils.retry_handler import CircuitState
+
+        # Reset Shopify circuit breaker
+        if SHOPIFY_RETRY_HANDLER.circuit_breaker:
+            SHOPIFY_RETRY_HANDLER.circuit_breaker.state = CircuitState.CLOSED
+            SHOPIFY_RETRY_HANDLER.circuit_breaker.failure_count = 0
+            SHOPIFY_RETRY_HANDLER.circuit_breaker.success_count = 0
+            SHOPIFY_RETRY_HANDLER.circuit_breaker.last_failure_time = None
+            SHOPIFY_RETRY_HANDLER.circuit_breaker.last_success_time = None
+
+        # Reset RMS circuit breaker
+        if RMS_RETRY_HANDLER.circuit_breaker:
+            RMS_RETRY_HANDLER.circuit_breaker.state = CircuitState.CLOSED
+            RMS_RETRY_HANDLER.circuit_breaker.failure_count = 0
+            RMS_RETRY_HANDLER.circuit_breaker.success_count = 0
+            RMS_RETRY_HANDLER.circuit_breaker.last_failure_time = None
+            RMS_RETRY_HANDLER.circuit_breaker.last_success_time = None
+
+        logger.info("All circuit breakers have been reset to CLOSED state")
+
+        # Get current state after reset
+        circuit_states = {}
+        if SHOPIFY_RETRY_HANDLER.circuit_breaker:
+            circuit_states["shopify"] = SHOPIFY_RETRY_HANDLER.circuit_breaker.get_state_info()
+        if RMS_RETRY_HANDLER.circuit_breaker:
+            circuit_states["rms"] = RMS_RETRY_HANDLER.circuit_breaker.get_state_info()
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "success",
+            "message": "All circuit breakers have been reset to CLOSED state",
+            "circuit_breaker_states": circuit_states,
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting circuit breakers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reset circuit breakers: {str(e)}") from e
+
+
 @router.get("/dashboard", status_code=status.HTTP_200_OK)
 async def get_dashboard_metrics() -> Dict[str, Any]:
     """

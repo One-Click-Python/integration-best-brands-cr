@@ -188,6 +188,43 @@ query GetProductBySku($sku: String!) {
 }
 """
 
+PRODUCT_BY_HANDLE_QUERY = """
+query GetProductByHandle($handle: String!) {
+  products(first: 1, query: $handle) {
+    edges {
+      node {
+        id
+        title
+        handle
+        status
+        productType
+        vendor
+        tags
+        variants(first: 250) {
+          edges {
+            node {
+              id
+              sku
+              title
+              price
+              compareAtPrice
+              inventoryQuantity
+              inventoryItem {
+                id
+              }
+              selectedOptions {
+                name
+                value
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 # Product Mutations
 CREATE_PRODUCT_MUTATION = """
 mutation CreateProduct($input: ProductInput!) {

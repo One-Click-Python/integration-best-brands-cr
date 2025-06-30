@@ -397,20 +397,26 @@ class RMSShopifyMapper:
     def _calculate_prices(self, item: RMSViewItem) -> Tuple[Decimal, Optional[Decimal]]:
         """
         Calcula precios para Shopify basado en promociones RMS.
+        
+        Lógica corregida según estándares de Shopify:
+        - Price = Precio regular (siempre item.price)
+        - CompareAtPrice = Precio original más alto (para mostrar descuento)
 
         Args:
             item: Item RMS
 
         Returns:
-            Tuple: (precio_actual, precio_comparacion)
+            Tuple: (precio_regular, precio_comparacion_para_descuento)
         """
-        base_price = item.price
+        regular_price = item.price
 
-        # Verificar si está en promoción activa
-        if item.is_on_sale and item.sale_price and item.sale_price < base_price:
-            return item.sale_price, base_price
-
-        return base_price, None
+        # Verificar si está en promoción activa con validación de fechas
+        if item.is_on_sale and item.sale_price and item.sale_price < regular_price:
+            # CORRECCIÓN: En Shopify, Price = precio de oferta, CompareAtPrice = precio original
+            return item.sale_price, regular_price
+        
+        # Si no está en oferta, solo precio regular
+        return regular_price, None
 
     def _generate_category(self, item: RMSViewItem) -> Optional[str]:
         """
@@ -506,6 +512,23 @@ class RMSShopifyMapper:
                 "key": "extended_category",
                 "value": str(item.extended_category),
                 "type": "single_line_text_field"
+            })
+
+        # Fechas de promoción
+        if item.sale_start_date:
+            metafields.append({
+                "namespace": "rms",
+                "key": "sale_start_date",
+                "value": item.sale_start_date.isoformat(),
+                "type": "date_time"
+            })
+
+        if item.sale_end_date:
+            metafields.append({
+                "namespace": "rms",
+                "key": "sale_end_date", 
+                "value": item.sale_end_date.isoformat(),
+                "type": "date_time"
             })
 
         # Agregar metafields de categoría basados en el tipo de producto
