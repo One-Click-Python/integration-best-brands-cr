@@ -395,7 +395,7 @@ docker-compose up -d
 ## 📧 Soporte
 
 Para soporte técnico o consultas:
-- **Email**: leonardo@live.com.ar
+- **Email**: enzo@oneclick.cr
 - **Issues**: [GitHub Issues](https://github.com/One-Click-Python/integration-best-brands-cr/issues)
 
 ## 📝 Historial de Cambios

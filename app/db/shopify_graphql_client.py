@@ -691,7 +691,6 @@ class ShopifyGraphQLClient:
             str: Handle único
         """
         import time
-        from datetime import datetime
         
         # Try with timestamp first
         timestamp = str(int(time.time()))[-6:]  # Last 6 digits of timestamp
@@ -891,7 +890,7 @@ class ShopifyGraphQLClient:
             Resultado de la activación
         """
         try:
-            from .shopify_graphql_queries import INVENTORY_ITEM_UPDATE_MUTATION, INVENTORY_ACTIVATE_MUTATION
+            from .shopify_graphql_queries import INVENTORY_ACTIVATE_MUTATION, INVENTORY_ITEM_UPDATE_MUTATION
             
             # Step 1: Enable tracking en el inventory item
             update_variables = {
@@ -1117,7 +1116,7 @@ class ShopifyGraphQLClient:
 
                 cursor = result.get("endCursor")
                 if not cursor:
-                    logger.warning(f"hasNextPage=True but no endCursor provided. Breaking pagination.")
+                    logger.warning("hasNextPage=True but no endCursor provided. Breaking pagination.")
                     break
 
                 # Small delay to be respectful of rate limits

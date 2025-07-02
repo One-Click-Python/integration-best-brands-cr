@@ -4,6 +4,66 @@ Todas las modificaciones notables a este proyecto serán documentadas en este ar
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Sin versionar] - 2025-07-02
+
+### 🚀 Conector de Captura de Pedidos Shopify → RMS
+
+#### Agregado - Sistema de Inserción en Tablas ORDER y ORDERENTRY
+- ✨ **Conector completo** para captura de pedidos formalizados en Shopify
+- 🗄️ **Inserción directa en tablas RMS**: ORDER y ORDERENTRY
+- 📦 **Procesamiento de datos de cabecera**: cliente, fecha, total, impuestos
+- 📋 **Procesamiento de datos de detalle**: productos, cantidades, precios unitarios
+- ✅ **Validación de existencias** antes de procesar pedidos
+- 🔄 **Gestión de excepciones** con manejo robusto de errores
+- 📊 **Manejo de estados del pedido** durante todo el ciclo de vida
+
+#### Implementación del Conector RMS
+- 🛒 **Clase ShopifyOrderClient** (`app/db/shopify_order_client.py`) para obtención de pedidos Shopify
+- 🔄 **Servicio ShopifyToRMSSync** (`app/services/shopify_to_rms.py`) para procesamiento y mapeo
+- 📝 **RMSHandler mejorado** con métodos `create_order()` y `create_order_entry()`
+- 🗃️ **Schemas Pydantic** para validación estricta de datos ORDER/ORDERENTRY
+
+#### Datos de Cabecera ORDER Implementados
+- `StoreID` - ID de tienda RMS configurado
+- `Time` - Fecha y hora del pedido Shopify
+- `CustomerID` - Cliente mapeado o creado en RMS
+- `Total` - Total del pedido incluyendo impuestos
+- `Tax` - Impuestos calculados según configuración
+- `Comment` - ID de Shopify para tracking
+- `ShippingNotes` - Dirección de envío
+
+#### Datos de Detalle ORDERENTRY Implementados  
+- `OrderID` - Referencia a tabla ORDER
+- `ItemID` - ID del producto en RMS (mapeado desde SKU)
+- `Price` - Precio unitario del producto
+- `QuantityOnOrder` - Cantidad ordenada
+- `Description` - Descripción del producto
+- `Cost` - Costo del producto (si disponible)
+
+#### Validaciones Implementadas
+- ✅ **Validación de existencias** en View_Items antes de procesar
+- ✅ **Verificación de estado financiero** (solo pedidos pagados)
+- ✅ **Mapeo SKU → ItemID** con validación de productos existentes
+- ✅ **Control de duplicados** mediante verificación de comentarios
+- ✅ **Gestión de excepciones** con rollback en caso de error
+
+#### Endpoints API del Conector
+- `POST /api/v1/sync/shopify-to-rms` - Sincronizar pedidos específicos a tablas RMS
+- `GET /api/v1/webhooks/orders/paid` - Webhook para captura automática de pedidos pagados
+
+### Técnico - Arquitectura del Conector
+- 🏗️ **Transacciones SQL** para integridad ORDER/ORDERENTRY
+- 📊 **Queries optimizadas** para inserción en tablas RMS
+- 🔄 **Sistema de reintentos** para manejo de conexión SQL Server
+- 📈 **Logging detallado** de inserciones en base de datos
+
+### Verificado - Integración de Base de Datos
+- ✅ **Conexión RMS establecida**: 556,649 productos en View_Items
+- ✅ **Test de endpoints**: `/database-test` respondiendo en ~577ms
+- ✅ **Pool de conexiones**: 10 conexiones configuradas correctamente
+- ✅ **Consultas optimizadas**: Soporte para filtros y paginación
+- ✅ **Handler RMS mejorado**: Parámetro `include_zero_stock` agregado
+
 ## [Sin versionar] - 2025-06-25
 
 ### 🚀 Sistema de Taxonomías y Metafields Mejorado

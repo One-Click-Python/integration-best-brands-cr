@@ -347,8 +347,7 @@ async def reset_circuit_breakers() -> Dict[str, Any]:
         Dict: Estado de los circuit breakers después del reset
     """
     try:
-        from app.utils.retry_handler import RMS_RETRY_HANDLER, SHOPIFY_RETRY_HANDLER, SYNC_RETRY_HANDLER
-        from app.utils.retry_handler import CircuitState
+        from app.utils.retry_handler import RMS_RETRY_HANDLER, SHOPIFY_RETRY_HANDLER, CircuitState
 
         # Reset Shopify circuit breaker
         if SHOPIFY_RETRY_HANDLER.circuit_breaker:

@@ -4,9 +4,9 @@ Mapeador inteligente de variantes por color y talla.
 """
 
 import logging
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
 from collections import defaultdict
+from decimal import Decimal
+from typing import Dict, List, Optional
 
 from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.api.v1.schemas.shopify_schemas import (

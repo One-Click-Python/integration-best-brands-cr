@@ -76,10 +76,8 @@ class MultipleVariantsCreator:
             await self._activate_inventory_for_all_variants(product_id, shopify_input.variants)
             logger.info("✅ STEP D: Inventory tracking activated")
 
-            # F→G→H. VERIFICAR PRECIO DE OFERTA → ¿TIENE SALE PRICE? → CREAR DESCUENTO AUTOMÁTICO
-            logger.info("🔄 STEPS F-H: Checking sale prices and creating discounts")
-            await self._create_automatic_discounts(product_id, shopify_input)
-            logger.info("✅ STEPS F-H: Discount processing completed")
+            # F→G→H. PRECIO DE OFERTA SE APLICA POR CÓDIGO PYTHON (descuentos removidos)
+            logger.info("✅ STEPS F-H: Sale prices applied directly in Python code")
 
             # J. PRODUCTO COMPLETO
             logger.info(f"🎉 STEP J: Product creation complete with {len(shopify_input.variants)} variants")
@@ -118,22 +116,33 @@ class MultipleVariantsCreator:
             product_data["descriptionHtml"] = shopify_input.description
 
         # IMPORTANTE: Incluir opciones en la creación inicial para que las variantes las puedan referenciar
-        if len(shopify_input.variants) > 1 and shopify_input.variants is not None:
-            # Extraer todas las opciones únicas de las variantes
-            colors = set()
-            sizes = set()
-
+        if shopify_input.variants is not None and len(shopify_input.variants) > 0:
+            # Detectar dinámicamente las opciones disponibles
+            option_sets = {}  # {"Color": set(), "Size": set()}
+            
             for variant in shopify_input.variants:
-                if hasattr(variant, "options") and variant.options and len(variant.options) >= 2:
-                    colors.add(str(variant.options[0]))
-                    sizes.add(str(variant.options[1]))
-
-            if colors and sizes:
-                product_data["productOptions"] = [
-                    {"name": "Color", "values": [{"name": color} for color in sorted(list(colors))]},
-                    {"name": "Size", "values": [{"name": size} for size in sorted(list(sizes))]},
-                ]
-                logger.info(f"🎨 Including productOptions in product: Colors={sorted(colors)}, Sizes={sorted(sizes)}")
+                if hasattr(variant, "options") and variant.options:
+                    # Detectar tipo de cada opción basado en posición
+                    for position, option_value in enumerate(variant.options):
+                        option_str = str(option_value)
+                        option_name = self._detect_option_type(option_str, position)
+                        
+                        if option_name not in option_sets:
+                            option_sets[option_name] = set()
+                        option_sets[option_name].add(option_str)
+            
+            # Crear productOptions solo si hay opciones detectadas
+            if option_sets:
+                product_options = []
+                for option_name, values in option_sets.items():
+                    product_options.append({
+                        "name": option_name,
+                        "values": [{"name": value} for value in sorted(list(values))]
+                    })
+                
+                product_data["productOptions"] = product_options
+                options_summary = {name: sorted(values) for name, values in option_sets.items()}
+                logger.info(f"🎨 Including productOptions in product: {options_summary}")
 
         return product_data
 
@@ -714,9 +723,12 @@ class MultipleVariantsCreator:
         # Opciones de la variante usando optionValues
         if variant.options:
             option_values = []
-            for i, option_value in enumerate(variant.options):
-                option_values.append({"optionName": "Color" if i == 0 else "Size", "name": str(option_value)})
+            for position, option_value in enumerate(variant.options):
+                option_str = str(option_value)
+                option_name = self._detect_option_type(option_str, position)
+                option_values.append({"optionName": option_name, "name": option_str})
             variant_data["optionValues"] = option_values
+            logger.debug(f"🔗 Variant {variant.sku} optionValues: {option_values}")
 
         # Inventario usando inventoryQuantities
         if hasattr(variant, "inventoryQuantities") and variant.inventoryQuantities:
@@ -729,6 +741,31 @@ class MultipleVariantsCreator:
             )
 
         return variant_data
+
+    def _detect_option_type(self, option_value: str, position: int = 0) -> str:
+        """
+        Detecta el tipo de opción basado en su posición y valor.
+        
+        Por convención RMS:
+        - Primera opción (posición 0): Color
+        - Segunda opción (posición 1): Size/Talla
+        
+        Args:
+            option_value: Valor de la opción
+            position: Posición en el array de opciones (0-based)
+            
+        Returns:
+            str: "Color" si posición 0, "Size" si posición 1
+        """
+        # Simple y directo: basado en la posición
+        # Esto permite cualquier valor tanto para Color como para Size
+        if position == 0:
+            return "Color"
+        elif position == 1:
+            return "Size"
+        else:
+            # Si hay más de 2 opciones (raro), usar nombres genéricos
+            return f"Option{position + 1}"
 
     async def _create_metafields(self, product_id: str, metafields: List[Dict[str, Any]]) -> None:
         """
@@ -859,75 +896,6 @@ class MultipleVariantsCreator:
         except Exception as e:
             logger.warning(f"❌ Error activating inventory for variants: {e}")
 
-    async def _create_automatic_discounts(self, product_id: str, shopify_input: Any) -> None:
-        """
-        Crea descuentos automáticos para el producto si hay precios de oferta.
-
-        Args:
-            product_id: ID del producto en Shopify
-            shopify_input: Input del producto con información de variantes
-        """
-        try:
-            # Importar el gestor de descuentos
-            from app.services.discount_manager import DiscountManager
-
-            discount_manager = DiscountManager(self.shopify_client)
-            await discount_manager.initialize()
-
-            # Extraer fechas de promoción del primer ítem (asumiendo que todos tienen las mismas fechas)
-            sale_start_date = None
-            sale_end_date = None
-
-            # Buscar fechas de promoción en metafields o variantes
-            if hasattr(shopify_input, "metafields") and shopify_input.metafields:
-                for metafield in shopify_input.metafields:
-                    if metafield.get("key") == "sale_start_date":
-                        try:
-                            from datetime import datetime
-
-                            sale_start_date = datetime.fromisoformat(metafield.get("value", ""))
-                        except (ValueError, TypeError):
-                            pass
-                    elif metafield.get("key") == "sale_end_date":
-                        try:
-                            from datetime import datetime
-
-                            sale_end_date = datetime.fromisoformat(metafield.get("value", ""))
-                        except (ValueError, TypeError):
-                            pass
-
-            # Verificar si hay precio de oferta en alguna variante
-            has_sale_price = False
-            for variant in shopify_input.variants or []:
-                if hasattr(variant, "compareAtPrice") and variant.compareAtPrice:
-                    if hasattr(variant, "price") and variant.price:
-                        if float(variant.price) < float(variant.compareAtPrice):
-                            has_sale_price = True
-                            break
-
-            if not has_sale_price:
-                logger.info(f"ℹ️ No sale prices found for product {product_id}, skipping discount creation")
-                return
-
-            # Crear descuento
-            logger.info(f"🎯 Creating automatic discount for product {product_id}")
-            result = await discount_manager.check_and_update_discounts(
-                product_id, shopify_input, sale_start_date, sale_end_date
-            )
-
-            if result.get("created"):
-                logger.info(f"✅ Automatic discount created for product {product_id}")
-                if result.get("discount_id"):
-                    logger.info(f"   💳 Discount ID: {result['discount_id']}")
-            elif result.get("message"):
-                logger.info(f"ℹ️ Discount result: {result['message']}")
-            else:
-                logger.warning(f"⚠️ Failed to create discount for product {product_id}")
-
-        except Exception as e:
-            # No fallar la creación del producto por problemas con descuentos
-            logger.warning(f"⚠️ Error creating automatic discount for product {product_id}: {e}")
-            logger.info("🔄 Product creation will continue despite discount error")
 
     async def update_product_with_variants(
         self, product_id: str, shopify_input: ShopifyProductInput, existing_product: Dict[str, Any]
@@ -982,10 +950,8 @@ class MultipleVariantsCreator:
             await self._activate_inventory_for_all_variants(product_id, shopify_input.variants)
             logger.info("✅ STEP D: Inventory tracking updated")
 
-            # F→G→H. VERIFICAR PRECIO DE OFERTA → ¿TIENE SALE PRICE? → ACTUALIZAR DESCUENTO AUTOMÁTICO
-            logger.info("🔄 STEPS F-H: Checking sale prices and updating discounts")
-            await self._update_automatic_discounts(product_id, shopify_input)
-            logger.info("✅ STEPS F-H: Discount processing completed")
+            # F→G→H. PRECIO DE OFERTA SE APLICA POR CÓDIGO PYTHON (descuentos removidos)
+            logger.info("✅ STEPS F-H: Sale prices applied directly in Python code")
 
             # J. PRODUCTO COMPLETO
             logger.info(f"🎉 STEP J: Product update complete with {len(shopify_input.variants)} variants")
@@ -1106,18 +1072,3 @@ class MultipleVariantsCreator:
         except Exception as e:
             logger.warning(f"❌ Failed to update metafields: {e}")
 
-    async def _update_automatic_discounts(self, product_id: str, shopify_input: Any) -> None:
-        """
-        Actualiza descuentos automáticos para el producto si hay precios de oferta.
-
-        Args:
-            product_id: ID del producto en Shopify
-            shopify_input: Input del producto con información de variantes
-        """
-        try:
-            # Reutilizar la lógica de creación de descuentos
-            await self._create_automatic_discounts(product_id, shopify_input)
-
-        except Exception as e:
-            logger.warning(f"⚠️ Error updating automatic discount for product {product_id}: {e}")
-            logger.info("🔄 Product update will continue despite discount error")

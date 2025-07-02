@@ -121,6 +121,7 @@ class RMSHandler:
         incremental_hours: Optional[int] = None,
         limit: Optional[int] = None,
         offset: int = 0,
+        include_zero_stock: bool = False,
     ) -> List[RMSViewItem]:
         """
         Obtiene productos desde la vista View_Items.
@@ -132,6 +133,7 @@ class RMSHandler:
             incremental_hours: Solo productos modificados en las últimas N horas
             limit: Límite de resultados
             offset: Offset para paginación
+            include_zero_stock: Incluir productos sin stock (cantidad = 0)
 
         Returns:
             List[RMSViewItem]: Lista de productos
@@ -188,6 +190,10 @@ class RMSHandler:
                 # Solo productos con datos válidos
                 query += " AND C_ARTICULO IS NOT NULL AND Description IS NOT NULL"
                 query += " AND Price > 0"
+                
+                # Filtrar por stock si se especifica
+                if not include_zero_stock:
+                    query += " AND Quantity > 0"
 
                 # Ordenar por modificación reciente y ID para consistencia
                 query += " ORDER BY ItemID"
