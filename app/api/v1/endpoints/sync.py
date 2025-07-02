@@ -7,6 +7,7 @@ de sincronización entre RMS y Shopify.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -438,6 +439,156 @@ async def get_sync_history(
         raise HTTPException(status_code=500, detail="Failed to get synchronization history") from e
 
 
+@router.get(
+    "/orders",
+    summary="Obtener todas las órdenes de Shopify",
+    description="Obtiene todas las órdenes (regulares y draft orders) disponibles en Shopify",
+)
+async def get_all_orders(
+    limit: int = Query(default=50, ge=1, le=250, description="Número máximo de órdenes por tipo"),
+    include_draft_orders: bool = Query(default=True, description="Incluir draft orders"),
+    _: None = Depends(verify_sync_permissions),
+):
+    """
+    Obtiene todas las órdenes disponibles en Shopify.
+    
+    Args:
+        limit: Límite de órdenes por tipo (regulares y draft)
+        include_draft_orders: Si incluir draft orders
+        
+    Returns:
+        Dict: Órdenes obtenidas de Shopify
+    """
+    try:
+        from app.db.shopify_order_client import ShopifyOrderClient
+        from app.db.shopify_graphql_client import ShopifyGraphQLClient
+        
+        logger.info(f"Obteniendo órdenes de Shopify (limit={limit}, include_draft={include_draft_orders})")
+        
+        # Inicializar cliente GraphQL base
+        graphql_client = ShopifyGraphQLClient()
+        await graphql_client.initialize()
+        
+        # Inicializar cliente de órdenes
+        order_client = ShopifyOrderClient(graphql_client)
+        
+        try:
+            # Obtener órdenes regulares
+            orders_result = await order_client.get_orders(limit=limit)
+            regular_orders = orders_result.get("orders", []) if isinstance(orders_result, dict) else orders_result
+            
+            all_orders_data = {
+                "orders": regular_orders,
+                "total_orders": len(regular_orders),
+                "draft_orders": [],
+                "total_draft_orders": 0,
+                "summary": {
+                    "regular_orders_count": len(regular_orders),
+                    "draft_orders_count": 0,
+                    "total_count": len(regular_orders)
+                }
+            }
+            
+            # Obtener draft orders si está habilitado
+            if include_draft_orders:
+                draft_orders = await order_client.get_draft_orders(limit=limit)
+                all_orders_data["draft_orders"] = draft_orders
+                all_orders_data["total_draft_orders"] = len(draft_orders)
+                all_orders_data["summary"]["draft_orders_count"] = len(draft_orders)
+                all_orders_data["summary"]["total_count"] += len(draft_orders)
+            
+            logger.info(f"✅ Órdenes obtenidas: {all_orders_data['summary']['regular_orders_count']} regulares, {all_orders_data['summary']['draft_orders_count']} draft orders")
+            
+            return all_orders_data
+            
+        finally:
+            await graphql_client.close()
+            
+    except Exception as e:
+        logger.error(f"Error obteniendo órdenes: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving orders from Shopify: {str(e)}"
+        ) from e
+
+
+@router.post(
+    "/orders",
+    response_model=SyncResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Sincronizar órdenes específicas",
+    description="Sincroniza órdenes específicas de Shopify hacia RMS (usa order_id directamente)",
+)
+async def sync_orders_endpoint(
+    order_id: str = Query(description="ID de la orden específica a sincronizar"),
+    force_sync: bool = Query(default=False, description="Forzar sincronización aunque ya exista"),
+    validate_before_insert: bool = Query(default=True, description="Validar datos antes de insertar"),
+    background_tasks: BackgroundTasks = None,
+    run_async: bool = Query(default=True, description="Ejecutar sincronización en segundo plano"),
+    _: None = Depends(verify_sync_permissions),
+    health_check: None = Depends(check_system_health),
+):
+    """
+    Sincroniza una orden específica de Shopify hacia RMS.
+    
+    Este endpoint maneja automáticamente tanto órdenes regulares como draft orders.
+    
+    Args:
+        order_id: ID de la orden a sincronizar
+        force_sync: Forzar sincronización
+        validate_before_insert: Validar antes de insertar
+        run_async: Ejecutar en background
+        
+    Returns:
+        SyncResponse: Resultado de la sincronización
+    """
+    logger.debug("health_check", health_check)
+    try:
+        log_sync_operation(
+            operation="start",
+            service="single_order_sync",
+            order_id=order_id,
+        )
+        
+        if run_async and background_tasks:
+            # Ejecutar en segundo plano
+            sync_id = f"order_sync_{order_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            
+            background_tasks.add_task(
+                _execute_single_order_sync, 
+                order_id, 
+                force_sync, 
+                validate_before_insert, 
+                sync_id
+            )
+            
+            return SyncResponse(
+                success=True,
+                sync_id=sync_id,
+                message=f"Order synchronization started for order {order_id}",
+                statistics={"status": "started", "order_id": order_id},
+                timestamp=datetime.now(timezone.utc),
+            )
+        else:
+            # Ejecutar sincrónicamente
+            result = await _sync_single_order(order_id, force_sync, validate_before_insert)
+            
+            return SyncResponse(
+                success=result["success"],
+                sync_id=result["sync_id"],
+                message=result["message"],
+                statistics=result["statistics"],
+                errors=result.get("errors"),
+                timestamp=datetime.now(timezone.utc),
+                duration_seconds=result.get("duration_seconds"),
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in single order sync: {e}")
+        app_exception = handle_exception(e, reraise=False)
+        raise HTTPException(status_code=500, detail=create_error_response(app_exception)) from e
+
+
 @router.delete(
     "/cancel/{sync_id}",
     summary="Cancelar sincronización",
@@ -560,6 +711,126 @@ async def _execute_full_sync(force_update: bool, sync_id: str):
     except Exception as e:
         logger.error(f"Full sync failed: {sync_id} - {e}")
         log_sync_operation(operation="error", service="full_sync", sync_id=sync_id, error=str(e))
+
+
+async def _execute_single_order_sync(
+    order_id: str, 
+    force_sync: bool, 
+    validate_before_insert: bool, 
+    sync_id: str
+):
+    """
+    Ejecuta sincronización de una orden específica en segundo plano.
+    
+    Args:
+        order_id: ID de la orden
+        force_sync: Forzar sincronización
+        validate_before_insert: Validar antes de insertar
+        sync_id: ID de la sincronización
+    """
+    try:
+        logger.info(f"Starting background single order sync: {sync_id} for order {order_id}")
+        
+        result = await _sync_single_order(order_id, force_sync, validate_before_insert)
+        
+        if result["success"]:
+            logger.info(f"✅ Background single order sync completed: {sync_id}")
+            log_sync_operation(
+                operation="complete",
+                service="single_order_sync",
+                sync_id=sync_id,
+                order_id=order_id,
+            )
+        else:
+            logger.error(f"❌ Background single order sync failed: {sync_id} - {result.get('message', 'Unknown error')}")
+            log_sync_operation(
+                operation="error",
+                service="single_order_sync", 
+                sync_id=sync_id,
+                error=result.get("message", "Unknown error")
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Background single order sync exception: {sync_id} - {e}")
+        log_sync_operation(
+            operation="error", 
+            service="single_order_sync", 
+            sync_id=sync_id, 
+            error=str(e)
+        )
+
+
+async def _sync_single_order(
+    order_id: str, 
+    force_sync: bool, 
+    validate_before_insert: bool
+) -> Dict[str, Any]:
+    """
+    Sincroniza una orden específica de Shopify hacia RMS.
+    
+    Args:
+        order_id: ID de la orden a sincronizar
+        force_sync: Forzar sincronización
+        validate_before_insert: Validar antes de insertar
+        
+    Returns:
+        Dict: Resultado de la sincronización
+    """
+    start_time = time.time()
+    sync_id = f"order_sync_{order_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    
+    try:
+        from app.services.shopify_to_rms import ShopifyToRMSSync
+        
+        logger.info(f"Sincronizando orden individual: {order_id}")
+        
+        # Inicializar servicio de sincronización
+        sync_service = ShopifyToRMSSync()
+        
+        # Usar el método sync_orders existente con una sola orden
+        result = await sync_service.sync_orders(
+            order_ids=[order_id],
+            skip_validation=not validate_before_insert
+        )
+        
+        duration = time.time() - start_time
+        
+        # Verificar si fue exitoso
+        success = result.get("statistics", {}).get("created", 0) > 0 or result.get("statistics", {}).get("updated", 0) > 0
+        
+        # Construir respuesta 
+        return {
+            "success": success,
+            "sync_id": sync_id,
+            "message": f"Order {order_id} {'synchronized successfully' if success else 'synchronization failed'}",
+            "statistics": {
+                "order_id": order_id,
+                "processed": 1,
+                "success": 1 if success else 0,
+                "database_impact": "ORDER and ORDERENTRY tables updated" if success else "No database changes",
+                "sync_details": result.get("statistics", {}),
+                "errors": result.get("errors", [])
+            },
+            "duration_seconds": duration
+        }
+            
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Error sincronizando orden {order_id}: {e}")
+        
+        return {
+            "success": False,
+            "sync_id": sync_id,
+            "message": f"Failed to synchronize order {order_id}: {str(e)}",
+            "statistics": {
+                "order_id": order_id,
+                "processed": 1,
+                "success": 0,
+                "errors": 1
+            },
+            "errors": {"error_message": str(e)},
+            "duration_seconds": duration
+        }
 
 
 async def _simulate_rms_to_shopify_sync(sync_request: SyncRequest) -> Dict[str, Any]:

@@ -34,12 +34,27 @@ class ShopifyOrderClient:
     async def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
         """
         Obtiene una orden específica por ID con todos sus detalles.
+        Maneja automáticamente tanto órdenes regulares como draft orders.
 
         Args:
-            order_id: ID de la orden en Shopify (formato: gid://shopify/Order/...)
+            order_id: ID de la orden en Shopify (formato: gid://shopify/Order/... o gid://shopify/DraftOrder/...)
 
         Returns:
             Dict: Datos completos de la orden o None si no se encuentra
+        """
+        try:
+            # Detectar si es un draft order o una orden regular
+            if "DraftOrder" in order_id:
+                return await self._get_draft_order(order_id)
+            else:
+                return await self._get_regular_order(order_id)
+        except Exception as e:
+            logger.error(f"Error getting order {order_id}: {e}")
+            raise ShopifyAPIException(f"Failed to get order {order_id}: {str(e)}")
+
+    async def _get_regular_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene una orden regular específica por ID.
         """
         try:
             query = """
@@ -96,7 +111,6 @@ class ShopifyOrderClient:
                   firstName
                   lastName
                   phone
-                  acceptsMarketing
                   defaultAddress {
                     address1
                     address2
@@ -172,9 +186,6 @@ class ShopifyOrderClient:
                   status
                   createdAt
                   updatedAt
-                  trackingCompany
-                  trackingNumber
-                  trackingUrl
                   fulfillmentLineItems(first: 250) {
                     edges {
                       node {
@@ -218,8 +229,84 @@ class ShopifyOrderClient:
             return None
 
         except Exception as e:
-            logger.error(f"Error getting order {order_id}: {e}")
-            raise ShopifyAPIException(f"Failed to get order {order_id}: {str(e)}")
+            logger.error(f"Error getting regular order {order_id}: {e}")
+            raise ShopifyAPIException(f"Failed to get regular order {order_id}: {str(e)}")
+
+    async def _get_draft_order(self, draft_order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene un draft order específico por ID.
+        """
+        try:
+            from .shopify_graphql_queries import DRAFT_ORDER_QUERY
+            
+            variables = {"id": draft_order_id}
+            result = await self.client._execute_query(DRAFT_ORDER_QUERY, variables)
+
+            draft_order = result.get("draftOrder")
+            if draft_order:
+                logger.info(f"Found draft order {draft_order_id}: {draft_order.get('name')} - Status: {draft_order.get('status')}")
+                
+                # Normalizar el draft order para que tenga la misma estructura que una orden regular
+                normalized_order = self._normalize_draft_order(draft_order)
+                return normalized_order
+            
+            logger.warning(f"Draft order {draft_order_id} not found")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting draft order {draft_order_id}: {e}")
+            raise ShopifyAPIException(f"Failed to get draft order {draft_order_id}: {str(e)}")
+
+    def _normalize_draft_order(self, draft_order: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normaliza un draft order para que tenga la misma estructura que una orden regular.
+        """
+        # Mapear campos específicos de draft order a formato de orden regular
+        normalized = {
+            "id": draft_order.get("id"),
+            "name": draft_order.get("name"),
+            "createdAt": draft_order.get("createdAt"),
+            "updatedAt": draft_order.get("updatedAt"),
+            "processedAt": draft_order.get("completedAt"),  # draft orders usan completedAt
+            "email": draft_order.get("email"),
+            "phone": draft_order.get("phone"),
+            "note": None,  # draft orders no tienen campo note
+            "tags": draft_order.get("tags"),
+            "test": False,  # draft orders no son órdenes de prueba por defecto
+            "displayFinancialStatus": "PENDING" if draft_order.get("status") == "OPEN" else "PAID",
+            "displayFulfillmentStatus": "UNFULFILLED",  # draft orders no están cumplidas
+            "returnStatus": None,
+            
+            # Mapear precios (draft orders usan la misma estructura *Set que las órdenes regulares)
+            "totalPriceSet": draft_order.get("totalPriceSet", {
+                "shopMoney": {"amount": "0.0", "currencyCode": "USD"}
+            }),
+            "subtotalPriceSet": draft_order.get("subtotalPriceSet", {
+                "shopMoney": {"amount": "0.0", "currencyCode": "USD"}
+            }),
+            "totalTaxSet": draft_order.get("totalTaxSet", {
+                "shopMoney": {"amount": "0.0", "currencyCode": "USD"}
+            }),
+            "totalShippingPriceSet": draft_order.get("totalShippingPriceSet", {
+                "shopMoney": {"amount": "0.0", "currencyCode": "USD"}
+            }),
+            "totalDiscountsSet": draft_order.get("totalDiscountsSet", {
+                "shopMoney": {"amount": "0.0", "currencyCode": "USD"}
+            }),
+            
+            # Mantener campos existentes
+            "customer": draft_order.get("customer"),
+            "shippingAddress": draft_order.get("shippingAddress"),
+            "billingAddress": draft_order.get("billingAddress"),
+            "lineItems": draft_order.get("lineItems"),
+            
+            # Campos específicos para identificar que es un draft order
+            "_isDraftOrder": True,
+            "_originalStatus": draft_order.get("status"),
+            "appliedDiscount": draft_order.get("appliedDiscount"),
+        }
+        
+        return normalized
 
     async def get_orders(
         self,
@@ -294,6 +381,55 @@ class ShopifyOrderClient:
         except Exception as e:
             logger.error(f"Error getting orders: {e}")
             raise ShopifyAPIException(f"Failed to get orders: {str(e)}")
+
+    async def get_draft_orders(
+        self,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene una lista de draft orders.
+
+        Args:
+            limit: Número máximo de draft orders por página (max 250)
+            cursor: Cursor para paginación
+            status: Estado del draft order (open, invoice_sent, completed)
+
+        Returns:
+            List: Lista de draft orders normalizados
+        """
+        try:
+            from .queries.order_queries import DRAFT_ORDERS_QUERY
+            
+            variables = {"first": min(limit, 250)}
+            if cursor:
+                variables["after"] = cursor
+
+            # Construir query filter para draft orders
+            query_parts = []
+            if status:
+                query_parts.append(f"status:{status}")
+
+            if query_parts:
+                variables["query"] = " AND ".join(query_parts)
+
+            result = await self.client._execute_query(DRAFT_ORDERS_QUERY, variables)
+
+            draft_orders = []
+            for edge in result.get("draftOrders", {}).get("edges", []):
+                draft_order = edge.get("node")
+                # Normalizar cada draft order
+                normalized_order = self._normalize_draft_order(draft_order)
+                draft_orders.append(normalized_order)
+            
+            logger.info(f"Retrieved {len(draft_orders)} draft orders with filters: {query_parts}")
+
+            return draft_orders
+
+        except Exception as e:
+            logger.error(f"Error getting draft orders: {e}")
+            raise ShopifyAPIException(f"Failed to get draft orders: {str(e)}")
 
     async def update_order_tags(self, order_id: str, tags: List[str]) -> Dict[str, Any]:
         """

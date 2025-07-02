@@ -1,0 +1,25 @@
+{
+  "total_orders": 2,
+  "synced": 0,
+  "failed": 2,
+  "success_rate": 0.0,
+  "duration_seconds": 3.3337249755859375,
+  "orders_per_second": 0.5999295126762755,
+  "synced_orders": [],
+  "failed_orders": [
+    {
+      "order_id": "gid://shopify/Order/5909076344892",
+      "status": "failed",
+      "error": "{\"success\":false,\"sync_id\":\"order_sync_gid://shopify/Order/5909076344892_20250702_025345\",\"message\":\"Failed to synchronize order gid://shopify/Order/5909076344892: 'ShopifyToRMSSync' object has no attribute 'initialize'\",\"statistics\":{\"order_id\":\"gid://shopify/Order/5909076344892\",\"processed\":1,\"success\":0,\"errors\":1},\"errors\":{\"error_message\":\"'ShopifyToRMSSync' object has no attribute 'initialize'\"},\"recommendations\":null,\"timestamp\":\"2025-07-02T02:53:45.491466Z\",\"duration_seconds\":0.00025391578674316406}",
+      "http_status": 202,
+      "timestamp": "2025-07-01T23:53:45.493581"
+    },
+    {
+      "order_id": "gid://shopify/DraftOrder/1005293240380",
+      "status": "failed",
+      "error": "{\"success\":false,\"sync_id\":\"order_sync_gid://shopify/DraftOrder/1005293240380_20250702_025345\",\"message\":\"Failed to synchronize order gid://shopify/DraftOrder/1005293240380: 'ShopifyToRMSSync' object has no attribute 'initialize'\",\"statistics\":{\"order_id\":\"gid://shopify/DraftOrder/1005293240380\",\"processed\":1,\"success\":0,\"errors\":1},\"errors\":{\"error_message\":\"'ShopifyToRMSSync' object has no attribute 'initialize'\"},\"recommendations\":null,\"timestamp\":\"2025-07-02T02:53:45.678670Z\",\"duration_seconds\":0.0001468658447265625}",
+      "http_status": 202,
+      "timestamp": "2025-07-01T23:53:45.679556"
+    }
+  ]
+}

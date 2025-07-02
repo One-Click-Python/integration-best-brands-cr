@@ -38,8 +38,8 @@ class ShopifyToRMSSync:
             from app.db.shopify_order_client import ShopifyOrderClient
             
             self.rms_handler = RMSHandler()
-            graphql_client = ShopifyGraphQLClient()
-            self.shopify_client = ShopifyOrderClient(graphql_client)
+            self.graphql_client = ShopifyGraphQLClient()
+            self.shopify_client = None  # Se inicializará en _ensure_clients_initialized
 
             logger.info(f"Shopify to RMS sync service initialized - ID: {self.sync_id}")
 
@@ -49,6 +49,18 @@ class ShopifyToRMSSync:
                 service="shopify_to_rms",
                 operation="initialize",
             ) from e
+
+    async def _ensure_clients_initialized(self):
+        """Asegura que los clientes estén inicializados."""
+        if self.shopify_client is None:
+            from app.db.shopify_order_client import ShopifyOrderClient
+            await self.graphql_client.initialize()
+            self.shopify_client = ShopifyOrderClient(self.graphql_client)
+
+    async def close(self):
+        """Cierra los clientes."""
+        if self.graphql_client:
+            await self.graphql_client.close()
 
     async def sync_orders(
         self,
@@ -68,6 +80,9 @@ class ShopifyToRMSSync:
         start_time = datetime.now(timezone.utc)
 
         try:
+            # Asegurar que los clientes estén inicializados
+            await self._ensure_clients_initialized()
+            
             with LogContext(sync_id=self.sync_id, operation="sync_orders"):
                 logger.info(f"Starting Shopify to RMS sync for {len(order_ids)} orders")
 

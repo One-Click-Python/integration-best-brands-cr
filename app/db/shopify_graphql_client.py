@@ -15,10 +15,12 @@ import aiohttp
 from aiohttp import ClientTimeout
 
 from app.core.config import get_settings
-from app.db.shopify_graphql_queries import (
+from app.db.queries import (
     CREATE_PRODUCT_MUTATION,
     CREATE_VARIANT_MUTATION,
     CREATE_VARIANTS_BULK_MUTATION,
+    DRAFT_ORDER_QUERY,
+    DRAFT_ORDERS_QUERY,
     INVENTORY_SET_MUTATION,
     LOCATIONS_QUERY,
     ORDERS_QUERY,

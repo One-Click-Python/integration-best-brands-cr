@@ -1,0 +1,25 @@
+{
+  "total_orders": 2,
+  "synced": 0,
+  "failed": 2,
+  "success_rate": 0.0,
+  "duration_seconds": 3.872217893600464,
+  "orders_per_second": 0.5164998600170098,
+  "synced_orders": [],
+  "failed_orders": [
+    {
+      "order_id": "gid://shopify/DraftOrder/1005293240380",
+      "status": "failed",
+      "error": "{\"error\":true,\"error_type\":\"http_error\",\"status_code\":500,\"message\":{\"error\":true,\"error_type\":\"AppException\",\"message\":\"KeyError: \\\"Attempt to overwrite 'operation' in LogRecord\\\"\",\"error_code\":\"UNKNOWN_ERROR\",\"details\":{\"original_exception\":\"KeyError\"},\"status_code\":500,\"severity\":\"medium\",\"is_retryable\":false,\"is_critical\":false,\"timestamp\":\"2025-07-02T02:54:56.113330+00:00\"},\"path\":\"/api/v1/sync/orders\",\"timestamp\":\"2025-07-02T02:54:56.117904+00:00\",\"request_id\":null}",
+      "http_status": 500,
+      "timestamp": "2025-07-01T23:54:56.121385"
+    },
+    {
+      "order_id": "gid://shopify/Order/5909076344892",
+      "status": "failed",
+      "error": "{\"success\":false,\"sync_id\":\"order_sync_gid://shopify/Order/5909076344892_20250702_025455\",\"message\":\"Order gid://shopify/Order/5909076344892 synchronization failed\",\"statistics\":{\"order_id\":\"gid://shopify/Order/5909076344892\",\"processed\":1,\"success\":0,\"database_impact\":\"No database changes\",\"sync_details\":{\"total_orders\":1,\"processed\":0,\"created\":0,\"updated\":0,\"errors\":1,\"skipped\":0},\"errors\":{\"total_processed\":0,\"error_count\":0,\"warning_count\":1,\"success_count\":-1,\"duration_seconds\":0.63728,\"start_time\":\"2025-07-02T02:54:55.941250+00:00\",\"end_time\":\"2025-07-02T02:54:56.578530+00:00\",\"errors\":[],\"warnings\":[{\"error_type\":\"AppException\",\"message\":\"AttributeError: 'str' object has no attribute 'get'\",\"error_code\":\"UNKNOWN_ERROR\",\"details\":{\"original_exception\":\"AttributeError\",\"order_id\":\"gid://shopify/Order/5909076344892\"},\"status_code\":500,\"severity\":\"medium\",\"is_retryable\":false,\"is_critical\":false,\"timestamp\":\"2025-07-02T02:54:56.577578+00:00\",\"traceback\":\"Traceback (most recent call last):\\n  File \\\"/Users/enzo/Documents/Python/rms-shopify-integration/app/services/shopify_to_rms.py\\\", line 144, in _process_order_batch\\n    result = await self._sync_single_order(order_id, skip_validation)\\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \\\"/Users/enzo/Documents/Python/rms-shopify-integration/app/services/shopify_to_rms.py\\\", line 180, in _sync_single_order\\n    validated_order = self._validate_shopify_order(shopify_order)\\n  File \\\"/Users/enzo/Documents/Python/rms-shopify-integration/app/services/shopify_to_rms.py\\\", line 248, in _validate_shopify_order\\n    if not item.get(\\\"sku\\\"):\\n           ^^^^^^^^\\nAttributeError: 'str' object has no attribute 'get'\\n\"}]}},\"errors\":null,\"recommendations\":null,\"timestamp\":\"2025-07-02T02:54:56.578978Z\",\"duration_seconds\":0.6374349594116211}",
+      "http_status": 202,
+      "timestamp": "2025-07-01T23:54:56.579977"
+    }
+  ]
+}
