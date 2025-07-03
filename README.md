@@ -388,9 +388,19 @@ docker-compose up -d
 
 ## 📚 Documentación Adicional
 
-- **[Sistema de Taxonomías y Metafields](docs/enhanced_taxonomy_system.md)** - Guía completa del sistema avanzado
+### 📖 Guías de Sincronización
+- **[📄 RMS → Shopify](RMS_TO_SHOPIFY_SYNC.md)** - Guía completa de sincronización de productos, inventario y precios desde RMS hacia Shopify
+- **[📄 Shopify → RMS](SHOPIFY_TO_RMS_SYNC.md)** - Guía completa de sincronización de pedidos desde Shopify hacia RMS
+- **[📄 Configuración de Webhooks](WEBHOOK_CONFIGURATION.md)** - Guía detallada para configurar webhooks de Shopify y manejo de pedidos sin cliente
+
+### 📊 APIs y Referencias
 - **[API Docs](http://localhost:8080/docs)** - Documentación interactiva Swagger (cuando la app esté corriendo)
+- **[Sistema de Taxonomías y Metafields](docs/enhanced_taxonomy_system.md)** - Guía completa del sistema avanzado
 - **[CHANGELOG.md](CHANGELOG.md)** - Historial completo de cambios
+
+### 🔧 Scripts de Utilidad
+- **[configure_webhooks.py](configure_webhooks.py)** - Script para configurar webhooks automáticamente
+- **[test_all_orders_sync.py](test_all_orders_sync.py)** - Script para probar sincronización completa de pedidos
 
 ## 📧 Soporte
 

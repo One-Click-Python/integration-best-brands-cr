@@ -368,10 +368,43 @@ class ShopifyToRMSSync:
             int: ID del cliente en RMS
         """
         try:
+            # Verificar si se permiten pedidos sin cliente
+            if not settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
+                if not customer_data or not customer_data.get("email"):
+                    raise ValidationException(
+                        message="Orders without customer are not allowed",
+                        field="customer",
+                        invalid_value=customer_data
+                    )
+            
+            # Si hay un customer ID predeterminado para invitados
+            if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS and not customer_data:
+                logger.info(f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for guest order")
+                return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
+            
+            # Si no hay datos de cliente, permitir NULL
+            if not customer_data:
+                logger.warning("No customer data provided, creating order with customer_id=NULL")
+                return None
+            
             email = customer_data.get("email")
+            
+            # Verificar si se requiere email
+            if settings.REQUIRE_CUSTOMER_EMAIL and not email:
+                raise ValidationException(
+                    message="Customer email is required",
+                    field="customer.email",
+                    invalid_value=email
+                )
+            
+            # Si no hay email pero se permiten pedidos sin cliente
             if not email:
-                logger.warning("Customer has no email, using default customer ID")
-                return None  # Usar customer_id=NULL para ventas sin cliente
+                if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
+                    logger.info(f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for customer without email")
+                    return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
+                else:
+                    logger.warning("Customer has no email, using customer_id=NULL")
+                    return None
             
             # Buscar cliente existente por email
             existing_customer = await self.rms_handler.find_customer_by_email(email)
@@ -405,7 +438,15 @@ class ShopifyToRMSSync:
             
         except Exception as e:
             logger.error(f"Error resolving customer: {e}")
-            return None  # Usar customer_id=NULL en caso de error
+            
+            # Si se permite, usar customer_id=NULL como fallback
+            if settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
+                if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
+                    return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
+                return None
+            else:
+                # Re-raise si no se permiten pedidos sin cliente
+                raise
 
     async def _resolve_sku_to_item_id(self, sku: str) -> Optional[int]:
         """

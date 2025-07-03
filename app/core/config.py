@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     DEFAULT_BATCH_SIZE: int = Field(default=100, env="DEFAULT_BATCH_SIZE")
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
+    
+    # === CONFIGURACIÓN DE PEDIDOS SIN CLIENTE ===
+    ALLOW_ORDERS_WITHOUT_CUSTOMER: bool = Field(default=True, env="ALLOW_ORDERS_WITHOUT_CUSTOMER")
+    DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS: Optional[int] = Field(default=None, env="DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS")
+    REQUIRE_CUSTOMER_EMAIL: bool = Field(default=False, env="REQUIRE_CUSTOMER_EMAIL")
+    GUEST_CUSTOMER_NAME: str = Field(default="Cliente Invitado", env="GUEST_CUSTOMER_NAME")
 
     # === CONFIGURACIÓN DE RATE LIMITING ===
     ENABLE_RATE_LIMITING: bool = Field(default=True, env="ENABLE_RATE_LIMITING")

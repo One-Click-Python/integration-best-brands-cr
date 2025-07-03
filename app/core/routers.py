@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 # Importar routers de la API
 from app.api.v1.endpoints.sync import router as sync_router
+from app.api.v1.endpoints.sync_monitor import router as sync_monitor_router
 from app.api.v1.endpoints.webhooks import router as webhooks_router
 from app.core.config import get_settings
 from app.core.health import get_health_status
@@ -49,6 +50,7 @@ def create_root_endpoints(app: FastAPI) -> None:
                 "health": "/health",
                 "api_v1": "/api/v1",
                 "sync": "/api/v1/sync",
+                "sync_monitor": "/api/v1/sync/monitor",
                 "webhooks": "/api/v1/webhooks",
             },
         }
@@ -247,6 +249,18 @@ def configure_api_v1_routers(app: FastAPI) -> None:
     )
     logger.info("✅ Router de sincronización configurado")
 
+    # Router de monitoreo de sincronización automática
+    app.include_router(
+        sync_monitor_router,
+        prefix="/api/v1/sync/monitor",
+        tags=["Sync Monitoring"],
+        responses={
+            404: {"description": "Monitoring endpoint not found"},
+            500: {"description": "Monitoring error"},
+        },
+    )
+    logger.info("✅ Router de monitoreo de sincronización configurado")
+
     # Router de webhooks
     app.include_router(
         webhooks_router,
@@ -351,6 +365,7 @@ def get_router_info() -> Dict[str, Any]:
             "root": "/",
             "health": "/health",
             "sync": "/api/v1/sync",
+            "sync_monitor": "/api/v1/sync/monitor",
             "webhooks": "/api/v1/webhooks",
             "metrics": "/api/v1/metrics" if settings.METRICS_ENABLED else None,
             "admin": "/api/v1/admin" if settings.DEBUG else None,
