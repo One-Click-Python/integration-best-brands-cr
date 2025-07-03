@@ -6,6 +6,38 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Sin versionar] - 2025-07-03
 
+### 🕐 Sincronización Completa Programada
+
+#### Agregado - Sistema de Sincronización por Horario
+- ⏰ **Sincronización completa programable** a horas específicas del día
+- 🌍 **Soporte de zonas horarias** configurable (UTC, America/Argentina/Buenos_Aires, etc.)
+- 📅 **Programación flexible** por días de la semana o diaria
+- 🔄 **Independiente del motor de cambios** para asegurar consistencia de datos
+- 📊 **Seguimiento de última sincronización** y cálculo de próxima ejecución
+- 🛡️ **Validación de configuración** con valores seguros por defecto
+
+#### Nuevas Variables de Configuración
+```bash
+# Sincronización completa programada
+ENABLE_FULL_SYNC_SCHEDULE=true             # Habilitar sincronización programada
+FULL_SYNC_HOUR=23                          # Hora del día (0-23)
+FULL_SYNC_MINUTE=0                          # Minuto de la hora (0-59)
+FULL_SYNC_TIMEZONE=America/Argentina/Buenos_Aires  # Zona horaria
+FULL_SYNC_DAYS=0,1,2,3,4,5,6              # Días (0=Lunes, 6=Domingo) - opcional
+```
+
+#### Casos de Uso Implementados
+- **Sincronización diaria**: Ejecutar todos los días a hora específica
+- **Días laborables**: Solo lunes a viernes para reducir carga en fines de semana
+- **Fines de semana**: Solo sábados y domingos para mantenimiento
+- **Reconciliación nocturna**: Asegurar consistencia de datos fuera de horario laboral
+
+#### Integración con Motor Existente
+- ✅ **Compatible con detección de cambios** - Ambos sistemas funcionan en paralelo
+- ✅ **Ventana de ejecución de 10 minutos** para evitar múltiples ejecuciones
+- ✅ **Estado en API de monitoreo** - Visible en `/api/v1/sync/monitor/status`
+- ✅ **Logging detallado** de ejecuciones programadas
+
 ### 🤖 Motor de Sincronización Automática RMS → Shopify
 
 #### Agregado - Sistema de Detección de Cambios en Tiempo Real

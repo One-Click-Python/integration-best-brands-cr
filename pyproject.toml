@@ -26,7 +26,8 @@ dependencies = [
     "apscheduler (>=3.10.0,<4.0.0)",
     # Fecha y tiempo
     "python-dateutil (>=2.8.0,<3.0.0)",
-    "aiofiles (>=24.1.0,<25.0.0)"
+    "aiofiles (>=24.1.0,<25.0.0)",
+    "pytz (>=2025.2,<2026.0)"
 ]
 
 [tool.poetry]

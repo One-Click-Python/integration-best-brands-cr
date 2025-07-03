@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
     
+    # === CONFIGURACIÓN DE SINCRONIZACIÓN COMPLETA PROGRAMADA ===
+    ENABLE_FULL_SYNC_SCHEDULE: bool = Field(default=False, env="ENABLE_FULL_SYNC_SCHEDULE")
+    FULL_SYNC_HOUR: int = Field(default=2, env="FULL_SYNC_HOUR")  # Hora del día (0-23)
+    FULL_SYNC_MINUTE: int = Field(default=0, env="FULL_SYNC_MINUTE")  # Minuto de la hora (0-59)
+    FULL_SYNC_TIMEZONE: str = Field(default="UTC", env="FULL_SYNC_TIMEZONE")  # Zona horaria para la sincronización
+    FULL_SYNC_DAYS: Optional[List[int]] = Field(default=None, env="FULL_SYNC_DAYS")  # Días de la semana (0=Lunes, 6=Domingo)
+    
     # === CONFIGURACIÓN DE PEDIDOS SIN CLIENTE ===
     ALLOW_ORDERS_WITHOUT_CUSTOMER: bool = Field(default=True, env="ALLOW_ORDERS_WITHOUT_CUSTOMER")
     DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS: Optional[int] = Field(default=None, env="DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS")
@@ -130,6 +137,40 @@ class Settings(BaseSettings):
         """Parsea ALLOWED_HOSTS como lista separada por comas."""
         if isinstance(v, str):
             return [host.strip() for host in v.split(",") if host.strip()]
+        return v
+
+    @field_validator("FULL_SYNC_DAYS", mode="before")
+    @classmethod
+    def parse_full_sync_days(cls, v):
+        """Parsea FULL_SYNC_DAYS como lista de enteros separados por comas."""
+        if isinstance(v, str):
+            if not v.strip():
+                return None
+            try:
+                days = [int(day.strip()) for day in v.split(",") if day.strip()]
+                # Validar que los días estén en rango 0-6
+                for day in days:
+                    if not 0 <= day <= 6:
+                        raise ValueError(f"Día {day} fuera de rango (0-6)")
+                return days
+            except ValueError as e:
+                raise ValueError(f"FULL_SYNC_DAYS debe ser una lista de números entre 0-6 separados por comas: {e}")
+        return v
+
+    @field_validator("FULL_SYNC_HOUR")
+    @classmethod
+    def validate_full_sync_hour(cls, v):
+        """Valida que la hora esté en rango válido (0-23)."""
+        if not 0 <= v <= 23:
+            raise ValueError("FULL_SYNC_HOUR debe estar entre 0 y 23")
+        return v
+
+    @field_validator("FULL_SYNC_MINUTE")
+    @classmethod
+    def validate_full_sync_minute(cls, v):
+        """Valida que el minuto esté en rango válido (0-59)."""
+        if not 0 <= v <= 59:
+            raise ValueError("FULL_SYNC_MINUTE debe estar entre 0 y 59")
         return v
 
     @field_validator("SHOPIFY_SHOP_URL")

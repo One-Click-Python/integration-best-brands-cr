@@ -110,6 +110,13 @@ SYNC_INTERVAL_MINUTES=5
 SYNC_BATCH_SIZE=10
 SYNC_MAX_CONCURRENT_JOBS=3
 
+# 🕐 Sincronización Completa Programada
+ENABLE_FULL_SYNC_SCHEDULE=true              # Habilitar sincronización diaria/semanal
+FULL_SYNC_HOUR=23                           # Hora del día (0-23)
+FULL_SYNC_MINUTE=0                          # Minuto (0-59)
+FULL_SYNC_TIMEZONE=America/Argentina/Buenos_Aires  # Zona horaria
+# FULL_SYNC_DAYS=0,1,2,3,4                  # Días opcionales (0=Lun, 6=Dom)
+
 # 🛒 Soporte para Pedidos Sin Cliente
 ALLOW_ORDERS_WITHOUT_CUSTOMER=true
 DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS=
@@ -285,14 +292,43 @@ El sistema incluye un **motor de sincronización automática** que:
 - 🛡️ **Auto-recovery** con health checks cada 5 minutos
 - 📊 **Métricas en tiempo real** accesibles via API
 
+### Sincronización Completa Programada
+
+Además del motor de cambios, puedes configurar una **sincronización completa diaria/semanal**:
+
+- 🕐 **Horario configurable** con soporte de zonas horarias
+- 📅 **Días específicos** de la semana (opcional)
+- 🔄 **Independiente del motor de cambios** para asegurar consistencia
+- 📊 **Reconciliación nocturna** de todo el catálogo
+
 ### Configuración Rápida
 
 ```bash
 # En tu archivo .env
+
+# Motor de detección de cambios (cada 5 minutos)
 ENABLE_SCHEDULED_SYNC=true
 SYNC_INTERVAL_MINUTES=5
 
-# Iniciar aplicación (motor se activa automáticamente)
+# Sincronización completa programada (opcional)
+ENABLE_FULL_SYNC_SCHEDULE=true              # Activar sync programada
+FULL_SYNC_HOUR=23                           # 11 PM
+FULL_SYNC_MINUTE=0                          # En punto
+FULL_SYNC_TIMEZONE=America/Argentina/Buenos_Aires
+
+# Ejemplos de configuración:
+# Diaria a las 2 AM UTC
+# FULL_SYNC_TIMEZONE=UTC
+# FULL_SYNC_HOUR=2
+
+# Solo días laborables (Lun-Vie) a las 3 AM
+# FULL_SYNC_DAYS=0,1,2,3,4
+# FULL_SYNC_HOUR=3
+
+# Solo fines de semana
+# FULL_SYNC_DAYS=5,6
+
+# Iniciar aplicación (ambos motores se activan automáticamente)
 poetry run uvicorn app.main:app --reload
 ```
 
