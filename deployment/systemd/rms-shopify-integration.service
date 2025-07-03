@@ -1,0 +1,41 @@
+[Unit]
+Description=RMS-Shopify Integration Service
+Documentation=https://github.com/One-Click-Python/rms-shopify-integration
+After=network.target postgresql.service redis.service
+Wants=network.target
+
+[Service]
+Type=exec
+User=rms-user
+Group=rms-user
+WorkingDirectory=/opt/rms-shopify-integration
+Environment=PATH=/opt/rms-shopify-integration/.venv/bin
+EnvironmentFile=/opt/rms-shopify-integration/.env
+ExecStart=/opt/rms-shopify-integration/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rms-shopify-integration/logs
+ReadWritePaths=/opt/rms-shopify-integration/temp
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryLimit=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rms-shopify-integration
+
+[Install]
+WantedBy=multi-user.target

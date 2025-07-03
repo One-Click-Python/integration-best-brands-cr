@@ -1,18 +1,19 @@
 # RMS-Shopify Integration
 
-Sistema de integración bidireccional entre Microsoft Retail Management System (RMS) y Shopify para automatizar la sincronización de productos, inventarios, precios y pedidos entre venta física y e-commerce.
+Sistema de integración bidireccional entre Microsoft Retail Management System (RMS) y Shopify para automatizar la sincronización de productos, inventarios, precios y pedidos entre venta física y e-commerce con **detección automática de cambios en tiempo real**.
 
 ## 🎯 Características Principales
 
-- **Sincronización Bidireccional**: RMS ↔ Shopify con taxonomías estándar
-- **Sistema de Taxonomías Avanzado**: Mapeo inteligente a Standard Product Taxonomy de Shopify
-- **Metafields Estructurados**: Talla, color y atributos RMS preservados como metafields
-- **Normalización Automática**: Tallas (`23½` → `23.5`) y datos RMS optimizados
-- **Arquitectura de Microservicios**: Modular y escalable
-- **API REST**: Control manual y programado con filtros avanzados
-- **Webhooks**: Captura en tiempo real de eventos Shopify
-- **Sistema de Alertas**: Notificaciones de errores y estado
-- **Logging Estructurado**: Auditoría completa de operaciones
+- **🤖 Motor de Sincronización Automática**: Detección de cambios usando `Item.LastUpdated` cada 5 minutos
+- **🔄 Sincronización Bidireccional**: RMS ↔ Shopify con taxonomías estándar y inicio automático
+- **📊 Sistema de Taxonomías Avanzado**: Mapeo inteligente a Standard Product Taxonomy de Shopify
+- **🏷️ Metafields Estructurados**: Talla, color y atributos RMS preservados como metafields
+- **⚡ Normalización Automática**: Tallas (`23½` → `23.5`) y datos RMS optimizados
+- **🏗️ Arquitectura de Microservicios**: Modular y escalable con auto-recovery
+- **📡 API REST**: Control manual y programado con filtros avanzados
+- **🔗 Webhooks**: Captura en tiempo real de eventos Shopify con soporte para pedidos sin cliente
+- **📈 Sistema de Alertas**: Notificaciones de errores y estado con métricas en tiempo real
+- **📝 Logging Estructurado**: Auditoría completa de operaciones con statistics detalladas
 
 ## 🏗️ Arquitectura
 
@@ -21,15 +22,18 @@ Sistema de integración bidireccional entre Microsoft Retail Management System (
 │   RMS (SQL)     │◄──►│  FastAPI App     │◄──►│    Shopify      │
 │                 │    │                  │    │                 │
 │ • Products      │    │ • Sync Services  │    │ • Products      │
-│ • Inventory     │    │ • Webhooks       │    │ • Orders        │
-│ • Orders        │    │ • APIs           │    │ • Inventory     │
-└─────────────────┘    │ • Error Handler  │    └─────────────────┘
-                       │ • Logging        │
-                       └──────────────────┘
-                              │
+│ • Inventory     │    │ • Change Detector│    │ • Orders        │
+│ • Orders        │    │ • Auto Scheduler │    │ • Inventory     │
+│ • Item.LastUpd  │    │ • Webhooks       │    │ • Webhooks      │
+└─────────────────┘    │ • APIs           │    └─────────────────┘
+        ▲               │ • Error Handler  │
+        │ Monitor       │ • Logging        │
+        │ Changes       └──────────────────┘
+        │ Every 5min            │
+        └──────────────────────────────┐
                        ┌──────────────────┐
-                       │ Redis + Celery   │
-                       │ (Async Tasks)    │
+                       │🤖 Auto-Sync     │
+                       │ Engine           │
                        └──────────────────┘
 ```
 
@@ -100,11 +104,21 @@ SHOPIFY_ACCESS_TOKEN=your_access_token
 SHOPIFY_API_VERSION=2025-04
 SHOPIFY_WEBHOOK_SECRET=your_webhook_secret
 
+# 🤖 Motor de Sincronización Automática
+ENABLE_SCHEDULED_SYNC=true
+SYNC_INTERVAL_MINUTES=5
+SYNC_BATCH_SIZE=10
+SYNC_MAX_CONCURRENT_JOBS=3
+
+# 🛒 Soporte para Pedidos Sin Cliente
+ALLOW_ORDERS_WITHOUT_CUSTOMER=true
+DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS=
+REQUIRE_CUSTOMER_EMAIL=false
+
 # Redis (para Celery)
 REDIS_URL=redis://localhost:6379/0
 
 # Configuración de sincronización
-SYNC_INTERVAL_MINUTES=15
 MAX_RETRIES=3
 RATE_LIMIT_PER_SECOND=2
 
@@ -122,12 +136,14 @@ ALERT_EMAIL_PASSWORD=your_email_password
 ### Iniciar la aplicación
 
 ```bash
-# Desarrollo
+# Desarrollo (inicia motor de sincronización automática)
 poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
-# Producción
+# Producción (inicia motor de sincronización automática)
 uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
 ```
+
+**🤖 Motor Automático**: El sistema de detección de cambios se inicia automáticamente al ejecutar uvicorn si `ENABLE_SCHEDULED_SYNC=true`
 
 ### Iniciar Celery (tareas asíncronas)
 
@@ -140,6 +156,31 @@ celery -A app.core.celery_app beat --loglevel=info
 ```
 
 ### API Endpoints
+
+#### 🤖 Motor de Sincronización Automática
+
+```bash
+# Estado del motor automático
+GET /api/v1/sync/monitor/status
+
+# Estadísticas en tiempo real
+GET /api/v1/sync/monitor/stats
+
+# Trigger manual de sincronización
+POST /api/v1/sync/monitor/trigger
+
+# Sincronización completa forzada
+POST /api/v1/sync/monitor/force-full-sync
+
+# Actualizar intervalo (en minutos)
+PUT /api/v1/sync/monitor/interval
+{
+  "interval_minutes": 10
+}
+
+# Health check del motor
+GET /api/v1/sync/monitor/health
+```
 
 #### Sincronización Manual
 
@@ -230,6 +271,51 @@ rms-shopify-integration/
 ├── .env.example                 # Ejemplo de variables de entorno
 ├── docker-compose.yml           # Orquestación con Docker
 └── README.md
+```
+
+## 🤖 Motor de Sincronización Automática
+
+### Detección de Cambios en Tiempo Real
+
+El sistema incluye un **motor de sincronización automática** que:
+
+- 🔍 **Detecta cambios** en RMS usando `Item.LastUpdated` cada 5 minutos
+- 🔗 **Vincula datos** entre tabla `Item` y vista `View_Items` 
+- ⚡ **Sincroniza automáticamente** productos modificados por CCOD
+- 🛡️ **Auto-recovery** con health checks cada 5 minutos
+- 📊 **Métricas en tiempo real** accesibles via API
+
+### Configuración Rápida
+
+```bash
+# En tu archivo .env
+ENABLE_SCHEDULED_SYNC=true
+SYNC_INTERVAL_MINUTES=5
+
+# Iniciar aplicación (motor se activa automáticamente)
+poetry run uvicorn app.main:app --reload
+```
+
+### APIs de Control
+
+```bash
+# Ver estado del motor
+curl http://localhost:8080/api/v1/sync/monitor/status
+
+# Ejecutar sincronización manual
+curl -X POST http://localhost:8080/api/v1/sync/monitor/trigger
+
+# Ver estadísticas detalladas  
+curl http://localhost:8080/api/v1/sync/monitor/stats
+```
+
+### Logs del Motor
+
+```
+🔍 Verificando cambios desde 2025-07-03T10:15:00Z
+🔔 Detectados 3 items modificados en RMS  
+🔄 Iniciando sincronización automática para 3 items
+✅ Sincronización automática completada: 3 productos procesados
 ```
 
 ## 🔄 Flujos de Sincronización
@@ -392,6 +478,7 @@ docker-compose up -d
 - **[📄 RMS → Shopify](RMS_TO_SHOPIFY_SYNC.md)** - Guía completa de sincronización de productos, inventario y precios desde RMS hacia Shopify
 - **[📄 Shopify → RMS](SHOPIFY_TO_RMS_SYNC.md)** - Guía completa de sincronización de pedidos desde Shopify hacia RMS
 - **[📄 Configuración de Webhooks](WEBHOOK_CONFIGURATION.md)** - Guía detallada para configurar webhooks de Shopify y manejo de pedidos sin cliente
+- **[🤖 Motor de Sincronización Automática](AUTOMATIC_SYNC_ENGINE.md)** - Guía completa del motor de detección de cambios automática
 
 ### 📊 APIs y Referencias
 - **[API Docs](http://localhost:8080/docs)** - Documentación interactiva Swagger (cuando la app esté corriendo)
@@ -401,6 +488,14 @@ docker-compose up -d
 ### 🔧 Scripts de Utilidad
 - **[configure_webhooks.py](configure_webhooks.py)** - Script para configurar webhooks automáticamente
 - **[test_all_orders_sync.py](test_all_orders_sync.py)** - Script para probar sincronización completa de pedidos
+- Script para monitorear motor automático:
+  ```bash
+  # Verificar estado del motor
+  curl http://localhost:8080/api/v1/sync/monitor/status
+  
+  # Trigger sincronización manual
+  curl -X POST http://localhost:8080/api/v1/sync/monitor/trigger
+  ```
 
 ## 📧 Soporte
 

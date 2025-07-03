@@ -4,6 +4,145 @@ Todas las modificaciones notables a este proyecto serán documentadas en este ar
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Sin versionar] - 2025-07-03
+
+### 🤖 Motor de Sincronización Automática RMS → Shopify
+
+#### Agregado - Sistema de Detección de Cambios en Tiempo Real
+- ✨ **Motor de detección automática** de cambios usando `Item.LastUpdated` en RMS
+- 🔄 **Sincronización automática** de productos modificados cada 5 minutos (configurable)
+- 🚀 **Inicio automático** del motor al arrancar la aplicación con uvicorn
+- 📊 **Detección inteligente** vinculando tabla `Item` con vista `View_Items`
+- ⚡ **Sincronización por CCOD** para productos completos con variantes
+- 🔧 **APIs de control** para monitoreo y gestión del motor
+- 📈 **Métricas en tiempo real** y estadísticas detalladas
+- 🛡️ **Auto-recovery** con health checks y reinicio automático
+
+#### Nuevos Componentes Implementados
+- 🔍 **ChangeDetector** (`app/services/change_detector.py`) - Motor principal de detección
+- 🕒 **Scheduler mejorado** (`app/core/scheduler.py`) - Gestión de tareas programadas
+- 📡 **APIs de monitoreo** (`app/api/v1/endpoints/sync_monitor.py`) - Control y estado
+- 📝 **Documentación completa** (`AUTOMATIC_SYNC_ENGINE.md`) - Guía de uso y configuración
+
+#### Sistema de Detección Implementado
+```sql
+-- Query principal de detección de cambios
+SELECT TOP 500 ID, LastUpdated
+FROM Item 
+WHERE LastUpdated > :last_check
+    AND LastUpdated IS NOT NULL
+ORDER BY LastUpdated DESC
+
+-- Vinculación con datos completos
+SELECT ItemID, C_ARTICULO, Description, Price, Quantity,
+       Familia, Categoria, color, talla, CCOD,
+       SalePrice, SaleStartDate, SaleEndDate
+FROM View_Items 
+WHERE ItemID IN (IDs_modificados)
+```
+
+#### APIs de Control del Motor
+- `GET /api/v1/sync/monitor/status` - Estado general del sistema
+- `GET /api/v1/sync/monitor/stats` - Estadísticas detalladas
+- `POST /api/v1/sync/monitor/trigger` - Trigger manual de sincronización
+- `POST /api/v1/sync/monitor/force-full-sync` - Sincronización completa forzada
+- `PUT /api/v1/sync/monitor/interval` - Actualizar intervalo de verificación
+- `GET /api/v1/sync/monitor/health` - Health check del motor
+- `GET /api/v1/sync/monitor/recent-activity` - Actividad reciente
+- `GET /api/v1/sync/monitor/config` - Configuración actual
+
+#### Configuración de Variables de Entorno
+```bash
+# Motor de sincronización automática
+ENABLE_SCHEDULED_SYNC=true          # Habilitar motor (requerido)
+SYNC_INTERVAL_MINUTES=5             # Intervalo de verificación
+SYNC_BATCH_SIZE=10                  # Tamaño de lote
+SYNC_MAX_CONCURRENT_JOBS=3          # Trabajos concurrentes
+SYNC_TIMEOUT_MINUTES=30             # Timeout de operaciones
+
+# Configuración de pedidos sin cliente
+ALLOW_ORDERS_WITHOUT_CUSTOMER=true      # Permitir pedidos de invitados
+DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS=   # ID cliente por defecto (opcional)
+REQUIRE_CUSTOMER_EMAIL=false            # Requerir email de cliente
+GUEST_CUSTOMER_NAME="Cliente Invitado"  # Nombre para invitados
+```
+
+#### Características del Motor
+- 🔄 **Detección cada 5 minutos** de cambios en RMS usando timestamps
+- 🎯 **Sincronización inteligente** por CCOD para productos con variantes
+- ⚡ **Rate limiting automático** respetando límites de API Shopify
+- 🔧 **Lotes pequeños** (5-10 productos) para evitar sobrecarga
+- 📊 **Logging detallado** con métricas de rendimiento
+- 🛡️ **Auto-recovery** si el detector se detiene
+- 🌙 **Sincronización nocturna** completa a las 2 AM
+- 📈 **Estadísticas en tiempo real** disponibles via API
+
+#### Flujo de Sincronización Automática
+1. **Detección**: Query a `Item.LastUpdated` cada intervalo configurado
+2. **Vinculación**: Obtener datos completos de `View_Items` para IDs modificados
+3. **Agrupación**: Agrupar por CCOD para sincronización eficiente
+4. **Sincronización**: Procesar en lotes con rate limiting
+5. **Logging**: Registrar métricas y actualizar timestamps
+
+#### Integración con Startup
+- ✅ **Inicio automático** durante el startup de la aplicación
+- ✅ **Verificación de dependencias** (RMS y Shopify) antes de iniciar
+- ✅ **Configuración dinámica** basada en variables de entorno
+- ✅ **Shutdown limpio** al cerrar la aplicación
+
+#### Mejoras en Configuración de Webhooks
+- 📄 **Documentación completa** (`WEBHOOK_CONFIGURATION.md`) para setup de webhooks
+- 🔧 **Script automático** (`configure_webhooks.py`) para configuración
+- 🛡️ **Soporte para pedidos sin cliente** con configuración flexible
+- 📊 **Validación HMAC** mejorada para seguridad
+
+#### Métricas del Motor Disponibles
+```json
+{
+  "total_checks": 1250,          // Total de verificaciones
+  "changes_detected": 85,        // Cambios detectados
+  "items_synced": 342,          // Items sincronizados
+  "last_sync_time": "2025-07-03T10:20:00Z",
+  "errors": 2,                  // Errores ocurridos
+  "success_rate": 97.6,         // Tasa de éxito
+  "running": true,              // Estado actual
+  "monitoring_active": true     // Monitoreo activo
+}
+```
+
+### Cambiado - Sistema de Scheduling
+- 🔄 **Scheduler completamente reescrito** con integración de detección de cambios
+- ⚡ **Health checks automáticos** cada 5 minutos del estado del detector
+- 🔧 **Reinicio automático** del detector si se detiene
+- 📊 **Métricas integradas** en el sistema de monitoreo
+
+### Arreglado - Compatibilidad con RMS Handler
+- 🐛 **Corregido uso de execute_query** → `execute_custom_query` en ChangeDetector
+- 🔧 **Parámetros SQL corregidos** de posicionales a nombrados para compatibilidad
+- 📝 **Queries optimizadas** para manejo de múltiples IDs con IN clauses
+
+### Técnico - Arquitectura del Motor
+- 🏗️ **Patrón Singleton** para detector global compartido
+- 🔄 **Manejo de concurrencia** con asyncio.Semaphore
+- 📊 **Rate limiting inteligente** con pausas variables
+- 🛡️ **Error aggregation** para manejo robusto de errores
+- 📈 **Estadísticas en memoria** con persistencia opcional
+
+### Verificado - Testing del Motor
+- ✅ **Detección de cambios**: Verificado con tabla Item.LastUpdated
+- ✅ **Vinculación View_Items**: Query de múltiples IDs funcionando
+- ✅ **APIs de control**: 8 endpoints respondiendo correctamente
+- ✅ **Inicio automático**: Motor se inicia con uvicorn --reload
+- ✅ **Health checks**: Auto-recovery verificado
+- ✅ **Rate limiting**: Respeta límites de Shopify API
+- ✅ **Configuración**: Variables de entorno funcionando
+
+### Documentación Completa
+- 📚 **AUTOMATIC_SYNC_ENGINE.md**: Guía completa del motor
+- 📚 **WEBHOOK_CONFIGURATION.md**: Configuración de webhooks
+- 📚 **README.md actualizado**: Enlaces a nueva documentación
+- 🔧 **Scripts de utilidad**: check_sync_engine.sh, manual_sync.sh
+
 ## [Sin versionar] - 2025-07-02
 
 ### 🚀 Conector de Captura de Pedidos Shopify → RMS
