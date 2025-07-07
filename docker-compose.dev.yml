@@ -1,0 +1,75 @@
+services:
+  api:
+    image: rms-shopify-integration:dev
+    container_name: rms-shopify-dev
+    ports:
+      - "8000:8000"
+    environment:
+      # Application Configuration
+      - ENVIRONMENT=development
+      - DEBUG=True
+      - LOG_LEVEL=INFO
+      - TESTING=True
+      - SKIP_STARTUP_CHECKS=True
+      - DEVELOPMENT_MODE=True
+      
+      # RMS Database Configuration (configuración de ejemplo)
+      - RMS_DB_HOST=host.docker.internal
+      - RMS_DB_PORT=1433
+      - RMS_DB_NAME=BB57_TempSF
+      - RMS_DB_USER=testuser
+      - RMS_DB_PASSWORD=testpassword
+      - RMS_DB_DRIVER=ODBC Driver 18 for SQL Server
+      - RMS_CONNECTION_TIMEOUT=5
+      
+      # Shopify Configuration (configuración de ejemplo)
+      - SHOPIFY_SHOP_URL=test-shop.myshopify.com
+      - SHOPIFY_ACCESS_TOKEN=test_access_token
+      - SHOPIFY_API_VERSION=2025-04
+      - SHOPIFY_WEBHOOK_SECRET=test_webhook_secret
+      
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379
+      
+      # Synchronization Settings
+      - ENABLE_SCHEDULED_SYNC=False
+      - SYNC_INTERVAL_MINUTES=15
+      - SYNC_BATCH_SIZE=10
+    
+    volumes:
+      - ./logs:/app/logs
+      - ./app:/app/app  # Mount para desarrollo con auto-reload
+    
+    networks:
+      - app-network
+    
+    depends_on:
+      - redis
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: rms-shopify-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis-data:
