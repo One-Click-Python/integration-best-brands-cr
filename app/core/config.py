@@ -68,8 +68,8 @@ class Settings(BaseSettings):
     # === CONFIGURACIÓN DE SINCRONIZACIÓN ===
     ENABLE_SCHEDULED_SYNC: bool = Field(default=True, env="ENABLE_SCHEDULED_SYNC")
     SYNC_INTERVAL_MINUTES: int = Field(default=15, env="SYNC_INTERVAL_MINUTES")
-    SYNC_BATCH_SIZE: int = Field(default=100, env="SYNC_BATCH_SIZE")
-    DEFAULT_BATCH_SIZE: int = Field(default=100, env="DEFAULT_BATCH_SIZE")
+    SYNC_BATCH_SIZE: int = Field(default=1, env="SYNC_BATCH_SIZE")
+    DEFAULT_BATCH_SIZE: int = Field(default=1, env="DEFAULT_BATCH_SIZE")
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
     
@@ -99,7 +99,9 @@ class Settings(BaseSettings):
 
     # === CONFIGURACIÓN DE MÉTRICAS Y MONITOREO ===
     METRICS_ENABLED: bool = Field(default=True, env="METRICS_ENABLED")
-    HEALTH_CHECK_TIMEOUT: int = Field(default=10, env="HEALTH_CHECK_TIMEOUT")
+    HEALTH_CHECK_TIMEOUT: int = Field(default=5, env="HEALTH_CHECK_TIMEOUT")  # Reducido para endpoints
+    HEALTH_CHECK_INDIVIDUAL_TIMEOUT: int = Field(default=3, env="HEALTH_CHECK_INDIVIDUAL_TIMEOUT")  # Timeout por servicio
+    HEALTH_CHECK_CACHE_TTL: int = Field(default=60, env="HEALTH_CHECK_CACHE_TTL")  # Cache en segundos
     SLOW_REQUEST_THRESHOLD: float = Field(default=5.0, env="SLOW_REQUEST_THRESHOLD")
 
     # === CONFIGURACIÓN DE ALERTAS ===

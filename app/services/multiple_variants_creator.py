@@ -119,27 +119,26 @@ class MultipleVariantsCreator:
         if shopify_input.variants is not None and len(shopify_input.variants) > 0:
             # Detectar dinámicamente las opciones disponibles
             option_sets = {}  # {"Color": set(), "Size": set()}
-            
+
             for variant in shopify_input.variants:
                 if hasattr(variant, "options") and variant.options:
                     # Detectar tipo de cada opción basado en posición
                     for position, option_value in enumerate(variant.options):
                         option_str = str(option_value)
                         option_name = self._detect_option_type(option_str, position)
-                        
+
                         if option_name not in option_sets:
                             option_sets[option_name] = set()
                         option_sets[option_name].add(option_str)
-            
+
             # Crear productOptions solo si hay opciones detectadas
             if option_sets:
                 product_options = []
                 for option_name, values in option_sets.items():
-                    product_options.append({
-                        "name": option_name,
-                        "values": [{"name": value} for value in sorted(list(values))]
-                    })
-                
+                    product_options.append(
+                        {"name": option_name, "values": [{"name": value} for value in sorted(list(values))]}
+                    )
+
                 product_data["productOptions"] = product_options
                 options_summary = {name: sorted(values) for name, values in option_sets.items()}
                 logger.info(f"🎨 Including productOptions in product: {options_summary}")
@@ -686,6 +685,7 @@ class MultipleVariantsCreator:
                     update_payload = {
                         "price": formatted_price,
                         "sku": variant.sku,
+                        "inventoryQuantities": variant.inventoryQuantities
                     }
 
                     if variant.compareAtPrice:
@@ -745,15 +745,15 @@ class MultipleVariantsCreator:
     def _detect_option_type(self, option_value: str, position: int = 0) -> str:
         """
         Detecta el tipo de opción basado en su posición y valor.
-        
+
         Por convención RMS:
         - Primera opción (posición 0): Color
         - Segunda opción (posición 1): Size/Talla
-        
+
         Args:
             option_value: Valor de la opción
             position: Posición en el array de opciones (0-based)
-            
+
         Returns:
             str: "Color" si posición 0, "Size" si posición 1
         """
@@ -858,13 +858,31 @@ class MultipleVariantsCreator:
                 shopify_variants = result["product"].get("variants", {}).get("edges", [])
                 logger.info(f"🔍 Activating inventory for {len(shopify_variants)} variants")
 
-                # Mapear variantes por SKU
+                # Mapear variantes por SKU incluyendo TODAS las variantes
                 variant_map = {}
                 for input_variant in variants:
+                    # CORRECCIÓN: Crear entrada para TODAS las variantes, no solo las que tienen inventoryQuantities
                     if hasattr(input_variant, "inventoryQuantities") and input_variant.inventoryQuantities:
                         variant_map[input_variant.sku] = input_variant.inventoryQuantities
+                    else:
+                        # SOLUCIÓN: Si no tiene inventoryQuantities definidas, crear una entrada con valores por defecto
+                        # basándonos en los datos de la variante o usando la ubicación principal
+                        default_quantity = 0
+                        # Intentar extraer quantity de la variante si está disponible
+                        if hasattr(input_variant, "quantity"):
+                            default_quantity = input_variant.quantity
+                        elif hasattr(input_variant, "inventoryQuantity"):
+                            default_quantity = input_variant.inventoryQuantity
+                        
+                        variant_map[input_variant.sku] = [
+                            {
+                                "locationId": self.primary_location_id,
+                                "availableQuantity": default_quantity
+                            }
+                        ]
+                        logger.info(f"🔧 Created default inventory config for variant {input_variant.sku}: {default_quantity} units")
 
-                # Activar inventario para cada variante
+                # Activar inventario para cada variante (TODAS ahora están en variant_map)
                 for variant_edge in shopify_variants:
                     variant_node = variant_edge["node"]
                     sku = variant_node.get("sku")
@@ -892,10 +910,17 @@ class MultipleVariantsCreator:
 
                             except Exception as inv_error:
                                 logger.warning(f"❌ Error activating inventory for {sku}: {inv_error}")
+                    else:
+                        # Log cuando no se encuentra la variante en el mapeo o no hay inventory_item_id
+                        if not sku:
+                            logger.warning(f"❌ Variant in Shopify has no SKU: {variant_node.get('id')}")
+                        elif not inventory_item_id:
+                            logger.warning(f"❌ Variant {sku} has no inventory_item_id")
+                        else:
+                            logger.warning(f"❌ Variant {sku} not found in input variants map")
 
         except Exception as e:
             logger.warning(f"❌ Error activating inventory for variants: {e}")
-
 
     async def update_product_with_variants(
         self, product_id: str, shopify_input: ShopifyProductInput, existing_product: Dict[str, Any]
@@ -922,7 +947,7 @@ class MultipleVariantsCreator:
         """
         try:
             logger.info(
-                f"🔄 FLUJO COMPLETO: Starting update of product {product_id} "
+                f"🔄⚠️ FLUJO COMPLETO: Starting update of product {product_id} "
                 f"with {len(shopify_input.variants)} variants"
             )
 
@@ -1071,4 +1096,3 @@ class MultipleVariantsCreator:
 
         except Exception as e:
             logger.warning(f"❌ Failed to update metafields: {e}")
-

@@ -12,6 +12,7 @@ mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!) {
   inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
     inventoryLevel {
       id
+      available
     }
     userErrors {
       field

@@ -70,7 +70,7 @@ class RMSViewItem(BaseModel):
     def is_on_sale(self) -> bool:
         """
         Verifica si el producto está en oferta con validación de fechas.
-        
+
         Criterios:
         1. Debe tener sale_price válido y menor al precio regular
         2. Si hay fechas de promoción, debe estar dentro del período activo
@@ -79,27 +79,28 @@ class RMSViewItem(BaseModel):
         # Verificar si hay precio de oferta válido
         if not (self.sale_price and self.sale_price > 0 and self.sale_price < self.price):
             return False
-            
+
         # Si hay fechas definidas, verificar que estemos dentro del período
         if self.sale_start_date and self.sale_end_date:
             from datetime import timezone
+
             now = datetime.now(timezone.utc)
-            
+
             # Asegurar que las fechas tienen timezone
             start_date = self.sale_start_date
             end_date = self.sale_end_date
-            
+
             if start_date.tzinfo is None:
                 start_date = start_date.replace(tzinfo=timezone.utc)
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
-                
+
             # Verificar que estemos dentro del período de promoción
             is_within_period = start_date <= now <= end_date
-            
+
             if not is_within_period:
                 return False  # Fuera del período de promoción
-                
+
         # Si llegamos aquí, está en oferta (ya sea sin fechas o dentro del período)
         return True
 
@@ -138,14 +139,13 @@ class RMSOrder(BaseModel):
     shipping_service_id: Optional[int] = Field(None, description="ID del servicio de envío")
     shipping_tracking_number: Optional[str] = Field(None, max_length=100, description="Número de seguimiento")
 
+    # Identificación externa
+    reference_number: Optional[str] = Field(None, max_length=50, description="Número de referencia (ej: SHOPIFY-123456)")
+    channel_type: int = Field(default=1, description="Tipo de canal (1=tienda, 2=Shopify, 3=web, etc.)")
+
     # Comentarios
     comment: Optional[str] = Field(None, max_length=500, description="Comentarios del usuario")
     shipping_notes: Optional[str] = Field(None, max_length=500, description="Notas de envío")
-
-    # Campos adicionales específicos de Shopify
-    shopify_order_id: Optional[str] = Field(None, max_length=50, description="ID del pedido en Shopify")
-    shopify_order_number: Optional[str] = Field(None, max_length=50, description="Número de orden en Shopify")
-    customer_email: Optional[str] = Field(None, max_length=255, description="Email del cliente")
 
 
 class RMSOrderEntry(BaseModel):
@@ -176,10 +176,6 @@ class RMSOrderEntry(BaseModel):
     # Campos especiales
     is_add_money: bool = Field(default=False, description="Indica si es un cargo adicional")
     voucher_id: Optional[int] = Field(None, description="ID de cupón o voucher si aplica")
-
-    # Campos adicionales de Shopify
-    shopify_variant_id: Optional[str] = Field(None, max_length=50, description="ID de variante en Shopify")
-    shopify_product_id: Optional[str] = Field(None, max_length=50, description="ID de producto en Shopify")
 
 
 class RMSOrderHistory(BaseModel):

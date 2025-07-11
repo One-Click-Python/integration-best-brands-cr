@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.core.config import get_settings
 from app.utils.error_handler import ValidationException
+from app.utils.shopify_utils import generate_shopify_handle
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class RMSShopifyMapper:
         # Generar producto base
         shopify_product = {
             "title": self._generate_product_title(base_item),
-            "handle": self._generate_handle(base_item),
+            "handle": generate_shopify_handle(base_item.ccod or base_item.c_articulo, base_item.familia),
             "productType": base_item.categoria or "",
             "vendor": base_item.familia or "",
             "category": self._generate_category(base_item),
@@ -93,7 +94,7 @@ class RMSShopifyMapper:
 
     def _generate_product_title(self, item: RMSViewItem) -> str:
         """
-        Genera el título del producto para Shopify.
+        Genera el título del producto para Shopify incluyendo el color.
 
         Args:
             item: Item base RMS
@@ -101,18 +102,23 @@ class RMSShopifyMapper:
         Returns:
             str: Título del producto
         """
-        # Usar description como base, limpiando información de talla/color específico
+        # Usar description como base
         title = item.description or f"{item.familia} {item.categoria}"
 
         # Limpiar códigos de talla específicos (ej: "7-09" en "FILA MEDIAS 7-09 NAVY")
         title = re.sub(r"\b\d+-\d+\b", "", title)
         title = re.sub(r"\b\d+\.\d+\b", "", title)  # Para tallas como "6.5"
 
-        # Limpiar colores específicos del título para que sea genérico
+        # Verificar si el color ya está en el título
+        color_in_title = False
         if item.color:
-            color_words = item.color.split()
-            for word in color_words:
-                title = re.sub(r"\b" + re.escape(word) + r"\b", "", title, flags=re.IGNORECASE)
+            color_words = item.color.lower().split()
+            title_lower = title.lower()
+            color_in_title = any(word in title_lower for word in color_words if len(word) > 2)
+
+        # Si el color no está en el título, agregarlo
+        if item.color and not color_in_title:
+            title = f"{title} {item.color}"
 
         # Limpiar espacios extra y normalizar
         title = re.sub(r"\s+", " ", title)  # Reemplazar múltiples espacios con uno solo
@@ -124,36 +130,6 @@ class RMSShopifyMapper:
 
         return title[:255]  # Límite de Shopify
 
-    def _generate_handle(self, item: RMSViewItem) -> str:
-        """
-        Genera un handle único para Shopify basado en CCOD.
-
-        Args:
-            item: Item RMS
-
-        Returns:
-            str: Handle único
-        """
-        # Usar CCOD como base para handle
-        base = item.ccod or item.c_articulo
-
-        # Normalizar handle
-        handle = base.lower()
-        handle = re.sub(r"[^\w\s-]", "", handle)
-        handle = re.sub(r"\s+", "-", handle)
-        handle = re.sub(r"-+", "-", handle)
-        handle = handle.strip("-")
-
-        # Agregar prefijo de familia para unicidad
-        if item.familia:
-            family_prefix = item.familia.lower().replace(" ", "-")[:10]
-            handle = f"{family_prefix}-{handle}"
-
-        # Agregar timestamp para garantizar unicidad
-        timestamp = datetime.now().strftime("%H%M%S")
-        handle = f"{handle}-{timestamp}"
-
-        return handle[:100]  # Límite de Shopify
 
     def _generate_tags_list(self, item: RMSViewItem) -> List[str]:
         """
@@ -385,19 +361,14 @@ class RMSShopifyMapper:
 
         # Solo agregar inventoryQuantities si tenemos location_id
         if location_id:
-            variant["inventoryQuantities"] = [
-                {
-                    "availableQuantity": max(0, item.quantity),
-                    "locationId": location_id
-                }
-            ]
+            variant["inventoryQuantities"] = [{"availableQuantity": max(0, item.quantity), "locationId": location_id}]
 
         return variant
 
     def _calculate_prices(self, item: RMSViewItem) -> Tuple[Decimal, Optional[Decimal]]:
         """
         Calcula precios para Shopify basado en promociones RMS.
-        
+
         Lógica corregida según estándares de Shopify:
         - Price = Precio regular (siempre item.price)
         - CompareAtPrice = Precio original más alto (para mostrar descuento)
@@ -414,7 +385,7 @@ class RMSShopifyMapper:
         if item.is_on_sale and item.sale_price and item.sale_price < regular_price:
             # CORRECCIÓN: En Shopify, Price = precio de oferta, CompareAtPrice = precio original
             return item.sale_price, regular_price
-        
+
         # Si no está en oferta, solo precio regular
         return regular_price, None
 
@@ -435,14 +406,14 @@ class RMSShopifyMapper:
             ("Zapatos", "Botas"): "gid://shopify/TaxonomyCategory/aa-8-4",  # Boots
             ("Zapatos", "Sandalias"): "gid://shopify/TaxonomyCategory/aa-8-6",  # Sandals
             ("Zapatos", "Flats"): "gid://shopify/TaxonomyCategory/aa-8-9",  # Flats
-            ("Zapatos", "Tacones"): "gid://shopify/TaxonomyCategory/aa-8",  # Shoes (general)
+            ("Zapatos", "Tacones"): "gid://shopify/TaxonomyCategory/aa-8-3",  # Heels
             ("Ropa", "MUJER-VEST-CERR-TA16"): "gid://shopify/TaxonomyCategory/aa-1-7",  # Dresses
             ("Accesorios", "Bolsos"): "gid://shopify/TaxonomyCategory/aa-5-4",  # Handbags
         }
-        
+
         if item.familia and item.categoria:
             return taxonomy_map.get((item.familia, item.categoria))
-        
+
         return None
 
     def _generate_metafields(self, item: RMSViewItem) -> List[Dict[str, Any]]:
@@ -459,89 +430,79 @@ class RMSShopifyMapper:
 
         # Información básica de RMS
         if item.familia:
-            metafields.append({
-                "namespace": "rms",
-                "key": "familia",
-                "value": str(item.familia),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "familia", "value": str(item.familia), "type": "single_line_text_field"}
+            )
 
         if item.categoria:
-            metafields.append({
-                "namespace": "rms",
-                "key": "categoria",
-                "value": str(item.categoria),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "categoria", "value": str(item.categoria), "type": "single_line_text_field"}
+            )
 
         if item.color:
-            metafields.append({
-                "namespace": "rms",
-                "key": "color",
-                "value": str(item.color),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "color", "value": str(item.color), "type": "single_line_text_field"}
+            )
 
         if item.talla:
-            metafields.append({
-                "namespace": "rms",
-                "key": "talla",
-                "value": str(item.talla),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "talla", "value": str(item.talla), "type": "single_line_text_field"}
+            )
 
         if item.ccod:
-            metafields.append({
-                "namespace": "rms",
-                "key": "ccod",
-                "value": str(item.ccod),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "ccod", "value": str(item.ccod), "type": "single_line_text_field"}
+            )
 
         if item.item_id:
-            metafields.append({
-                "namespace": "rms",
-                "key": "item_id",
-                "value": str(item.item_id),
-                "type": "number_integer"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "item_id", "value": str(item.item_id), "type": "number_integer"}
+            )
 
         if item.extended_category:
-            metafields.append({
-                "namespace": "rms",
-                "key": "extended_category",
-                "value": str(item.extended_category),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {
+                    "namespace": "rms",
+                    "key": "extended_category",
+                    "value": str(item.extended_category),
+                    "type": "single_line_text_field",
+                }
+            )
 
         # Fechas de promoción
         if item.sale_start_date:
-            metafields.append({
-                "namespace": "rms",
-                "key": "sale_start_date",
-                "value": item.sale_start_date.isoformat(),
-                "type": "date_time"
-            })
+            metafields.append(
+                {
+                    "namespace": "rms",
+                    "key": "sale_start_date",
+                    "value": item.sale_start_date.isoformat(),
+                    "type": "date_time",
+                }
+            )
 
         if item.sale_end_date:
-            metafields.append({
-                "namespace": "rms",
-                "key": "sale_end_date", 
-                "value": item.sale_end_date.isoformat(),
-                "type": "date_time"
-            })
+            metafields.append(
+                {
+                    "namespace": "rms",
+                    "key": "sale_end_date",
+                    "value": item.sale_end_date.isoformat(),
+                    "type": "date_time",
+                }
+            )
 
         # Agregar metafields de categoría basados en el tipo de producto
         category_metafields = self._generate_category_metafields(item)
         metafields.extend(category_metafields)
 
         # Información de sincronización
-        metafields.append({
-            "namespace": "sync",
-            "key": "last_synced",
-            "value": datetime.now(timezone.utc).isoformat(),
-            "type": "date_time"
-        })
+        metafields.append(
+            {
+                "namespace": "sync",
+                "key": "last_synced",
+                "value": datetime.now(timezone.utc).isoformat(),
+                "type": "date_time",
+            }
+        )
 
         return metafields
 
@@ -556,91 +517,77 @@ class RMSShopifyMapper:
             List: Metafields de categoría
         """
         metafields = []
-        
+
         # Metafields específicos de categoría basados en datos RMS reales
         # APLICAR PARA TODOS LOS TIPOS DE PRODUCTOS, no solo zapatos
-        
+
         # Color - aplicar para cualquier producto que tenga color en RMS
         if item.color:
-            metafields.append({
-                "namespace": "custom",
-                "key": "color",
-                "value": str(item.color),
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {"namespace": "custom", "key": "color", "value": str(item.color), "type": "single_line_text_field"}
+            )
+
         # Target gender - aplicar para cualquier producto que tenga género en RMS
         if item.genero:
-            metafields.append({
-                "namespace": "custom",
-                "key": "target_gender",
-                "value": str(item.genero),
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {
+                    "namespace": "custom",
+                    "key": "target_gender",
+                    "value": str(item.genero),
+                    "type": "single_line_text_field",
+                }
+            )
+
         # Age group - determinar para cualquier producto basado en género
         if item.genero:
             if "Niño" in item.genero or "Niña" in item.genero:
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "age_group",
-                    "value": "Kids",
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {"namespace": "custom", "key": "age_group", "value": "Kids", "type": "single_line_text_field"}
+                )
             else:
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "age_group",
-                    "value": "Adult",
-                    "type": "single_line_text_field"
-                })
-        
+                metafields.append(
+                    {"namespace": "custom", "key": "age_group", "value": "Adult", "type": "single_line_text_field"}
+                )
+
         # Size mapping - aplicar para CUALQUIER producto que tenga talla
         if item.talla:
             # Mapear según el tipo de producto
             if item.familia == "Zapatos":
                 # Para zapatos usar shoe_size
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "shoe_size",
-                    "value": str(item.talla),
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {
+                        "namespace": "custom",
+                        "key": "shoe_size",
+                        "value": str(item.talla),
+                        "type": "single_line_text_field",
+                    }
+                )
             elif item.familia == "Ropa":
                 # Para ropa usar clothing_size
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "clothing_size",
-                    "value": str(item.talla),
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {
+                        "namespace": "custom",
+                        "key": "clothing_size",
+                        "value": str(item.talla),
+                        "type": "single_line_text_field",
+                    }
+                )
             else:
                 # Para otros productos usar size genérico
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "size",
-                    "value": str(item.talla),
-                    "type": "single_line_text_field"
-                })
-        
+                metafields.append(
+                    {"namespace": "custom", "key": "size", "value": str(item.talla), "type": "single_line_text_field"}
+                )
+
         # Activity - solo para productos deportivos/tenis
         if item.categoria == "Tenis":
-            metafields.append({
-                "namespace": "custom",
-                "key": "activity",
-                "value": "Running",
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {"namespace": "custom", "key": "activity", "value": "Running", "type": "single_line_text_field"}
+            )
+
         # Track quantity - para cualquier producto con inventario
         if item.quantity > 0:
-            metafields.append({
-                "namespace": "custom",
-                "key": "track_quantity",
-                "value": "true",
-                "type": "boolean"
-            })
-        
+            metafields.append({"namespace": "custom", "key": "track_quantity", "value": "true", "type": "boolean"})
+
         return metafields
 
     def _validate_shopify_product(self, product: Dict[str, Any]) -> None:
@@ -691,50 +638,3 @@ class RMSShopifyMapper:
                     field=f"variants[{i}].price",
                     invalid_value=price,
                 )
-
-
-def group_items_by_model(items: List[RMSViewItem]) -> Dict[str, List[RMSViewItem]]:
-    """
-    Agrupa items RMS por modelo (CCOD) para crear productos con variantes.
-
-    Args:
-        items: Lista de items RMS
-
-    Returns:
-        Dict: Items agrupados por CCOD
-    """
-    grouped = {}
-
-    for item in items:
-        ccod = item.ccod or item.c_articulo  # Fallback si no hay CCOD
-
-        if ccod not in grouped:
-            grouped[ccod] = []
-
-        grouped[ccod].append(item)
-
-    return grouped
-
-
-def validate_rms_item_for_sync(item: RMSViewItem) -> bool:
-    """
-    Valida si un item RMS puede sincronizarse a Shopify.
-
-    Args:
-        item: Item RMS a validar
-
-    Returns:
-        bool: True si puede sincronizarse
-    """
-    # Validaciones básicas
-    if not item.c_articulo or not item.description:
-        return False
-
-    if item.price <= 0:
-        return False
-
-    # Solo productos con stock o en promoción
-    if item.quantity <= 0 and not item.is_on_sale:
-        return False
-
-    return True

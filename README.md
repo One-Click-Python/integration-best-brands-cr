@@ -360,7 +360,6 @@ curl http://localhost:8080/api/v1/sync/monitor/stats
 
 1. **Extracción**: Lee vista `View_Items` de RMS con campos familia, categoria, talla, color
 2. **Mapeo de Taxonomías**: Utiliza `RMSTaxonomyMapper` para mapear a Standard Product Taxonomy
-3. **Normalización**: Convierte tallas (`23½` → `23.5`) y limpia datos
 4. **Resolución Inteligente**: Busca mejores coincidencias de taxonomía con algoritmo de puntuación
 5. **Metafields Estructurados**: Crea hasta 7 metafields con datos RMS organizados
 6. **Validación**: Verifica integridad de datos y mapeos
@@ -393,8 +392,7 @@ El sistema incluye un mapeador comprehensivo que convierte datos RMS a taxonomí
 {
   "rms.familia": "Zapatos",
   "rms.categoria": "Tenis", 
-  "rms.talla": "23.5",
-  "rms.talla_original": "23½",
+  "rms.talla": "23½",
   "rms.color": "Negro",
   "rms.extended_category": "Zapatos > Tenis",
   "rms.product_attributes": {
@@ -406,11 +404,6 @@ El sistema incluye un mapeador comprehensivo que convierte datos RMS a taxonomí
 }
 ```
 
-#### Normalización de Tallas
-- `23½` → `23.5`
-- `24¼` → `24.25`
-- `25¾` → `25.75`
-- Preserva talla original cuando hay cambios
 
 ### Uso del Sistema Mejorado
 
@@ -523,7 +516,6 @@ docker-compose up -d
 
 ### 🔧 Scripts de Utilidad
 - **[configure_webhooks.py](configure_webhooks.py)** - Script para configurar webhooks automáticamente
-- **[test_all_orders_sync.py](test_all_orders_sync.py)** - Script para probar sincronización completa de pedidos
 - Script para monitorear motor automático:
   ```bash
   # Verificar estado del motor

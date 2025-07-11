@@ -1,7 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="" />
+    <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/app/db/structure.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/utils/shopify_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/rms-shopify-integration.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/rms-shopify-integration.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/health.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/health.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/lifespan.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/lifespan.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/logging_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/middleware.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/middleware.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/routers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/routers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries/inventory_queries.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/queries/inventory_queries.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/rms_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/shopify_graphql_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_graphql_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/shopify_graphql_queries.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_graphql_queries.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/change_detector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/change_detector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/data_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/data_mapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/multiple_variants_creator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_shopify_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_shopify_mapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/shopify_to_rms.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/shopify_to_rms.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/variant_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/variant_mapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/enhanced_taxonomy_system.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/get_all_orders.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quick_sync.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/sync_all_products.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_all_orders_sync.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_real_sync_impact.py" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -10,24 +47,106 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 0
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0
+}</component>
   <component name="ProjectId" id="2yW5zBQSZszdjihoa98b7YRvvJ9" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/Users/enzo/Documents/Python/rms-shopify-integration"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.debug_order_structure.executor&quot;: &quot;Run&quot;,
+    &quot;Python.uvicorn.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/enzo/Documents/Python/oneclick/rms-shopify-integration&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
+  <component name="RunManager" selected="Python.uvicorn">
+    <configuration default="true" type="PythonConfigurationType" factoryName="Python">
+      <module name="rms-shopify-integration" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Python 3.13 (rms-shopify-integration)" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="debug_order_structure" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="rms-shopify-integration" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Python 3.13 (rms-shopify-integration)" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/debug_order_structure.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="uvicorn" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="rms-shopify-integration" />
+      <option name="ENV_FILES" value="$PROJECT_DIR$/.env" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="uvicorn" />
+      <option name="PARAMETERS" value="app.main:app --reload --host 0.0.0.0 --port 8080" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="true" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.uvicorn" />
+      <item itemvalue="Python.debug_order_structure" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.debug_order_structure" />
+      </list>
+    </recent_temporary>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -44,5 +163,36 @@
       <updated>1749937748204</updated>
     </task>
     <servers />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
+          <line>164</line>
+          <option name="timeStamp" value="46" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
+          <line>491</line>
+          <option name="timeStamp" value="52" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
+          <line>647</line>
+          <option name="timeStamp" value="59" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
+          <line>691</line>
+          <option name="timeStamp" value="60" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+    <watches-manager>
+      <configuration name="PythonConfigurationType">
+        <watch expression="result" />
+      </configuration>
+    </watches-manager>
   </component>
 </project>

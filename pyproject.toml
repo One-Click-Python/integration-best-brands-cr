@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "rms_shopify_integration", from = "app"}]
+packages = [{include = "app"}]
 
 
 [tool.poetry.group.dev.dependencies]

@@ -407,7 +407,7 @@ def log_sync_operation(operation: str, service: str, **kwargs):
     logger = get_logger("app.sync.operation")
 
     extra_data = {
-        "operation": operation,
+        "sync_operation": operation,  # Cambiado de "operation" a "sync_operation"
         "service": service,
         "sync_timestamp": datetime.now(timezone.utc).isoformat(),
         **kwargs,

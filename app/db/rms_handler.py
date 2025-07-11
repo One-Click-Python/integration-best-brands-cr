@@ -190,7 +190,7 @@ class RMSHandler:
                 # Solo productos con datos válidos
                 query += " AND C_ARTICULO IS NOT NULL AND Description IS NOT NULL"
                 query += " AND Price > 0"
-                
+
                 # Filtrar por stock si se especifica
                 if not include_zero_stock:
                     query += " AND Quantity > 0"
@@ -654,6 +654,291 @@ class RMSHandler:
         except Exception as e:
             logger.error(f"Error getting inventory summary: {e}")
             return {}
+
+    async def find_order_by_shopify_id(self, shopify_order_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca una orden en RMS por ID de Shopify usando ReferenceNumber y ChannelType.
+
+        Args:
+            shopify_order_id: ID de la orden en Shopify
+
+        Returns:
+            Dict con datos de la orden o None si no existe
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                # Buscar usando ReferenceNumber con prefijo SHOPIFY- y ChannelType=2 (Shopify)
+                reference_number = f"SHOPIFY-{shopify_order_id}"
+                query = """
+                SELECT * FROM [ORDER] 
+                WHERE ReferenceNumber = :reference_number 
+                AND ChannelType = 2
+                """
+                result = await session.execute(text(query), {"reference_number": reference_number})
+                row = result.fetchone()
+                return row._asdict() if row else None
+
+        except Exception as e:
+            logger.error(f"Error finding order by Shopify ID {shopify_order_id}: {e}")
+            return None
+
+    async def find_customer_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca un cliente en RMS por email.
+        NOTA: Tabla Customer no existe en structure.md, retorna None por ahora.
+
+        Args:
+            email: Email del cliente
+
+        Returns:
+            Dict con datos del cliente o None si no existe
+        """
+        try:
+            # TODO: Verificar si existe tabla Customer en la base de datos
+            # Por ahora retornar None ya que la tabla no está definida
+            logger.debug(f"Customer lookup by email {email} - Customer table not defined")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error finding customer by email {email}: {e}")
+            return None
+
+    async def create_customer(self, customer_data: Dict[str, Any]) -> int:
+        """
+        Crea un nuevo cliente en RMS.
+        NOTA: Tabla Customer no existe en structure.md, retorna ID ficticio.
+
+        Args:
+            customer_data: Datos del cliente
+
+        Returns:
+            ID del cliente creado (ficticio por ahora)
+        """
+        try:
+            # TODO: Verificar si existe tabla Customer en la base de datos
+            # Por ahora retornar ID ficticio ya que la tabla no está definida
+            logger.debug("Customer creation - Customer table not defined, returning default ID")
+            return 1  # ID ficticio para pruebas
+
+        except Exception as e:
+            logger.error(f"Error creating customer: {e}")
+            raise
+
+    async def find_item_by_sku(self, sku: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca un item en RMS por SKU.
+
+        Args:
+            sku: SKU del item
+
+        Returns:
+            Dict con datos del item o None si no existe
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                query = """
+                SELECT * FROM Item 
+                WHERE ItemLookupCode = :sku
+                """
+                result = await session.execute(text(query), {"sku": sku})
+                row = result.fetchone()
+                return row._asdict() if row else None
+
+        except Exception as e:
+            logger.error(f"Error finding item by SKU {sku}: {e}")
+            return None
+
+    async def update_order(self, order_id: int, order_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Actualiza una orden existente en RMS.
+
+        Args:
+            order_id: ID de la orden
+            order_data: Nuevos datos de la orden
+
+        Returns:
+            Dict con datos de la orden actualizada
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                # Construir query dinámicamente basado en los campos a actualizar
+                set_clauses = []
+                params = {"order_id": order_id}
+
+                for key, value in order_data.items():
+                    if key != "id":  # No actualizar el ID
+                        set_clauses.append(f"{key} = :{key}")
+                        params[key] = value
+
+                if not set_clauses:
+                    logger.warning("No fields to update in order")
+                    return {"id": order_id}
+
+                query = f"""
+                UPDATE [ORDER] 
+                SET {", ".join(set_clauses)}
+                WHERE ID = :order_id
+                """
+
+                await session.execute(text(query), params)
+                await session.commit()
+                logger.info(f"Updated order {order_id}")
+                return {"id": order_id, **order_data}
+
+        except Exception as e:
+            logger.error(f"Error updating order {order_id}: {e}")
+            raise
+
+    async def get_item_stock(self, item_id: int) -> int:
+        """
+        Obtiene el stock actual de un item.
+
+        Args:
+            item_id: ID del item
+
+        Returns:
+            Cantidad en stock
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                query = """
+                SELECT Quantity FROM Item 
+                WHERE ID = :item_id
+                """
+                result = await session.execute(text(query), {"item_id": item_id})
+                row = result.fetchone()
+                return row[0] if row else 0
+
+        except Exception as e:
+            logger.error(f"Error getting stock for item {item_id}: {e}")
+            return 0
+
+    async def update_item_stock(self, item_id: int, quantity_change: int) -> None:
+        """
+        Actualiza el stock de un item.
+
+        Args:
+            item_id: ID del item
+            quantity_change: Cambio en la cantidad (puede ser negativo)
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                query = """
+                UPDATE Item 
+                SET Quantity = Quantity + :quantity_change
+                WHERE ID = :item_id
+                """
+                await session.execute(text(query), {"item_id": item_id, "quantity_change": quantity_change})
+                await session.commit()
+                logger.info(f"Updated stock for item {item_id}: {quantity_change:+d}")
+
+        except Exception as e:
+            logger.error(f"Error updating stock for item {item_id}: {e}")
+            raise
+
+    async def get_order_entries(self, order_id: int) -> List[Dict[str, Any]]:
+        """
+        Obtiene las entradas de una orden.
+
+        Args:
+            order_id: ID de la orden
+
+        Returns:
+            Lista de entradas de la orden
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                query = """
+                SELECT * FROM OrderEntry 
+                WHERE OrderID = :order_id
+                """
+                result = await session.execute(text(query), {"order_id": order_id})
+                rows = result.fetchall()
+                return [row._asdict() for row in rows]
+
+        except Exception as e:
+            logger.error(f"Error getting order entries for order {order_id}: {e}")
+            return []
+
+    async def update_order_entry(self, entry_id: int, entry_data: Dict[str, Any]) -> None:
+        """
+        Actualiza una entrada de orden.
+
+        Args:
+            entry_id: ID de la entrada
+            entry_data: Nuevos datos de la entrada
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                # Construir query dinámicamente
+                set_clauses = []
+                params = {"entry_id": entry_id}
+
+                for key, value in entry_data.items():
+                    if key != "id":
+                        set_clauses.append(f"{key} = :{key}")
+                        params[key] = value
+
+                if set_clauses:
+                    query = f"""
+                    UPDATE OrderEntry 
+                    SET {", ".join(set_clauses)}
+                    WHERE ID = :entry_id
+                    """
+                    await session.execute(text(query), params)
+                    await session.commit()
+                    logger.info(f"Updated order entry {entry_id}")
+
+        except Exception as e:
+            logger.error(f"Error updating order entry {entry_id}: {e}")
+            raise
+
+    async def create_order_history(self, history_data: Dict[str, Any]) -> int:
+        """
+        Crea un registro de historial de orden.
+
+        Args:
+            history_data: Datos del historial
+
+        Returns:
+            ID del registro creado
+        """
+        try:
+            async with self.conn_db.get_session() as session:
+                # Usar los campos correctos según la estructura de OrderHistory
+                query = """
+                INSERT INTO OrderHistory (
+                    StoreID, BatchNumber, Date, OrderID, CashierID, 
+                    DeltaDeposit, TransactionNumber, Comment
+                ) 
+                OUTPUT INSERTED.ID
+                VALUES (
+                    :store_id, :batch_number, :date, :order_id, :cashier_id,
+                    :delta_deposit, :transaction_number, :comment
+                )
+                """
+
+                # Preparar datos con valores por defecto si no están presentes
+                params = {
+                    "store_id": history_data.get("store_id", 40),  # Default store
+                    "batch_number": history_data.get("batch_number", 1),
+                    "date": history_data.get("date", datetime.now()),
+                    "order_id": history_data.get("order_id"),
+                    "cashier_id": history_data.get("cashier_id", 1),  # Default cashier
+                    "delta_deposit": history_data.get("delta_deposit", 0),
+                    "transaction_number": history_data.get("transaction_number", 1),
+                    "comment": history_data.get("comment", ""),
+                }
+
+                result = await session.execute(text(query), params)
+                await session.commit()
+                history_id = result.fetchone()[0]  # type: ignore
+                logger.info(f"Created order history with ID: {history_id}")
+                return history_id
+
+        except Exception as e:
+            logger.error(f"Error creating order history: {e}")
+            raise
 
 
 # Funciones de conveniencia para uso global

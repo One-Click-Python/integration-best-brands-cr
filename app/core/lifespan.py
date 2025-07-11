@@ -293,10 +293,10 @@ async def startup_configure_monitoring():
 async def startup_final_checks():
     """Ejecuta verificaciones finales antes de completar el startup."""
     try:
-        # Verificar que todos los endpoints estén accesibles
-        from app.core.health import is_system_healthy
+        # Verificar que todos los endpoints estén accesibles (usando verificación rápida)
+        from app.core.health import is_system_healthy_fast
 
-        if await is_system_healthy():
+        if await is_system_healthy_fast():
             logger.info("✅ Sistema completamente saludable")
         else:
             logger.warning("⚠️ Algunos servicios no están completamente saludables")

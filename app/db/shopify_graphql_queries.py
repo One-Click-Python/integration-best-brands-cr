@@ -413,6 +413,26 @@ mutation UpdateInventoryItem($id: ID!, $input: InventoryItemInput!) {
 }
 """
 
+INVENTORY_SET_QUANTITIES_MUTATION = """
+mutation InventorySetQuantities($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
+    inventoryAdjustmentGroup {
+      createdAt
+      reason
+      referenceDocumentUri
+      changes {
+        name
+        delta
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""
+
 INVENTORY_ADJUST_MUTATION = """
 mutation AdjustInventory($input: InventoryAdjustQuantityInput!) {
   inventoryAdjustQuantity(input: $input) {

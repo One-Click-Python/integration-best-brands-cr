@@ -35,7 +35,6 @@ class ShopifyToRMSSync:
             # Inicializar clientes RMS y Shopify
             from app.db.rms_handler import RMSHandler
             from app.db.shopify_graphql_client import ShopifyGraphQLClient
-            from app.db.shopify_order_client import ShopifyOrderClient
             
             self.rms_handler = RMSHandler()
             self.graphql_client = ShopifyGraphQLClient()
@@ -56,6 +55,10 @@ class ShopifyToRMSSync:
             from app.db.shopify_order_client import ShopifyOrderClient
             await self.graphql_client.initialize()
             self.shopify_client = ShopifyOrderClient(self.graphql_client)
+        
+        # Inicializar RMS handler si es necesario
+        if not self.rms_handler.is_initialized():
+            await self.rms_handler.initialize()
 
     async def close(self):
         """Cierra los clientes."""
@@ -311,15 +314,36 @@ class ShopifyToRMSSync:
         
         # Procesar líneas de pedido (tabla ORDERENTRY)
         line_items_data = []
-        for item in shopify_order.get("lineItems", []):
-            if not item.get("sku"):
-                logger.warning(f"Skipping line item without SKU in order {shopify_order['id']}")
-                continue
+        
+        # Manejar formato GraphQL de line items (edges/node structure)
+        line_items_raw = shopify_order.get("lineItems", {})
+        if isinstance(line_items_raw, dict) and "edges" in line_items_raw:
+            # GraphQL format: lineItems.edges[].node
+            line_items = [edge["node"] for edge in line_items_raw["edges"]]
+        else:
+            # Formato simple (lista directa)
+            line_items = line_items_raw if isinstance(line_items_raw, list) else []
+        
+        for item in line_items:
+            # Verificar SKU (priorizar variant.sku sobre item.sku)
+            item_sku = item.get("variant", {}).get("sku") or item.get("sku")
+            
+            # Para testing: usar variant ID como fallback si no hay SKU
+            if not item_sku or item_sku.strip() == "":
+                variant_id = item.get("variant", {}).get("id", "")
+                if variant_id:
+                    # Extraer ID numerico del GID
+                    variant_id_num = variant_id.split("/")[-1] if "/" in variant_id else variant_id
+                    item_sku = f"VAR-{variant_id_num}"
+                    logger.info(f"Using variant ID as SKU fallback: {item_sku} for item {item.get('title', 'Unknown')}")
+                else:
+                    logger.warning(f"Skipping line item without SKU or variant ID in order {shopify_order['id']}: {item.get('title', 'Unknown item')}")
+                    continue
                 
             # Resolver SKU a ItemID de RMS
-            item_id = await self._resolve_sku_to_item_id(item["sku"])
+            item_id = await self._resolve_sku_to_item_id(item_sku)
             if not item_id:
-                logger.error(f"Could not find RMS ItemID for SKU: {item['sku']} in order {shopify_order['id']}")
+                logger.error(f"Could not find RMS ItemID for SKU: {item_sku} in order {shopify_order['id']}")
                 continue
             
             # Obtener precios (usar precio con descuento si existe)
@@ -432,9 +456,9 @@ class ShopifyToRMSSync:
                     "zip": billing_address.get("zip", ""),
                 })
             
-            new_customer = await self.rms_handler.create_customer(customer_info)
-            logger.info(f"Created new customer: {new_customer['id']} for email {email}")
-            return new_customer["id"]
+            new_customer_id = await self.rms_handler.create_customer(customer_info)
+            logger.info(f"Created new customer: {new_customer_id} for email {email}")
+            return new_customer_id
             
         except Exception as e:
             logger.error(f"Error resolving customer: {e}")
@@ -513,8 +537,7 @@ class ShopifyToRMSSync:
             
             # Crear la orden principal (tabla ORDER)
             order_model = RMSOrder(**rms_order_data["order"])
-            created_order = await self.rms_handler.create_order(order_model.model_dump())
-            order_id = created_order["id"]
+            order_id = await self.rms_handler.create_order(order_model.model_dump())
             
             logger.info(f"Created RMS order {order_id} for Shopify order {rms_order_data['order']['shopify_order_id']}")
             
@@ -523,10 +546,10 @@ class ShopifyToRMSSync:
             for line_item in rms_order_data["line_items"]:
                 line_item["order_id"] = order_id
                 entry_model = RMSOrderEntry(**line_item)
-                created_entry = await self.rms_handler.create_order_entry(entry_model.model_dump())
-                created_entries.append(created_entry)
+                entry_id = await self.rms_handler.create_order_entry(entry_model.model_dump())
+                created_entries.append({"id": entry_id, **line_item})
                 
-                logger.debug(f"Created order entry {created_entry['id']} for item {line_item['item_id']}")
+                logger.debug(f"Created order entry {entry_id} for item {line_item['item_id']}")
             
             # Validar inventario y actualizar existencias
             await self._validate_and_update_inventory(created_entries)
@@ -567,6 +590,7 @@ class ShopifyToRMSSync:
             
             # Actualizar la orden principal si hay cambios
             updated_order = await self.rms_handler.update_order(order_id, rms_order_data["order"])
+            logger.debug(f"Updated order {updated_order['id']} with new data")
             
             # Sincronizar líneas de la orden (agregar/actualizar/eliminar según sea necesario)
             await self._sync_order_entries(order_id, rms_order_data["line_items"])

@@ -19,8 +19,6 @@ from app.db.queries import (
     CREATE_PRODUCT_MUTATION,
     CREATE_VARIANT_MUTATION,
     CREATE_VARIANTS_BULK_MUTATION,
-    DRAFT_ORDER_QUERY,
-    DRAFT_ORDERS_QUERY,
     INVENTORY_SET_MUTATION,
     LOCATIONS_QUERY,
     ORDERS_QUERY,
@@ -54,7 +52,7 @@ class ShopifyGraphQLClient:
         """Inicializa el cliente GraphQL de Shopify."""
         self.shop_url = settings.SHOPIFY_SHOP_URL
         self.access_token = settings.SHOPIFY_ACCESS_TOKEN
-        self.api_version = settings.SHOPIFY_API_VERSION or "2024-10"
+        self.api_version = settings.SHOPIFY_API_VERSION or "2025-04"
         self.session: Optional[aiohttp.ClientSession] = None
 
         # Rate limiting configuration
@@ -300,7 +298,7 @@ class ShopifyGraphQLClient:
 
             logger.info(f"Found {len(locations)} active locations:")
             for i, loc in enumerate(locations):
-                logger.info(f"  {i+1}. {loc['name']} (ID: {loc['id']})")
+                logger.info(f"  {i + 1}. {loc['name']} (ID: {loc['id']})")
                 if loc.get("address"):
                     addr = loc["address"]
                     logger.info(
@@ -607,7 +605,7 @@ class ShopifyGraphQLClient:
         """
         try:
             from .shopify_graphql_queries import PRODUCT_BY_HANDLE_QUERY
-            
+
             variables = {"handle": f"handle:{handle}"}
             result = await self._execute_query(PRODUCT_BY_HANDLE_QUERY, variables)
 
@@ -650,7 +648,7 @@ class ShopifyGraphQLClient:
                     if "handle" in error.get("field", []) and "already in use" in error.get("message", ""):
                         handle = product_data.get("handle")
                         logger.warning(f"Handle '{handle}' already in use, checking existing product")
-                        
+
                         # Try to find the existing product
                         existing_product = await self.get_product_by_handle(handle)
                         if existing_product:
@@ -661,12 +659,9 @@ class ShopifyGraphQLClient:
                             return await self.update_product(existing_product["id"], update_data)
                         else:
                             # Generate a unique handle and try again
-                            original_handle = handle
-                            new_handle = await self._generate_unique_handle(handle)
-                            product_data["handle"] = new_handle
-                            logger.info(f"Generated new unique handle: {original_handle} -> {new_handle}")
+                            product_data["handle"] = handle
                             return await self.create_product(product_data)
-                
+
                 # If it's not a handle error, raise the original exception
                 error_messages = [f"{e['field']}: {e['message']}" for e in user_errors]
                 raise ShopifyAPIException(f"Product creation failed: {', '.join(error_messages)}")
@@ -681,39 +676,6 @@ class ShopifyGraphQLClient:
         except Exception as e:
             logger.error(f"Error creating product: {e}")
             raise
-
-    async def _generate_unique_handle(self, base_handle: str) -> str:
-        """
-        Genera un handle único agregando un sufijo numérico o timestamp.
-
-        Args:
-            base_handle: Handle base
-
-        Returns:
-            str: Handle único
-        """
-        import time
-        
-        # Try with timestamp first
-        timestamp = str(int(time.time()))[-6:]  # Last 6 digits of timestamp
-        new_handle = f"{base_handle}-{timestamp}"
-        
-        # Check if this handle is available
-        existing = await self.get_product_by_handle(new_handle)
-        if not existing:
-            return new_handle
-        
-        # If timestamp handle is also taken, try with incremental numbers
-        for i in range(1, 100):
-            new_handle = f"{base_handle}-{i}"
-            existing = await self.get_product_by_handle(new_handle)
-            if not existing:
-                return new_handle
-        
-        # Fallback to timestamp + random suffix if all numbers are taken
-        import random
-        random_suffix = random.randint(1000, 9999)
-        return f"{base_handle}-{timestamp}-{random_suffix}"
 
     async def update_product(self, product_id: str, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -806,11 +768,11 @@ class ShopifyGraphQLClient:
 
             variants = bulk_result.get("productVariants", [])
             product = bulk_result.get("product", {})
-            
+
             if variants:
                 logger.info(f"✅ Created {len(variants)} variants for product {product_id}")
                 for variant in variants:
-                    options_str = " / ".join([opt['value'] for opt in variant.get('selectedOptions', [])])
+                    options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
                     logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
                 return bulk_result
 
@@ -881,70 +843,116 @@ class ShopifyGraphQLClient:
         self, inventory_item_id: str, location_id: str, available_quantity: int = None
     ) -> Dict[str, Any]:
         """
-        Activa el tracking de inventario para un item usando un approach de dos pasos.
+         Activa el tracking de inventario y establece la cantidad disponible inicial.
+
+        Flujo de 3 pasos:
+        1. Habilitar tracking en el inventory item
+        2. Activar inventory en la ubicación
+        3. Establecer cantidad disponible
 
         Args:
             inventory_item_id: ID del item de inventario
             location_id: ID de la ubicación
-            available_quantity: Cantidad disponible inicial (no usado en esta función)
+            available_quantity: Cantidad disponible inicial
 
         Returns:
-            Resultado de la activación
+            Resultado completo con el inventory level final
         """
         try:
-            from .shopify_graphql_queries import INVENTORY_ACTIVATE_MUTATION, INVENTORY_ITEM_UPDATE_MUTATION
-            
-            # Step 1: Enable tracking en el inventory item
-            update_variables = {
-                "id": inventory_item_id,
-                "input": {
-                    "tracked": True
-                }
-            }
-            
+            from .shopify_graphql_queries import (
+                INVENTORY_ACTIVATE_MUTATION,
+                INVENTORY_ITEM_UPDATE_MUTATION,
+                INVENTORY_SET_QUANTITIES_MUTATION
+            )
+
+            # 📝 PASO 1: Habilitar tracking en el inventory item
+            logger.info(f"🔄 Step 1: Enabling tracking for item {inventory_item_id}")
+
+            update_variables = {"id": inventory_item_id, "input": {"tracked": True}}
+
             update_result = await self._execute_query(INVENTORY_ITEM_UPDATE_MUTATION, update_variables)
-            
-            update_result_data = update_result.get("inventoryItemUpdate", {})
-            update_errors = update_result_data.get("userErrors", [])
-            
-            if update_errors:
-                error_messages = [f"{e.get('field', 'unknown')}: {e.get('message', 'unknown error')}" for e in update_errors]
-                logger.error(f"❌ Errors enabling inventory tracking: {error_messages}")
-                return {"success": False, "errors": update_errors}
-            
-            inventory_item = update_result_data.get("inventoryItem", {})
-            is_tracked = inventory_item.get("tracked", False)
-            
-            if not is_tracked:
-                logger.warning(f"⚠️ Inventory item tracking may not be enabled: {inventory_item_id}")
-            else:
-                logger.info(f"✅ Enabled inventory tracking for item: {inventory_item_id}")
-            
-            # Step 2: Activate inventory en la ubicación
-            activation_variables = {
-                "inventoryItemId": inventory_item_id,
-                "locationId": location_id
-            }
-            
+
+            update_data = update_result.get("inventoryItemUpdate", {})
+            if update_errors := update_data.get("userErrors", []):
+                logger.error(f"❌ Step 1 failed: {update_errors}")
+                return {"success": False, "step": 1, "errors": update_errors}
+
+            logger.info("✅ Step 1: Tracking enabled successfully")
+
+            # 📍 PASO 2: Activar inventory en la ubicación
+            activation_variables = {"inventoryItemId": inventory_item_id, "locationId": location_id}
+
             activation_result = await self._execute_query(INVENTORY_ACTIVATE_MUTATION, activation_variables)
-            
-            activation_result_data = activation_result.get("inventoryActivate", {})
-            activation_errors = activation_result_data.get("userErrors", [])
-            
-            if activation_errors:
-                error_messages = [f"{e.get('field', 'unknown')}: {e.get('message', 'unknown error')}" for e in activation_errors]
-                logger.error(f"❌ Errors activating inventory at location: {error_messages}")
-                return {"success": False, "errors": activation_errors}
-            
-            inventory_level = activation_result_data.get("inventoryLevel", {})
-            logger.info(f"✅ Activated inventory tracking: {inventory_level.get('id', 'unknown')}")
-            
+
+            activation_data = activation_result.get("inventoryActivate", {})
+            if activation_errors := activation_data.get("userErrors", []):
+                logger.error(f"❌ Step 2 failed: {activation_errors}")
+                return {"success": False, "step": 2, "errors": activation_errors}
+
+            inventory_level = activation_data.get("inventoryLevel", {})
+            logger.info("✅ Step 2: Inventory activated at location")
+
+            # 📊 PASO 3: Establecer cantidad disponible (si se especifica)
+            if available_quantity is not None and available_quantity > 0:
+                logger.info(f"🔄 Step 3: Setting available quantity to {available_quantity}")
+
+                # Obtener la cantidad actual del inventory level
+                current_quantity = inventory_level.get("available", 0)
+                logger.info(f"   Current quantity: {current_quantity}")
+
+                # Para establecer la cantidad, usamos inventorySetQuantities
+                # Ignoramos compareQuantity para simplificar
+                set_quantity_variables = {
+                    "input": {
+                        "name": "available",
+                        "reason": "correction",  
+                        "referenceDocumentUri": f"inventory-setup-{inventory_item_id}",
+                        "ignoreCompareQuantity": True,  # Ignorar la verificación de cantidad actual
+                        "quantities": [
+                            {
+                                "inventoryItemId": inventory_item_id,
+                                "locationId": location_id,
+                                "quantity": available_quantity
+                            }
+                        ]
+                    }
+                }
+
+                set_result = await self._execute_query(
+                    INVENTORY_SET_QUANTITIES_MUTATION,
+                    set_quantity_variables
+                )
+
+                set_data = set_result.get("inventorySetQuantities", {})
+                if set_errors := set_data.get("userErrors", []):
+                    logger.error(f"❌ Step 3 failed: {set_errors}")
+                    return {"success": False, "step": 3, "errors": set_errors}
+
+                adjustment_group = set_data.get("inventoryAdjustmentGroup", {})
+                changes = adjustment_group.get("changes", [])
+                
+                if changes:
+                    available_change = next(
+                        (c for c in changes if c.get("name") == "available"),
+                        changes[0]
+                    )
+                    delta = available_change.get("delta", 0)
+                    final_quantity = current_quantity + delta
+                    logger.info(f"✅ Step 3: Quantity set (Δ{delta:+d}) → Final: {final_quantity}")
+                else:
+                    final_quantity = available_quantity
+                    logger.info("✅ Step 3: Quantity operation completed")
+            else:
+                logger.info("ℹ️ Step 3: No quantity specified, skipping adjustment")
+                final_quantity = 0
+
             return {
                 "success": True,
                 "inventoryLevel": inventory_level,
-                "tracked": is_tracked
+                "tracked": True,
+                "finalQuantity": final_quantity
             }
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to activate inventory tracking: {e}")
             return {"success": False, "error": str(e)}
@@ -1096,17 +1104,19 @@ class ShopifyGraphQLClient:
             while True:
                 page_count += 1
                 logger.info(f"Fetching page {page_count} of products (cursor: {cursor[:50] if cursor else 'None'}...)")
-                
+
                 result = await self.get_products(limit=250, cursor=cursor)
                 products = result.get("products", [])
-                
+
                 logger.info(f"Page {page_count}: Retrieved {len(products)} products")
-                
+
                 if products:
                     # Log some product details for debugging
                     for i, product in enumerate(products[:3]):
-                        logger.info(f"  Product {i+1}: {product.get('title', 'No title')} (ID: {product.get('id', 'No ID')})")
-                
+                        logger.info(
+                            f"  Product {i + 1}: {product.get('title', 'No title')} (ID: {product.get('id', 'No ID')})"
+                        )
+
                 all_products.extend(products)
 
                 has_next_page = result.get("hasNextPage", False)
@@ -1122,13 +1132,13 @@ class ShopifyGraphQLClient:
                     break
 
                 # Small delay to be respectful of rate limits
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(5)
 
             logger.info(f"Retrieved {len(all_products)} total products across {page_count} pages")
             return all_products
 
         except Exception as e:
-            logger.error(f"Error getting all products: {e}")
+            logger.error(f"Error getting all products with pagination 😒: {e}")
             raise
 
     async def batch_update_inventory(self, inventory_updates: List[Dict[str, Any]]) -> Tuple[int, List[Dict[str, Any]]]:

@@ -17,7 +17,7 @@ from app.api.v1.endpoints.sync import router as sync_router
 from app.api.v1.endpoints.sync_monitor import router as sync_monitor_router
 from app.api.v1.endpoints.webhooks import router as webhooks_router
 from app.core.config import get_settings
-from app.core.health import get_health_status
+from app.core.health import get_health_status, get_health_status_fast
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -74,11 +74,51 @@ def create_health_endpoints(app: FastAPI) -> None:
         app: Instancia de FastAPI
     """
 
-    @app.get("/health", tags=["Health"], summary="Health Check")
+    @app.get("/health", tags=["Health"], summary="Health Check (Fast)")
     async def health_check():
         """
-        Endpoint de health check completo para monitoreo.
-        Verifica el estado de todos los servicios críticos.
+        Endpoint de health check rápido para uso general.
+        Usa cache y verifica solo servicios críticos básicos.
+
+        Returns:
+            Dict con estado de salud rápido
+        """
+        try:
+            health_status = await get_health_status_fast()
+
+            status_code = 200 if health_status["overall"] else 503
+
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "status": "healthy" if health_status["overall"] else "unhealthy",
+                    "version": settings.APP_VERSION,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "uptime": health_status.get("uptime"),
+                    "services": health_status["services"],
+                    "environment": settings.ENVIRONMENT,
+                    "debug": settings.DEBUG,
+                    "cache_info": health_status.get("cache_info", "unknown"),
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error en health check: {e}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unhealthy",
+                    "error": str(e),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "version": settings.APP_VERSION,
+                },
+            )
+
+    @app.get("/health/complete", tags=["Health"], summary="Complete Health Check")
+    async def complete_health_check():
+        """
+        Endpoint de health check completo para monitoreo profundo.
+        Verifica el estado de TODOS los servicios (puede ser lento).
 
         Returns:
             Dict con estado de salud completo
@@ -96,13 +136,15 @@ def create_health_endpoints(app: FastAPI) -> None:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "uptime": health_status.get("uptime"),
                     "services": health_status["services"],
+                    "system": health_status.get("system"),
                     "environment": settings.ENVIRONMENT,
                     "debug": settings.DEBUG,
+                    "check_type": "complete",
                 },
             )
 
         except Exception as e:
-            logger.error(f"Error en health check: {e}")
+            logger.error(f"Error en complete health check: {e}")
             return JSONResponse(
                 status_code=503,
                 content={
@@ -110,6 +152,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                     "error": str(e),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "version": settings.APP_VERSION,
+                    "check_type": "complete",
                 },
             )
 

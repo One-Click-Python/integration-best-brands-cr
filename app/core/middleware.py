@@ -31,7 +31,22 @@ def configure_cors_middleware(app: FastAPI) -> None:
     Args:
         app: Instancia de FastAPI
     """
-    allowed_origins = settings.ALLOWED_HOSTS or ["*"]
+    # Para desarrollo, permitir todos los orígenes locales
+    if settings.DEBUG:
+        allowed_origins = [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://0.0.0.0:8000",
+            "http://localhost:8080", 
+            "http://127.0.0.1:8080",
+            "http://0.0.0.0:8080",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "*"  # Fallback para desarrollo
+        ]
+    else:
+        # En producción, usar solo los hosts configurados
+        allowed_origins = settings.ALLOWED_HOSTS or ["*"]
 
     app.add_middleware(
         CORSMiddleware,
@@ -46,6 +61,7 @@ def configure_cors_middleware(app: FastAPI) -> None:
             "Authorization",
             "X-API-Key",
             "X-Request-ID",
+            "X-Requested-With",
         ],
         expose_headers=[
             "X-Process-Time",
@@ -94,7 +110,6 @@ def configure_request_logging_middleware(app: FastAPI) -> None:
         Returns:
             Response con headers adicionales
         """
-        logger.info("🔧 Configurando middleware de request logging", request)
         # Generar ID único para la request
         request_id = generate_request_id()
 

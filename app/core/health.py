@@ -21,6 +21,102 @@ logger = logging.getLogger(__name__)
 # Variable global para tracking de uptime
 _app_start_time = datetime.now(timezone.utc)
 
+# Cache global para health checks
+_health_cache: Dict[str, Any] = {}
+_cache_timestamp: Dict[str, datetime] = {}
+
+
+async def get_health_status_fast() -> Dict[str, Any]:
+    """
+    Obtiene el estado de salud rápido usando cache.
+
+    Returns:
+        Dict: Estado de salud básico (desde cache si está disponible)
+    """
+    cache_key = "health_status"
+    now = datetime.now(timezone.utc)
+
+    # Verificar si tenemos cache válido
+    if (
+        cache_key in _health_cache
+        and cache_key in _cache_timestamp
+        and (now - _cache_timestamp[cache_key]).total_seconds() < settings.HEALTH_CHECK_CACHE_TTL
+    ):
+        logger.debug("Returning cached health status")
+        return _health_cache[cache_key]
+
+    # Cache expirado o no existe, ejecutar health check básico
+    try:
+        health_results = {}
+        overall_healthy = True
+
+        # Solo ejecutar verificaciones críticas y rápidas
+        quick_checks = [
+            ("memory", check_memory_usage),
+            ("disk_space", check_disk_space),
+        ]
+
+        # Ejecutar verificaciones rápidas con timeout reducido
+        tasks = []
+        for service_name, check_func in quick_checks:
+            task = asyncio.create_task(
+                run_health_check_with_timeout(service_name, check_func, timeout=1.0),
+                name=f"quick_health_check_{service_name}",
+            )
+            tasks.append(task)
+
+        # Esperar resultados con timeout muy corto
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=2.0,  # Timeout muy corto para health check rápido
+            )
+
+            # Procesar resultados
+            for i, (service_name, _) in enumerate(quick_checks):
+                result = results[i]
+                if isinstance(result, Exception):
+                    health_results[service_name] = {
+                        "status": "unhealthy",
+                        "error": str(result),
+                        "latency_ms": None,
+                    }
+                    overall_healthy = False
+                elif isinstance(result, dict):
+                    health_results[service_name] = result
+                    if result.get("status") != "healthy":
+                        overall_healthy = False
+
+        except asyncio.TimeoutError:
+            logger.warning("Quick health check timeout")
+            overall_healthy = False
+
+        # Crear respuesta básica
+        health_response = {
+            "overall": overall_healthy,
+            "services": health_results,
+            "uptime": get_uptime_info(),
+            "timestamp": now.isoformat(),
+            "cache_info": "fast_check",
+        }
+
+        # Guardar en cache
+        _health_cache[cache_key] = health_response
+        _cache_timestamp[cache_key] = now
+
+        return health_response
+
+    except Exception as e:
+        logger.error(f"Error in fast health check: {e}")
+        # Retornar estado básico en caso de error
+        return {
+            "overall": False,
+            "services": {"error": {"status": "unhealthy", "error": str(e)}},
+            "uptime": get_uptime_info(),
+            "timestamp": now.isoformat(),
+            "cache_info": "error_fallback",
+        }
+
 
 async def get_health_status() -> Dict[str, Any]:
     """
@@ -43,11 +139,19 @@ async def get_health_status() -> Dict[str, Any]:
         ("cpu", check_cpu_usage),
     ]
 
-    # Ejecutar verificaciones en paralelo
+    # Ejecutar verificaciones en paralelo con timeouts individuales
     tasks = []
     for service_name, check_func in health_checks:
+        # Asignar timeouts específicos por servicio
+        if service_name in ["rms", "shopify"]:
+            # Servicios externos con timeout reducido
+            timeout = settings.HEALTH_CHECK_INDIVIDUAL_TIMEOUT
+        else:
+            # Servicios locales con timeout muy corto
+            timeout = 1.0
+
         task = asyncio.create_task(
-            run_health_check(service_name, check_func),
+            run_health_check_with_timeout(service_name, check_func, timeout),
             name=f"health_check_{service_name}",
         )
         tasks.append(task)
@@ -121,6 +225,53 @@ async def run_health_check(service_name: str, check_func) -> Dict[str, Any]:
 
         return {
             "status": "healthy" if result else "unhealthy",
+            "latency_ms": round(latency_ms, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.error(f"Health check failed for {service_name}: {e}")
+
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "latency_ms": round(latency_ms, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+async def run_health_check_with_timeout(service_name: str, check_func, timeout: float) -> Dict[str, Any]:
+    """
+    Ejecuta una verificación de salud individual con timeout específico.
+
+    Args:
+        service_name: Nombre del servicio
+        check_func: Función de verificación
+        timeout: Timeout en segundos
+
+    Returns:
+        Dict: Resultado de la verificación
+    """
+    start_time = time.time()
+
+    try:
+        result = await asyncio.wait_for(check_func(), timeout=timeout)
+        latency_ms = (time.time() - start_time) * 1000
+
+        return {
+            "status": "healthy" if result else "unhealthy",
+            "latency_ms": round(latency_ms, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except asyncio.TimeoutError:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.warning(f"Health check timeout for {service_name} after {timeout}s")
+
+        return {
+            "status": "timeout",
+            "error": f"Health check timeout after {timeout}s",
             "latency_ms": round(latency_ms, 2),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -278,7 +429,7 @@ async def check_cpu_usage() -> bool:
 
         # Alerta si se usa más del 95% de CPU
         threshold = settings.CPU_USAGE_THRESHOLD or 95
-        return cpu_percent < threshold
+        return cpu_percent < threshold  # type: ignore
 
     except Exception as e:
         logger.error(f"Error checking CPU usage: {e}")
@@ -401,6 +552,39 @@ async def is_system_healthy() -> bool:
             return False
 
     return True
+
+
+async def is_system_healthy_fast() -> bool:
+    """
+    Verifica si el sistema está saludable usando verificación rápida.
+
+    Esta función es más rápida que is_system_healthy() porque:
+    - Usa cache si está disponible
+    - Solo verifica servicios locales críticos
+    - Tiene timeouts muy cortos
+
+    Returns:
+        bool: True si el sistema está básicamente saludable
+    """
+    try:
+        health_status = await get_health_status_fast()
+
+        # Solo verificar servicios críticos básicos
+        critical_services = ["memory", "disk_space"]
+
+        for service in critical_services:
+            service_status = health_status["services"].get(service, {})
+            status = service_status.get("status")
+            if status not in ["healthy", "timeout"]:  # Permitir timeout como OK para checks rápidos
+                logger.warning(f"Critical service {service} is {status} in fast health check")
+                return False
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error in fast system health check: {e}")
+        # En caso de error, asumir que está saludable para no bloquear endpoints
+        return True
 
 
 def reset_uptime() -> None:

@@ -15,9 +15,6 @@ from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 from app.core.config import get_settings
 from app.core.logging_config import LogContext, log_sync_operation
-from app.services.data_mapper import (
-    ShopifyToRMSMapper,
-)
 from app.utils.error_handler import (
     ErrorAggregator,
     SyncException,
@@ -40,6 +37,7 @@ class RMSToShopifySync:
         self.primary_location_id = None
         self.error_aggregator = ErrorAggregator()
         self.sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: F821
+        self._include_zero_stock = False
 
     async def initialize(self):
         """
@@ -83,6 +81,32 @@ class RMSToShopifySync:
                 operation="initialize",
             ) from e
 
+    async def close(self):
+        """
+        Cierra el servicio de sincronización y libera recursos.
+        """
+        try:
+            logger.info(f"Closing sync service - ID: {self.sync_id}")
+
+            # Cerrar handler RMS
+            if self.rms_handler:
+                await self.rms_handler.close()
+                logger.debug("RMS handler closed")
+
+            # Cerrar cliente Shopify
+            if self.shopify_client:
+                await self.shopify_client.close()
+                logger.debug("Shopify client closed")
+
+            # El inventory_manager no necesita cleanup específico
+            # ya que usa el shopify_client que ya se cerró
+
+            logger.info(f"Sync service closed successfully - ID: {self.sync_id}")
+
+        except Exception as e:
+            logger.error(f"Error closing sync service: {e}")
+            # No re-raise para evitar problemas en el shutdown
+
     async def get_status(self) -> Dict[str, Any]:
         """
         Obtiene el estado actual del servicio de sincronización.
@@ -103,7 +127,7 @@ class RMSToShopifySync:
         batch_size: int = None,
         filter_categories: Optional[List[str]] = None,
         include_zero_stock: bool = False,
-        ccod: Optional[str] = None,
+        cod_product: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Sincroniza productos de RMS a Shopify.
@@ -113,28 +137,27 @@ class RMSToShopifySync:
             batch_size: Tamaño del lote para procesamiento
             filter_categories: Filtrar por categorías específicas
             include_zero_stock: Incluir productos sin stock
-            ccod: CCOD específico a sincronizar (opcional)
+            cod_product: CCOD específico a sincronizar (opcional)
 
         Returns:
             Dict: Resultado de la sincronización
 
         Raises:
-            SyncException: Si falla la sincronización
+            SyncException: Sí falla la sincronización
         """
         batch_size = batch_size or settings.SYNC_BATCH_SIZE
 
-        # Configurar opciones de filtrado
         self._include_zero_stock = include_zero_stock
 
         with LogContext(sync_id=self.sync_id, operation="sync_products"):
             logger.info(
                 f"Starting product sync - Force: {force_update}, Batch: {batch_size}, "
-                f"Include zero stock: {include_zero_stock}, CCOD: {ccod or 'ALL'}"
+                f"Include zero stock: {include_zero_stock}, CCOD: {cod_product or 'ALL'}"
             )
 
             try:
                 # 1. Extraer productos de RMS
-                rms_products = await self._extract_rms_products(filter_categories, ccod)
+                rms_products = await self._extract_rms_products(filter_categories, cod_product)
                 logger.info(f"❗️Extracted {len(rms_products)} products from RMS")
 
                 # 2. Obtener productos existentes de Shopify
@@ -243,7 +266,7 @@ class RMSToShopifySync:
                     )
                     rms_items.append(rms_item)
                 except Exception as e:
-                    logger.warning(f"❌ Error procesando item RMS: {e}")
+                    logger.warning(f"❌ --> (RMSViewItem) Error procesando item RMS: {e}")
                     continue
 
             logger.info(f"✅ Procesados {len(rms_items)} items válidos de RMS")
@@ -256,7 +279,7 @@ class RMSToShopifySync:
                 rms_items, self.shopify_client, self.primary_location_id
             )
 
-            logger.info(f"🎯 Creados {len(shopify_products)} productos con múltiples variantes")
+            logger.info(f"🎯 Generados {len(shopify_products)} productos con múltiples variantes")
             logger.info(f"📈 Reducción: {len(rms_items)} items → {len(shopify_products)} productos")
 
             return shopify_products
@@ -265,7 +288,9 @@ class RMSToShopifySync:
             logger.error(f"❌ Error extracting RMS products with variants: {e}")
             raise SyncException(f"Failed to extract RMS products: {e}") from e
 
-    async def _extract_rms_products(self, filter_categories: Optional[List[str]] = None, ccod: Optional[str] = None) -> List[ShopifyProductInput]:
+    async def _extract_rms_products(
+        self, filter_categories: Optional[List[str]] = None, ccod: Optional[str] = None
+    ) -> List[ShopifyProductInput]:
         """
         Extrae productos de RMS usando el sistema de múltiples variantes por CCOD.
 
@@ -310,59 +335,33 @@ class RMSToShopifySync:
             products = await self.shopify_client.get_all_products()
             logger.info(f"✅ Successfully fetched {len(products)} products from Shopify")
 
-            # Indexación dual: por CCOD y por SKU individual
-            indexed_products = {"by_ccod": {}, "by_sku": {}}
+            # Indexación dual: por handle y por SKU individual
+            indexed_products = {"by_handle": {}, "by_sku": {}}
 
-            for i, product in enumerate(products):
+            for _, product in enumerate(products):
                 product_title = product.get("title", "Unknown")
-                product_id = product.get("id", "Unknown")
+                product_handle = product.get("handle", "")
 
-                # Indexar por SKU (lógica original)
-                parsed_product = ShopifyToRMSMapper.parse_product_for_updates(product)
-                variants = parsed_product.get("variants", [])
-
-                logger.debug(
-                    f"Processing product {i + 1}/{len(products)}: {product_title} "
-                    f" (ID: {product_id}) with {len(variants)} variants"
-                )
-
-                for variant in variants:
-                    sku = variant.get("sku")
-                    if sku:
-                        indexed_products["by_sku"][sku] = product
-                        logger.debug(f"  Indexed variant with SKU: {sku}")
-                    else:
-                        logger.debug(f"  Variant without SKU found in product {product_title}")
-
-                # Indexar por CCOD (nueva lógica para variantes múltiples)
-                # Buscar CCOD en los tags del producto
-                tags = product.get("tags", [])
-                ccod_found = False
-
-                for tag in tags:
-                    if tag.startswith("ccod_"):
-                        ccod = tag.replace("ccod_", "").upper()
-                        indexed_products["by_ccod"][ccod] = product
-                        logger.debug(f"  Indexed product with CCOD: {ccod}")
-                        ccod_found = True
-                        break
-
-                if not ccod_found:
-                    logger.debug(f"  Product {product_title} has no CCOD tag (tags: {tags})")
+                # Indexar por handle (más eficiente que buscar en tags)
+                if product_handle:
+                    indexed_products["by_handle"][product_handle] = product
+                    logger.debug(f"  Indexed product with handle: {product_handle}")
+                else:
+                    logger.debug(f"  Product {product_title} has no handle")
 
             sku_count = len(indexed_products["by_sku"])
-            ccod_count = len(indexed_products["by_ccod"])
+            handle_count = len(indexed_products["by_handle"])
 
-            logger.info(f"📋 Indexed {sku_count} products by SKU and {ccod_count} by CCOD")
+            logger.info(f"📋 Indexed {sku_count} products by SKU and {handle_count} by handle")
 
             # Log some examples if available
             if sku_count > 0:
                 sample_skus = list(indexed_products["by_sku"].keys())[:5]
                 logger.info(f"   Sample SKUs: {sample_skus}")
 
-            if ccod_count > 0:
-                sample_ccods = list(indexed_products["by_ccod"].keys())[:5]
-                logger.info(f"   Sample CCODs: {sample_ccods}")
+            if handle_count > 0:
+                sample_handles = list(indexed_products["by_handle"].keys())[:5]
+                logger.info(f"   Sample handles: {sample_handles}")
 
             return indexed_products
 
@@ -464,9 +463,11 @@ class RMSToShopifySync:
             try:
                 # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
                 logger.info("=" * 50)
-                logger.info(f"🔄 STEP A: Starting RMS→Shopify sync for product: {shopify_input.title}")
+                logger.info(
+                    f"🔄 STEP A: Starting RMS→Shopify sync for product, restore of shopify: {shopify_input.title}"
+                )
 
-                # Extraer CCOD de los tags del producto
+                # Extraer CCOD de los tags del producto (para logging)
                 for tag in shopify_input.tags or []:
                     if tag.startswith("ccod_"):
                         ccod = tag.replace("ccod_", "").upper()
@@ -477,10 +478,10 @@ class RMSToShopifySync:
                     stats["errors"] += 1
                     continue
 
-                logger.info(f"✅ STEP A: Prepared sync data for CCOD: {ccod}")
+                logger.info(f"✅ STEP A: Prepared sync data for CCOD: {ccod}, handle: {shopify_input.handle}")
 
-                # Buscar producto existente por CCOD
-                existing_product = shopify_products["by_ccod"].get(ccod)
+                # Buscar producto existente por handle (más eficiente)
+                existing_product = shopify_products["by_handle"].get(shopify_input.handle)
 
                 if existing_product:
                     # Producto existe - decidir si actualizar
@@ -495,15 +496,24 @@ class RMSToShopifySync:
                             # El inventario se actualiza dentro del MultipleVariantsCreator
                             stats["inventory_updated"] += 1
                             log_sync_operation("update", "shopify", ccod=ccod)
-                            logger.info(f"✅ Updated existing product: {ccod} - {shopify_input.title}")
+                            logger.info(
+                                f"✅ Updated existing product: {ccod} (handle: "
+                                f"{shopify_input.handle}) - {shopify_input.title}"
+                            )
                         else:
                             stats["errors"] += 1
-                            logger.error(f"❌ Failed to update product: {ccod} - {shopify_input.title}")
+                            logger.error(
+                                f"❌ Failed to update product: {ccod} "
+                                f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                            )
                     else:
                         # TODO: Implementar comparación inteligente para productos con múltiples variantes
                         # Por ahora, skip si no es force_update
                         stats["skipped"] += 1
-                        logger.info(f"⏭️ Skipped existing product: {ccod} - {shopify_input.title}")
+                        logger.info(
+                            f"⏭️ Skipped existing product: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                        )
                 else:
                     # FLUJO COMPLETO: Crear producto siguiendo el flujo especificado
                     # A→B→C→D→E→F→G→H/I→J (Sync → Create Product → Create Variants → Update Inventory →
@@ -515,12 +525,15 @@ class RMSToShopifySync:
                         stats["inventory_updated"] += 1  # El inventario se actualiza dentro del MultipleVariantsCreator
                         log_sync_operation("create", "shopify", ccod=ccod)
                         logger.info(
-                            f"✅ Created new product: {ccod} - {shopify_input.title} "
+                            f"✅ Created new product: {ccod} (handle: {shopify_input.handle}) - {shopify_input.title} "
                             f"({len(shopify_input.variants)} variants)"
                         )
                     else:
                         stats["errors"] += 1
-                        logger.error(f"❌ Failed to create product: {ccod} - {shopify_input.title}")
+                        logger.error(
+                            f"❌ Failed to create product: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                        )
 
                 stats["total_processed"] += 1
 
@@ -532,17 +545,6 @@ class RMSToShopifySync:
                 )
 
         return stats
-
-    # MÉTODO REMOVIDO: _update_product_variants_inventory
-    # Esta funcionalidad ahora está integrada en MultipleVariantsCreator.update_product_with_variants()
-    # y MultipleVariantsCreator.create_product_with_variants() siguiendo el flujo especificado
-
-    def _should_update_product_legacy(self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]) -> bool:
-        """
-        Método legacy para compatibilidad. Usa DataComparator en su lugar.
-        """
-        logger.warning("Using legacy comparison method. Consider updating to DataComparator.")
-        return True  # Forzar actualización para métodos legacy
 
     async def _create_shopify_product(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
@@ -778,7 +780,7 @@ async def sync_rms_to_shopify(
             batch_size=batch_size,
             filter_categories=filter_categories,
             include_zero_stock=include_zero_stock,
-            ccod=ccod,
+            cod_product=ccod,
         )
         return result
 

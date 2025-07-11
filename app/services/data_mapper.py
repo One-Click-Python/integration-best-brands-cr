@@ -20,20 +20,115 @@ from app.db.shopify_graphql_client import ShopifyGraphQLClient
 
 logger = logging.getLogger(__name__)
 
-# Mapeo de categorías RMS a términos de búsqueda de Shopify Taxonomy
+# Mapeo de familias RMS a categorías principales de Shopify
+FAMILIA_MAPPING = {
+    "Accesorios": {
+        "product_type": "Accessories",
+        "search_terms": ["accessories", "fashion accessories"],
+        "default_category": "Accessories",
+    },
+    "Ropa": {
+        "product_type": "Apparel",
+        "search_terms": ["apparel", "clothing", "fashion"],
+        "default_category": "Clothing",
+    },
+    "Zapatos": {"product_type": "Footwear", "search_terms": ["shoes", "footwear"], "default_category": "Shoes"},
+    "Miscelaneos": {
+        "product_type": "Miscellaneous",
+        "search_terms": ["miscellaneous", "other"],
+        "default_category": "Other",
+    },
+    "n/d": {"product_type": "Unspecified", "search_terms": ["unspecified", "general"], "default_category": "Other"},
+}
+
+# Mapeo avanzado de categorías RMS que considera la familia
+CATEGORIA_FAMILIA_MAPPING = {
+    # Categorías específicas de Zapatos
+    ("Zapatos", "Tenis"): {
+        "search_terms": ["Athletic Shoes", "Sneakers", "Sports Shoes", "Running Shoes"],
+        "product_type": "Athletic Footwear",
+    },
+    ("Zapatos", "Botas"): {"search_terms": ["Boots", "Ankle Boots"], "product_type": "Boots"},
+    ("Zapatos", "Botines"): {"search_terms": ["Boots", "Ankle Boots", "Booties"], "product_type": "Boots"},
+    ("Zapatos", "Sandalias"): {"search_terms": ["Sandals", "Summer Shoes"], "product_type": "Sandals"},
+    ("Zapatos", "Cuñas"): {"search_terms": ["Wedges", "Platform Shoes"], "product_type": "Wedges"},
+    ("Zapatos", "Flats"): {"search_terms": ["Flats", "Ballet Flats"], "product_type": "Flats"},
+    ("Zapatos", "Tacones"): {
+        "search_terms": ["Heels", "High Heels", "Women's Heels", "Dress Heels"],
+        "product_type": "Heels",
+    },
+    ("Zapatos", "Casual"): {
+        "search_terms": ["Sneakers", "Loafers", "Casual Shoes", "Everyday Shoes"],
+        "product_type": "Sneakers",
+    },
+    ("Zapatos", "Vestir"): {
+        "search_terms": ["Oxford Shoes", "Dress Shoes", "Formal Shoes", "Pumps"],
+        "product_type": "Dress Shoes",
+    },
+    ("Zapatos", "MUJER-SAND-PLATA"): {
+        "search_terms": ["Women's Sandals", "Women's Dress Sandals"],
+        "product_type": "Women's Sandals",
+    },
+    # Categorías específicas de Ropa
+    ("Ropa", "Ropa"): {"search_terms": ["Clothing", "Apparel"], "product_type": "Clothing"},
+    ("Ropa", "NIÑA-CASU-CERR"): {
+        "search_terms": ["Girls Clothing", "Kids Casual Wear", "Girls Fashion"],
+        "product_type": "Girls Casual Clothing",
+    },
+    ("Ropa", "NIÑO-CASU-CERR"): {
+        "search_terms": ["Boys Clothing", "Kids Casual Wear", "Boys Fashion"],
+        "product_type": "Boys Casual Clothing",
+    },
+    ("Ropa", "MUJER-VEST-CERR-TA16"): {
+        "search_terms": ["Women's Dresses", "Women's Formal Wear"],
+        "product_type": "Women's Dresses",
+    },
+    ("Ropa", "MUJER-CERR-PLATA"): {
+        "search_terms": ["Women's Formal Wear", "Women's Evening Wear"],
+        "product_type": "Women's Formal Wear",
+    },
+    # Categorías específicas de Accesorios
+    ("Accesorios", "Accesorios"): {
+        "search_terms": ["Fashion Accessories", "Accessories"],
+        "product_type": "Accessories",
+    },
+    ("Accesorios", "ACCESORIOS CALZADO"): {
+        "search_terms": ["Shoe Care", "Footwear Accessories", "Shoe Accessories"],
+        "product_type": "Shoe Accessories",
+    },
+    ("Accesorios", "Bolsos"): {"search_terms": ["Handbags", "Bags", "Purses"], "product_type": "Handbags"},
+    # Categorías genéricas que pueden aparecer en cualquier familia
+    ("*", "Mixto"): {"search_terms": ["Unisex", "Mixed"], "product_type": "Unisex"},
+    ("*", "Transito"): {"search_terms": ["Transit", "Temporary"], "product_type": "Transit"},
+    ("*", "Miscelaneos"): {"search_terms": ["Miscellaneous", "Other"], "product_type": "Miscellaneous"},
+    ("*", "n/d"): {"search_terms": ["Unspecified", "Not Defined"], "product_type": "Unspecified"},
+}
+
+# Mapeo simple de categorías (para retrocompatibilidad)
 RMS_TO_SHOPIFY_CATEGORY_MAPPING = {
+    "Accesorios": "Accessories",
+    "Ropa": "Clothing",
     "Tenis": "Athletic Shoes",
     "Zapatos": "Shoes",
+    "Cuñas": "Wedges",
+    "Casual": "Casual Shoes",
+    "Vestir": "Dress Shoes",
     "Botas": "Boots",
-    "Sandalia": "Sandals",
+    "Botines": "Ankle Boots",
+    "Sandalias": "Sandals",
+    "Tacones": "Heels",
     "Flats": "Flats",
     "Bolsos": "Handbags",
-    "Carteras": "Handbags",
-    "Mochilas": "Backpacks",
-    "Accesorios": "Accessories",
-    "Billeteras": "Wallets",
-    "Correas": "Belts",
-    "Sombreros": "Hats",
+    "ACCESORIOS CALZADO": "Shoe Accessories",
+    "NIÑA-CASU-CERR": "Girls Clothing",
+    "NIÑO-CASU-CERR": "Boys Clothing",
+    "MUJER-VEST-CERR-TA16": "Women's Dresses",
+    "MUJER-CERR-PLATA": "Women's Formal Wear",
+    "MUJER-SAND-PLATA": "Women's Sandals",
+    "Mixto": "Unisex",
+    "Transito": "Transit",
+    "Miscelaneos": "Miscellaneous",
+    "n/d": "Unspecified",
 }
 
 # Cache para categorías ya resueltas
@@ -46,52 +141,101 @@ class RMSToShopifyMapper:
     """
 
     @staticmethod
-    async def resolve_category_id(rms_categoria: Optional[str], shopify_client: ShopifyGraphQLClient) -> Optional[str]:
+    def get_mapping_for_item(rms_familia: Optional[str], rms_categoria: Optional[str]) -> Dict[str, Any]:
+        """
+        Obtiene el mapeo apropiado para un item basado en familia y categoría.
+
+        Args:
+            rms_familia: Familia del producto RMS
+            rms_categoria: Categoría del producto RMS
+
+        Returns:
+            Dict con search_terms y product_type
+        """
+        # Primero intentar mapeo específico familia-categoría
+        if rms_familia and rms_categoria:
+            # Buscar mapeo específico
+            specific_mapping = CATEGORIA_FAMILIA_MAPPING.get((rms_familia, rms_categoria))
+            if specific_mapping:
+                return specific_mapping
+
+            # Buscar mapeo genérico de categoría (marcado con "*")
+            generic_mapping = CATEGORIA_FAMILIA_MAPPING.get(("*", rms_categoria))
+            if generic_mapping:
+                return generic_mapping
+
+        # Si solo hay categoría, usar mapeo simple
+        if rms_categoria and rms_categoria in RMS_TO_SHOPIFY_CATEGORY_MAPPING:
+            return {
+                "search_terms": [RMS_TO_SHOPIFY_CATEGORY_MAPPING[rms_categoria]],
+                "product_type": RMS_TO_SHOPIFY_CATEGORY_MAPPING[rms_categoria],
+            }
+
+        # Si solo hay familia, usar mapeo de familia
+        if rms_familia and rms_familia in FAMILIA_MAPPING:
+            familia_data = FAMILIA_MAPPING[rms_familia]
+            return {"search_terms": familia_data["search_terms"], "product_type": familia_data["product_type"]}
+
+        # Default
+        return {"search_terms": ["Other"], "product_type": "Other"}
+
+    @staticmethod
+    async def resolve_category_id(
+        rms_categoria: Optional[str], shopify_client: ShopifyGraphQLClient, rms_familia: Optional[str] = None
+    ) -> Optional[str]:
         """
         Resuelve el ID de categoría de Shopify Standard Product Taxonomy para una categoría RMS.
+        Ahora considera también la familia para un mapeo más preciso.
 
         Args:
             rms_categoria: Categoría del producto RMS
             shopify_client: Cliente de Shopify para hacer la búsqueda
+            rms_familia: Familia del producto RMS (opcional pero recomendado)
 
         Returns:
             ID de categoría de Shopify o None si no se encuentra
         """
-        if not rms_categoria:
+        if not rms_categoria and not rms_familia:
             return None
 
-        # Verificar cache primero
-        if rms_categoria in _category_cache:
-            return _category_cache[rms_categoria]
+        # Crear clave de cache que incluya familia
+        cache_key = f"{rms_familia or 'none'}:{rms_categoria or 'none'}"
 
-        # Obtener término de búsqueda
-        search_term = RMS_TO_SHOPIFY_CATEGORY_MAPPING.get(rms_categoria, rms_categoria)
+        # Verificar cache primero
+        if cache_key in _category_cache:
+            return _category_cache[cache_key]
+
+        # Obtener mapeo apropiado
+        mapping = RMSToShopifyMapper.get_mapping_for_item(rms_familia, rms_categoria)
+        search_terms = mapping.get("search_terms", [])
 
         try:
-            # Buscar categorías en Shopify
-            categories = await shopify_client.search_taxonomy_categories(search_term)
+            # Intentar con cada término de búsqueda
+            for search_term in search_terms:
+                categories = await shopify_client.search_taxonomy_categories(search_term)
 
-            if categories:
-                # Tomar la primera categoría encontrada
-                category_id = categories[0]["id"]
-                logger.info(
-                    f"Mapped RMS category '{rms_categoria}' to Shopify category "
-                    f"'{categories[0]['name']}' (ID: {category_id})"
-                )
+                if categories:
+                    # Tomar la primera categoría encontrada
+                    category_id = categories[0]["id"]
+                    logger.info(
+                        f"Mapped RMS {rms_familia}/{rms_categoria} to Shopify category "
+                        f"'{categories[0]['name']}' (ID: {category_id}) using term '{search_term}'"
+                    )
 
-                # Guardar en cache
-                _category_cache[rms_categoria] = category_id
-                return category_id
-            else:
-                logger.warning(
-                    f"No Shopify category found for RMS category '{rms_categoria}' (search: '{search_term}')"
-                )
-                _category_cache[rms_categoria] = None
-                return None
+                    # Guardar en cache
+                    _category_cache[cache_key] = category_id
+                    return category_id
+
+            # Si no se encontró con ningún término
+            logger.warning(
+                f"No Shopify category found for RMS {rms_familia}/{rms_categoria} (tried terms: {search_terms})"
+            )
+            _category_cache[cache_key] = None
+            return None
 
         except Exception as e:
-            logger.error(f"Error resolving category for '{rms_categoria}': {e}")
-            _category_cache[rms_categoria] = None
+            logger.error(f"Error resolving category for '{rms_familia}/{rms_categoria}': {e}")
+            _category_cache[cache_key] = None
             return None
 
     @staticmethod
@@ -112,8 +256,8 @@ class RMSToShopifyMapper:
         # Obtener el mapeo básico
         shopify_input = RMSToShopifyMapper.map_product_to_shopify(rms_item, location_id)
 
-        # Resolver categoría de taxonomía
-        category_id = await RMSToShopifyMapper.resolve_category_id(rms_item.categoria, shopify_client)
+        # Resolver categoría de taxonomía considerando familia
+        category_id = await RMSToShopifyMapper.resolve_category_id(rms_item.categoria, shopify_client, rms_item.familia)
         shopify_input.category = category_id
 
         return shopify_input
@@ -131,7 +275,8 @@ class RMSToShopifyMapper:
         """
         try:
             # Generar handle único
-            handle = RMSToShopifyMapper._generate_handle(rms_item.description or "", rms_item.c_articulo)
+            from app.utils.shopify_utils import generate_shopify_handle
+            handle = generate_shopify_handle(rms_item.ccod or rms_item.c_articulo, rms_item.familia)
 
             # Generar tags
             tags = RMSToShopifyMapper._generate_tags(rms_item)
@@ -159,7 +304,7 @@ class RMSToShopifyMapper:
                 title=clean_title,
                 handle=handle,
                 status=status,
-                productType=rms_item.categoria or "",
+                productType=RMSToShopifyMapper._get_product_type(rms_item),
                 vendor=rms_item.familia or "",
                 tags=tags,
                 options=[opt.name for opt in options] if options else None,
@@ -220,32 +365,18 @@ class RMSToShopifyMapper:
         )
 
     @staticmethod
-    def _generate_handle(title: str, sku: str) -> str:
+    def _get_product_type(rms_item: RMSViewItem) -> str:
         """
-        Genera un handle único para Shopify.
+        Determina el product type basado en familia y categoría.
 
         Args:
-            title: Título del producto
-            sku: SKU del producto
+            rms_item: Item RMS
 
         Returns:
-            str: Handle generado
+            str: Product type para Shopify
         """
-        # Limpiar título
-        handle = title.lower().strip()
-        handle = re.sub(r"[^\w\s-]", "", handle)
-        handle = re.sub(r"\s+", "-", handle)
-        handle = re.sub(r"-+", "-", handle)
-        handle = handle.strip("-")
-
-        # Si está vacío, usar solo SKU
-        if not handle:
-            handle = "producto"
-
-        # Agregar SKU para unicidad
-        handle = f"{handle}-{sku.lower()}"
-
-        return handle[:100]  # Límite de Shopify
+        mapping = RMSToShopifyMapper.get_mapping_for_item(rms_item.familia, rms_item.categoria)
+        return mapping.get("product_type", rms_item.categoria or "")
 
     @staticmethod
     def _generate_tags(rms_item: RMSViewItem) -> List[str]:
@@ -344,157 +475,139 @@ class RMSToShopifyMapper:
             List: Metafields completos
         """
         from datetime import datetime, timezone
-        
+
         metafields = []
 
         # Información básica de RMS
         if rms_item.familia:
-            metafields.append({
-                "namespace": "rms",
-                "key": "familia",
-                "value": str(rms_item.familia),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "familia", "value": str(rms_item.familia), "type": "single_line_text_field"}
+            )
 
         if rms_item.categoria:
-            metafields.append({
-                "namespace": "rms",
-                "key": "categoria",
-                "value": str(rms_item.categoria),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {
+                    "namespace": "rms",
+                    "key": "categoria",
+                    "value": str(rms_item.categoria),
+                    "type": "single_line_text_field",
+                }
+            )
 
         if rms_item.color:
-            metafields.append({
-                "namespace": "rms",
-                "key": "color",
-                "value": str(rms_item.color),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "color", "value": str(rms_item.color), "type": "single_line_text_field"}
+            )
 
         if rms_item.talla:
-            metafields.append({
-                "namespace": "rms",
-                "key": "talla",
-                "value": str(rms_item.talla),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "talla", "value": str(rms_item.talla), "type": "single_line_text_field"}
+            )
 
         if rms_item.ccod:
-            metafields.append({
-                "namespace": "rms",
-                "key": "ccod",
-                "value": str(rms_item.ccod),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "ccod", "value": str(rms_item.ccod), "type": "single_line_text_field"}
+            )
 
         if rms_item.item_id:
-            metafields.append({
-                "namespace": "rms",
-                "key": "item_id",
-                "value": str(rms_item.item_id),
-                "type": "number_integer"
-            })
+            metafields.append(
+                {"namespace": "rms", "key": "item_id", "value": str(rms_item.item_id), "type": "number_integer"}
+            )
 
         if rms_item.extended_category:
-            metafields.append({
-                "namespace": "rms",
-                "key": "extended_category",
-                "value": str(rms_item.extended_category),
-                "type": "single_line_text_field"
-            })
+            metafields.append(
+                {
+                    "namespace": "rms",
+                    "key": "extended_category",
+                    "value": str(rms_item.extended_category),
+                    "type": "single_line_text_field",
+                }
+            )
 
         # Metafields específicos de categoría basados en datos RMS reales
         # APLICAR PARA TODOS LOS TIPOS DE PRODUCTOS, no solo zapatos
-        
+
         # Color - aplicar para cualquier producto que tenga color en RMS
         if rms_item.color:
-            metafields.append({
-                "namespace": "custom",
-                "key": "color",
-                "value": str(rms_item.color),
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {"namespace": "custom", "key": "color", "value": str(rms_item.color), "type": "single_line_text_field"}
+            )
+
         # Target gender - aplicar para cualquier producto que tenga género en RMS
         if rms_item.genero:
-            metafields.append({
-                "namespace": "custom",
-                "key": "target_gender",
-                "value": str(rms_item.genero),
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {
+                    "namespace": "custom",
+                    "key": "target_gender",
+                    "value": str(rms_item.genero),
+                    "type": "single_line_text_field",
+                }
+            )
+
         # Age group - determinar para cualquier producto basado en género
         if rms_item.genero:
             if "Niño" in rms_item.genero or "Niña" in rms_item.genero:
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "age_group",
-                    "value": "Kids",
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {"namespace": "custom", "key": "age_group", "value": "Kids", "type": "single_line_text_field"}
+                )
             else:
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "age_group",
-                    "value": "Adult", 
-                    "type": "single_line_text_field"
-                })
-        
+                metafields.append(
+                    {"namespace": "custom", "key": "age_group", "value": "Adult", "type": "single_line_text_field"}
+                )
+
         # Size mapping - aplicar para CUALQUIER producto que tenga talla
         if rms_item.talla:
             # Mapear según el tipo de producto
             if rms_item.familia == "Zapatos":
                 # Para zapatos usar shoe_size
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "shoe_size",
-                    "value": str(rms_item.talla),
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {
+                        "namespace": "custom",
+                        "key": "shoe_size",
+                        "value": str(rms_item.talla),
+                        "type": "single_line_text_field",
+                    }
+                )
             elif rms_item.familia == "Ropa":
                 # Para ropa usar clothing_size
-                metafields.append({
-                    "namespace": "custom", 
-                    "key": "clothing_size",
-                    "value": str(rms_item.talla),
-                    "type": "single_line_text_field"
-                })
+                metafields.append(
+                    {
+                        "namespace": "custom",
+                        "key": "clothing_size",
+                        "value": str(rms_item.talla),
+                        "type": "single_line_text_field",
+                    }
+                )
             else:
                 # Para otros productos usar size genérico
-                metafields.append({
-                    "namespace": "custom",
-                    "key": "size",
-                    "value": str(rms_item.talla),
-                    "type": "single_line_text_field"
-                })
-        
+                metafields.append(
+                    {
+                        "namespace": "custom",
+                        "key": "size",
+                        "value": str(rms_item.talla),
+                        "type": "single_line_text_field",
+                    }
+                )
+
         # Activity - solo para productos deportivos/tenis
         if rms_item.categoria == "Tenis":
-            metafields.append({
-                "namespace": "custom",
-                "key": "activity",
-                "value": "Running",
-                "type": "single_line_text_field"
-            })
-        
+            metafields.append(
+                {"namespace": "custom", "key": "activity", "value": "Running", "type": "single_line_text_field"}
+            )
+
         # Track quantity - para cualquier producto con inventario
         if rms_item.quantity > 0:
-            metafields.append({
-                "namespace": "custom",
-                "key": "track_quantity",
-                "value": "true",
-                "type": "boolean"
-            })
+            metafields.append({"namespace": "custom", "key": "track_quantity", "value": "true", "type": "boolean"})
 
         # Información de sincronización
-        metafields.append({
-            "namespace": "sync",
-            "key": "last_synced",
-            "value": datetime.now(timezone.utc).isoformat(),
-            "type": "date_time"
-        })
+        metafields.append(
+            {
+                "namespace": "sync",
+                "key": "last_synced",
+                "value": datetime.now(timezone.utc).isoformat(),
+                "type": "date_time",
+            }
+        )
 
         return metafields
 
@@ -698,4 +811,3 @@ class DataComparator:
             changes["changes"].append("status")
 
         return changes
-
