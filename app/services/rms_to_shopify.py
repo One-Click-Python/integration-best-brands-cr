@@ -107,20 +107,6 @@ class RMSToShopifySync:
             logger.error(f"Error closing sync service: {e}")
             # No re-raise para evitar problemas en el shutdown
 
-    async def get_status(self) -> Dict[str, Any]:
-        """
-        Obtiene el estado actual del servicio de sincronización.
-
-        Returns:
-            Dict: Estado del servicio
-        """
-        return {
-            "sync_id": self.sync_id,
-            "status": "idle",  # idle, running, error
-            "last_sync": None,
-            "errors": self.error_aggregator.get_summary(),
-        }
-
     async def sync_products(
         self,
         force_update: bool = False,
@@ -306,18 +292,6 @@ class RMSToShopifySync:
         else:
             logger.info("🔄 Using new variants system for product extraction")
         return await self._extract_rms_products_with_variants(filter_categories, ccod)
-
-    def _convert_to_graphql_input(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
-        """
-        Convierte ShopifyProductInput a formato dict para la API GraphQL.
-
-        Args:
-            shopify_input: Input de producto validado
-
-        Returns:
-            Dict: Producto en formato GraphQL
-        """
-        return shopify_input.to_graphql_input()
 
     async def _get_existing_shopify_products(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -632,56 +606,6 @@ class RMSToShopifySync:
                 operation="update_product",
                 failed_records=[shopify_input.model_dump()],
             ) from e
-
-    def _prepare_update_data_legacy(
-        self, rms_product: Dict[str, Any], shopify_product: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Método legacy mantenido para compatibilidad.
-        """
-        logger.warning("Using legacy update data preparation. Consider updating to use ShopifyProductInput.")
-        return {}
-
-    async def _update_product_inventory(self, sku: str, quantity: int) -> bool:
-        """
-        Actualiza el inventario de un producto en Shopify.
-
-        Args:
-            sku: SKU del producto
-            quantity: Cantidad a establecer
-
-        Returns:
-            bool: True si la actualización fue exitosa
-        """
-        try:
-            if not self.inventory_manager:
-                logger.warning(f"Inventory manager not initialized, skipping inventory update for SKU {sku}")
-                return False
-
-            if not self.primary_location_id:
-                logger.warning(f"No primary location found, skipping inventory update for SKU {sku}")
-                return False
-
-            # Usar el inventory manager para actualizar inventario
-            success = await self.inventory_manager.update_inventory_single_location(
-                sku=sku, available_quantity=quantity, location_id=self.primary_location_id
-            )
-
-            if success:
-                logger.info(f"✅ Updated inventory for SKU {sku}: {quantity} units")
-            else:
-                logger.warning(f"❌ Failed to update inventory for SKU {sku}")
-                self.error_aggregator.add_error(
-                    Exception(f"Inventory update failed for SKU {sku}"),
-                    {"sku": sku, "quantity": quantity, "location_id": self.primary_location_id},
-                )
-
-            return success
-
-        except Exception as e:
-            logger.error(f"Error updating inventory for SKU {sku}: {e}")
-            self.error_aggregator.add_error(e, {"sku": sku, "quantity": quantity})
-            return False
 
     def _generate_sync_report(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """

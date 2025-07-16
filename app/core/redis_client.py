@@ -99,65 +99,6 @@ async def close_connection_pool():
     logger.info("Closing Redis connection pool (simulated)")
 
 
-class RedisClient:
-    """
-    Cliente principal para operaciones con Redis.
-    """
-
-    def __init__(self):
-        """Inicializa el cliente Redis."""
-        self.url = settings.REDIS_URL
-        self.max_connections = settings.REDIS_MAX_CONNECTIONS
-        logger.info("Redis Client initialized")
-
-    async def test_connection(self) -> bool:
-        """
-        Prueba la conexión con Redis.
-
-        Returns:
-            bool: True si la conexión es exitosa
-        """
-        return await test_redis_connection()
-
-    async def get(self, key: str) -> Optional[str]:
-        """
-        Obtiene un valor del cache.
-
-        Args:
-            key: Clave del cache
-
-        Returns:
-            Optional[str]: Valor del cache
-        """
-        return await get_cache(key)
-
-    async def set(self, key: str, value: str, expire: Optional[int] = None) -> bool:
-        """
-        Establece un valor en el cache.
-
-        Args:
-            key: Clave del cache
-            value: Valor a almacenar
-            expire: Tiempo de expiración
-
-        Returns:
-            bool: True si fue exitoso
-        """
-        return await set_cache(key, value, expire)
-
-    async def delete(self, key: str) -> bool:
-        """
-        Elimina un valor del cache.
-
-        Args:
-            key: Clave del cache
-
-        Returns:
-            bool: True si fue exitoso
-        """
-        return await delete_cache(key)
-
-
 # Alias functions for lifespan compatibility
 async def initialize_redis():
     """

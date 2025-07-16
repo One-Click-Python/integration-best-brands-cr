@@ -541,6 +541,7 @@ class WebhookProcessor:
         Returns:
             bool: True si es actualización interna
         """
+        logger.info(f"🔍 Checking if product {product_id} is internal")
         # Implementar lógica para rastrear actualizaciones internas
         # Por ejemplo, usando cache o base de datos
         # Por ahora, retorna False (todas son externas)
@@ -556,6 +557,7 @@ class WebhookProcessor:
         Returns:
             bool: True si es actualización interna
         """
+        logger.info(f"🔍 Checking if inventory item {inventory_item_id} is internal")
         # Similar a _is_internal_update
         return False
 
@@ -583,7 +585,7 @@ class WebhookProcessor:
             raw_payload: Payload original del webhook
         """
         try:
-            logger.info(f"Starting background sync of order {order.name} to RMS")
+            logger.info(f"Starting background sync of order {order.name} to RMS, raw payload: {raw_payload}")
 
             # Aquí iría la lógica para sincronizar a RMS
             # usando el servicio shopify_to_rms
@@ -658,7 +660,7 @@ async def validate_webhook_request(request: Request) -> Tuple[str, Dict[str, Any
         payload_bytes = await request.body()
         payload = json.loads(payload_bytes.decode("utf-8"))
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}") from e
 
     # Verificar firma si está configurada
     if signature and settings.SHOPIFY_WEBHOOK_SECRET:

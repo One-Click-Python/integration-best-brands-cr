@@ -35,7 +35,7 @@ class ShopifyToRMSSync:
             # Inicializar clientes RMS y Shopify
             from app.db.rms_handler import RMSHandler
             from app.db.shopify_graphql_client import ShopifyGraphQLClient
-            
+
             self.rms_handler = RMSHandler()
             self.graphql_client = ShopifyGraphQLClient()
             self.shopify_client = None  # Se inicializará en _ensure_clients_initialized
@@ -53,9 +53,10 @@ class ShopifyToRMSSync:
         """Asegura que los clientes estén inicializados."""
         if self.shopify_client is None:
             from app.db.shopify_order_client import ShopifyOrderClient
+
             await self.graphql_client.initialize()
             self.shopify_client = ShopifyOrderClient(self.graphql_client)
-        
+
         # Inicializar RMS handler si es necesario
         if not self.rms_handler.is_initialized():
             await self.rms_handler.initialize()
@@ -85,7 +86,7 @@ class ShopifyToRMSSync:
         try:
             # Asegurar que los clientes estén inicializados
             await self._ensure_clients_initialized()
-            
+
             with LogContext(sync_id=self.sync_id, operation="sync_orders"):
                 logger.info(f"Starting Shopify to RMS sync for {len(order_ids)} orders")
 
@@ -170,12 +171,10 @@ class ShopifyToRMSSync:
             # 1. Obtener pedido de Shopify
             logger.debug(f"Fetching Shopify order: {order_id}")
             shopify_order = await self.shopify_client.get_order(order_id)
-            
+
             if not shopify_order:
                 raise ValidationException(
-                    message=f"Order {order_id} not found in Shopify",
-                    field="order_id",
-                    invalid_value=order_id
+                    message=f"Order {order_id} not found in Shopify", field="order_id", invalid_value=order_id
                 )
 
             # 2. Validar pedido si no se omite validación
@@ -249,7 +248,7 @@ class ShopifyToRMSSync:
         # Validar que cada línea tenga SKU para mapear a RMS
         for i, item in enumerate(line_items):
             if not item.get("sku"):
-                logger.warning(f"Line item {i+1} in order {order['id']} has no SKU - will be skipped")
+                logger.warning(f"Line item {i + 1} in order {order['id']} has no SKU - will be skipped")
 
         # Validar total del pedido
         total_price = order.get("totalPriceSet", {}).get("shopMoney", {}).get("amount")
@@ -263,7 +262,7 @@ class ShopifyToRMSSync:
         # Validar estado financiero (debe estar pagado para sincronizar)
         financial_status = order.get("displayFinancialStatus", "").upper()
         valid_financial_statuses = ["PAID", "PARTIALLY_PAID", "AUTHORIZED"]
-        
+
         if financial_status not in valid_financial_statuses:
             raise ValidationException(
                 message=f"Order financial status '{financial_status}' not valid for sync. Must be one of: {valid_financial_statuses}",
@@ -286,12 +285,12 @@ class ShopifyToRMSSync:
         """
         from datetime import datetime
         from decimal import Decimal
-        
+
         # Extraer datos básicos
         total_amount = Decimal(shopify_order["totalPriceSet"]["shopMoney"]["amount"])
         tax_amount = Decimal(shopify_order.get("totalTaxSet", {}).get("shopMoney", {}).get("amount", "0"))
         order_date = datetime.fromisoformat(shopify_order["createdAt"].replace("Z", "+00:00"))
-        
+
         # Mapear datos de cabecera del pedido (tabla ORDER)
         order_data = {
             "store_id": 40,  # Tienda virtual
@@ -305,16 +304,16 @@ class ShopifyToRMSSync:
             "customer_email": shopify_order.get("email"),
             "comment": f"Shopify Order {shopify_order['name']} - {shopify_order.get('displayFinancialStatus', '')}",
         }
-        
+
         # Procesar cliente (crear si no existe)
         customer_data = shopify_order.get("customer")
         if customer_data:
             customer_id = await self._resolve_customer(customer_data, shopify_order.get("billingAddress"))
             order_data["customer_id"] = customer_id
-        
+
         # Procesar líneas de pedido (tabla ORDERENTRY)
         line_items_data = []
-        
+
         # Manejar formato GraphQL de line items (edges/node structure)
         line_items_raw = shopify_order.get("lineItems", {})
         if isinstance(line_items_raw, dict) and "edges" in line_items_raw:
@@ -323,11 +322,11 @@ class ShopifyToRMSSync:
         else:
             # Formato simple (lista directa)
             line_items = line_items_raw if isinstance(line_items_raw, list) else []
-        
+
         for item in line_items:
             # Verificar SKU (priorizar variant.sku sobre item.sku)
             item_sku = item.get("variant", {}).get("sku") or item.get("sku")
-            
+
             # Para testing: usar variant ID como fallback si no hay SKU
             if not item_sku or item_sku.strip() == "":
                 variant_id = item.get("variant", {}).get("id", "")
@@ -337,20 +336,22 @@ class ShopifyToRMSSync:
                     item_sku = f"VAR-{variant_id_num}"
                     logger.info(f"Using variant ID as SKU fallback: {item_sku} for item {item.get('title', 'Unknown')}")
                 else:
-                    logger.warning(f"Skipping line item without SKU or variant ID in order {shopify_order['id']}: {item.get('title', 'Unknown item')}")
+                    logger.warning(
+                        f"Skipping line item without SKU or variant ID in order {shopify_order['id']}: {item.get('title', 'Unknown item')}"
+                    )
                     continue
-                
+
             # Resolver SKU a ItemID de RMS
             item_id = await self._resolve_sku_to_item_id(item_sku)
             if not item_id:
                 logger.error(f"Could not find RMS ItemID for SKU: {item_sku} in order {shopify_order['id']}")
                 continue
-            
+
             # Obtener precios (usar precio con descuento si existe)
             discounted_price_set = item.get("discountedUnitPriceSet", item.get("originalUnitPriceSet"))
             unit_price = Decimal(discounted_price_set["shopMoney"]["amount"])
             original_price = Decimal(item["originalUnitPriceSet"]["shopMoney"]["amount"])
-            
+
             line_item_data = {
                 "item_id": item_id,
                 "price": unit_price,
@@ -361,26 +362,28 @@ class ShopifyToRMSSync:
                 "shopify_variant_id": item.get("variant", {}).get("id"),
                 "shopify_product_id": item.get("variant", {}).get("product", {}).get("id"),
             }
-            
+
             line_items_data.append(line_item_data)
-        
+
         if not line_items_data:
             raise ValidationException(
                 message=f"No valid line items found for order {shopify_order['id']} - all items missing SKU or ItemID mapping",
                 field="lineItems",
-                invalid_value=shopify_order.get("lineItems", [])
+                invalid_value=shopify_order.get("lineItems", []),
             )
-        
+
         return {
             "order": order_data,
             "line_items": line_items_data,
             "addresses": {
                 "billing": self._format_address(shopify_order.get("billingAddress")),
                 "shipping": self._format_address(shopify_order.get("shippingAddress")),
-            }
+            },
         }
 
-    async def _resolve_customer(self, customer_data: Dict[str, Any], billing_address: Optional[Dict[str, Any]]) -> Optional[int]:
+    async def _resolve_customer(
+        self, customer_data: Dict[str, Any], billing_address: Optional[Dict[str, Any]]
+    ) -> Optional[int]:
         """
         Resuelve o crea un cliente en RMS.
 
@@ -396,46 +399,46 @@ class ShopifyToRMSSync:
             if not settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
                 if not customer_data or not customer_data.get("email"):
                     raise ValidationException(
-                        message="Orders without customer are not allowed",
-                        field="customer",
-                        invalid_value=customer_data
+                        message="Orders without customer are not allowed", field="customer", invalid_value=customer_data
                     )
-            
+
             # Si hay un customer ID predeterminado para invitados
             if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS and not customer_data:
-                logger.info(f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for guest order")
+                logger.info(
+                    f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for guest order"
+                )
                 return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
-            
+
             # Si no hay datos de cliente, permitir NULL
             if not customer_data:
                 logger.warning("No customer data provided, creating order with customer_id=NULL")
                 return None
-            
+
             email = customer_data.get("email")
-            
+
             # Verificar si se requiere email
             if settings.REQUIRE_CUSTOMER_EMAIL and not email:
                 raise ValidationException(
-                    message="Customer email is required",
-                    field="customer.email",
-                    invalid_value=email
+                    message="Customer email is required", field="customer.email", invalid_value=email
                 )
-            
+
             # Si no hay email pero se permiten pedidos sin cliente
             if not email:
                 if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
-                    logger.info(f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for customer without email")
+                    logger.info(
+                        f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for customer without email"
+                    )
                     return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
                 else:
                     logger.warning("Customer has no email, using customer_id=NULL")
                     return None
-            
+
             # Buscar cliente existente por email
             existing_customer = await self.rms_handler.find_customer_by_email(email)
             if existing_customer:
                 logger.debug(f"Found existing customer: {existing_customer['id']} for email {email}")
                 return existing_customer["id"]
-            
+
             # Crear nuevo cliente
             customer_info = {
                 "email": email,
@@ -444,25 +447,27 @@ class ShopifyToRMSSync:
                 "phone": customer_data.get("phone", ""),
                 "shopify_customer_id": customer_data.get("id"),
             }
-            
+
             # Agregar dirección si existe
             if billing_address:
-                customer_info.update({
-                    "address1": billing_address.get("address1", ""),
-                    "address2": billing_address.get("address2", ""),
-                    "city": billing_address.get("city", ""),
-                    "province": billing_address.get("province", ""),
-                    "country": billing_address.get("country", ""),
-                    "zip": billing_address.get("zip", ""),
-                })
-            
+                customer_info.update(
+                    {
+                        "address1": billing_address.get("address1", ""),
+                        "address2": billing_address.get("address2", ""),
+                        "city": billing_address.get("city", ""),
+                        "province": billing_address.get("province", ""),
+                        "country": billing_address.get("country", ""),
+                        "zip": billing_address.get("zip", ""),
+                    }
+                )
+
             new_customer_id = await self.rms_handler.create_customer(customer_info)
             logger.info(f"Created new customer: {new_customer_id} for email {email}")
             return new_customer_id
-            
+
         except Exception as e:
             logger.error(f"Error resolving customer: {e}")
-            
+
             # Si se permite, usar customer_id=NULL como fallback
             if settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
                 if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
@@ -488,10 +493,10 @@ class ShopifyToRMSSync:
             if item:
                 logger.debug(f"Found RMS ItemID {item['item_id']} for SKU {sku}")
                 return item["item_id"]
-            
+
             logger.warning(f"No RMS ItemID found for SKU: {sku}")
             return None
-            
+
         except Exception as e:
             logger.error(f"Error resolving SKU {sku} to ItemID: {e}")
             return None
@@ -534,13 +539,13 @@ class ShopifyToRMSSync:
         """
         try:
             from app.api.v1.schemas.rms_schemas import RMSOrder, RMSOrderEntry
-            
+
             # Crear la orden principal (tabla ORDER)
             order_model = RMSOrder(**rms_order_data["order"])
             order_id = await self.rms_handler.create_order(order_model.model_dump())
-            
+
             logger.info(f"Created RMS order {order_id} for Shopify order {rms_order_data['order']['shopify_order_id']}")
-            
+
             # Crear las líneas de la orden (tabla ORDERENTRY)
             created_entries = []
             for line_item in rms_order_data["line_items"]:
@@ -548,23 +553,23 @@ class ShopifyToRMSSync:
                 entry_model = RMSOrderEntry(**line_item)
                 entry_id = await self.rms_handler.create_order_entry(entry_model.model_dump())
                 created_entries.append({"id": entry_id, **line_item})
-                
+
                 logger.debug(f"Created order entry {entry_id} for item {line_item['item_id']}")
-            
+
             # Validar inventario y actualizar existencias
             await self._validate_and_update_inventory(created_entries)
-            
+
             # Crear registro de historial
             await self._create_order_history(order_id, "ORDER_CREATED", "Order created from Shopify")
-            
+
             logger.info(f"Successfully created RMS order {order_id} with {len(created_entries)} line items")
-            
+
             return {
                 "order_id": order_id,
                 "line_items_count": len(created_entries),
                 "total_amount": rms_order_data["order"]["total"],
             }
-            
+
         except Exception as e:
             logger.error(f"Error creating RMS order: {e}")
             raise SyncException(
@@ -587,25 +592,25 @@ class ShopifyToRMSSync:
         try:
             order_id = existing_order["id"]
             logger.info(f"Updating existing RMS order {order_id}")
-            
+
             # Actualizar la orden principal si hay cambios
             updated_order = await self.rms_handler.update_order(order_id, rms_order_data["order"])
             logger.debug(f"Updated order {updated_order['id']} with new data")
-            
+
             # Sincronizar líneas de la orden (agregar/actualizar/eliminar según sea necesario)
             await self._sync_order_entries(order_id, rms_order_data["line_items"])
-            
+
             # Crear registro de historial
             await self._create_order_history(order_id, "ORDER_UPDATED", "Order updated from Shopify")
-            
+
             logger.info(f"Successfully updated RMS order {order_id}")
-            
+
             return {
                 "order_id": order_id,
                 "action": "updated",
                 "total_amount": rms_order_data["order"]["total"],
             }
-            
+
         except Exception as e:
             logger.error(f"Error updating RMS order {existing_order['id']}: {e}")
             raise SyncException(
@@ -625,25 +630,24 @@ class ShopifyToRMSSync:
             for entry in order_entries:
                 item_id = entry["item_id"]
                 quantity_ordered = entry["quantity_on_order"]
-                
+
                 # Verificar stock disponible
                 current_stock = await self.rms_handler.get_item_stock(item_id)
                 if current_stock is None:
                     logger.warning(f"Could not get stock for item {item_id}")
                     continue
-                
+
                 if current_stock < quantity_ordered:
                     logger.warning(
-                        f"Insufficient stock for item {item_id}: "
-                        f"ordered {quantity_ordered}, available {current_stock}"
+                        f"Insufficient stock for item {item_id}: ordered {quantity_ordered}, available {current_stock}"
                     )
                     # No bloquear la orden, solo registrar warning
                     # En producción podrías decidir si bloquear o permitir oversell
-                
+
                 # Actualizar stock (restar cantidad ordenada)
                 await self.rms_handler.update_item_stock(item_id, -quantity_ordered)
                 logger.debug(f"Updated stock for item {item_id}: -{quantity_ordered}")
-                
+
         except Exception as e:
             logger.error(f"Error validating/updating inventory: {e}")
             # No re-raise para no bloquear la creación de la orden
@@ -661,12 +665,12 @@ class ShopifyToRMSSync:
             # Obtener líneas existentes
             existing_entries = await self.rms_handler.get_order_entries(order_id)
             existing_items = {entry["item_id"]: entry for entry in existing_entries}
-            
+
             # Procesar nuevas líneas
             for line_item in new_line_items:
                 line_item["order_id"] = order_id
                 item_id = line_item["item_id"]
-                
+
                 if item_id in existing_items:
                     # Actualizar línea existente
                     entry_id = existing_items[item_id]["id"]
@@ -675,10 +679,11 @@ class ShopifyToRMSSync:
                 else:
                     # Crear nueva línea
                     from app.api.v1.schemas.rms_schemas import RMSOrderEntry
+
                     entry_model = RMSOrderEntry(**line_item)
                     await self.rms_handler.create_order_entry(entry_model.model_dump())
                     logger.debug(f"Created new order entry for item {item_id}")
-                    
+
         except Exception as e:
             logger.error(f"Error syncing order entries for order {order_id}: {e}")
             raise
@@ -696,18 +701,18 @@ class ShopifyToRMSSync:
             from datetime import datetime
 
             from app.api.v1.schemas.rms_schemas import RMSOrderHistory
-            
+
             history_data = {
                 "order_id": order_id,
                 "date": datetime.now(),
                 "comment": f"{action}: {comment}",
                 "batch_number": self.sync_id,
             }
-            
+
             history_model = RMSOrderHistory(**history_data)
             await self.rms_handler.create_order_history(history_model.model_dump())
             logger.debug(f"Created order history: {action} for order {order_id}")
-            
+
         except Exception as e:
             logger.error(f"Error creating order history: {e}")
             # No re-raise para no bloquear el procesamiento principal
@@ -756,18 +761,3 @@ async def sync_shopify_to_rms(
     """
     sync_service = ShopifyToRMSSync()
     return await sync_service.sync_orders(order_ids, skip_validation)
-
-
-async def get_shopify_sync_status() -> Dict[str, Any]:
-    """
-    Obtiene el estado actual de las sincronizaciones de Shopify.
-
-    Returns:
-        Dict: Estado de sincronización
-    """
-    # TODO: Implementar cuando tengamos un sistema de gestión de estado
-    return {
-        "status": "idle",
-        "active_syncs": [],
-        "last_sync": None,
-    }

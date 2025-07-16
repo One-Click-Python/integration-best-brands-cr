@@ -512,6 +512,7 @@ class LogContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Sale del contexto."""
         # Restaurar factory anterior
+        print(f"Restaurando factory. exception type: {exc_type}, value: {exc_val}, traceback: {exc_tb}")
         logging.setLogRecordFactory(self.old_factory)
 
 

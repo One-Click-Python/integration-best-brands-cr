@@ -760,6 +760,7 @@ async def _sync_single_order(order_id: str, force_sync: bool, validate_before_in
     Returns:
         Dict: Resultado de la sincronización
     """
+    print(f"force_sync {force_sync}")
     start_time = time.time()
     sync_id = f"order_sync_{order_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 

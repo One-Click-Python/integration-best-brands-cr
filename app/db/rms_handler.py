@@ -717,7 +717,7 @@ class RMSHandler:
         try:
             # TODO: Verificar si existe tabla Customer en la base de datos
             # Por ahora retornar ID ficticio ya que la tabla no está definida
-            logger.debug("Customer creation - Customer table not defined, returning default ID")
+            logger.debug("Customer creation - Customer table not defined, returning default ID", customer_data)
             return 1  # ID ficticio para pruebas
 
         except Exception as e:

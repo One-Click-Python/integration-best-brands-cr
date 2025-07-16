@@ -22,37 +22,16 @@ class ErrorCode(Enum):
     # Errores generales
     UNKNOWN_ERROR = "UNKNOWN_ERROR"
     VALIDATION_ERROR = "VALIDATION_ERROR"
-    CONFIGURATION_ERROR = "CONFIGURATION_ERROR"
 
     # Errores de conexión
     RMS_CONNECTION_FAILED = "RMS_CONNECTION_FAILED"
-    RMS_QUERY_FAILED = "RMS_QUERY_FAILED"
-    SHOPIFY_CONNECTION_FAILED = "SHOPIFY_CONNECTION_FAILED"
     SHOPIFY_API_ERROR = "SHOPIFY_API_ERROR"
-    REDIS_CONNECTION_FAILED = "REDIS_CONNECTION_FAILED"
 
     # Errores de sincronización
     SYNC_FAILED = "SYNC_FAILED"
-    SYNC_TIMEOUT = "SYNC_TIMEOUT"
-    SYNC_VALIDATION_FAILED = "SYNC_VALIDATION_FAILED"
-    SYNC_MAPPING_ERROR = "SYNC_MAPPING_ERROR"
-    SYNC_DUPLICATE_ERROR = "SYNC_DUPLICATE_ERROR"
 
     # Errores de API
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
-    INVALID_API_KEY = "INVALID_API_KEY"
-    INVALID_WEBHOOK_SIGNATURE = "INVALID_WEBHOOK_SIGNATURE"
-
-    # Errores de datos
-    INVALID_SKU = "INVALID_SKU"
-    INVALID_PRODUCT_DATA = "INVALID_PRODUCT_DATA"
-    INVALID_ORDER_DATA = "INVALID_ORDER_DATA"
-    MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
-
-    # Errores de sistema
-    DISK_SPACE_LOW = "DISK_SPACE_LOW"
-    MEMORY_LIMIT_EXCEEDED = "MEMORY_LIMIT_EXCEEDED"
-    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
 
 class ErrorSeverity(Enum):
@@ -546,17 +525,9 @@ class ErrorAggregator:
         if exception.is_critical:
             log_error(exception, context, logging.CRITICAL)
 
-    def increment_processed(self):
-        """Incrementa contador de procesados."""
-        self.total_processed += 1
-
     def has_errors(self) -> bool:
         """Verifica si hay errores."""
         return len(self.errors) > 0
-
-    def has_warnings(self) -> bool:
-        """Verifica si hay warnings."""
-        return len(self.warnings) > 0
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -579,21 +550,3 @@ class ErrorAggregator:
             "errors": [error.to_dict() for error in self.errors],
             "warnings": [warning.to_dict() for warning in self.warnings],
         }
-
-    def raise_if_errors(self):
-        """
-        Lanza excepción si hay errores críticos.
-
-        Raises:
-            SyncException: Si hay errores que impiden continuar
-        """
-        if self.has_errors():
-            critical_errors = [e for e in self.errors if e.is_critical]
-            if critical_errors:
-                raise SyncException(
-                    message=f"Process failed with {len(critical_errors)} critical errors",
-                    service="batch_process",
-                    operation="aggregate",
-                    failed_records=[],
-                    sync_stats=self.get_summary(),
-                )

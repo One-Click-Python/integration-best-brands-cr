@@ -28,22 +28,17 @@ Este documento detalla el proceso de sincronización de productos, inventario y 
    - Optimiza la estructura de productos
    - Maneja casos especiales y fallbacks
 
-5. **DiscountManager** (`app/services/discount_manager.py`)
-   - Crea descuentos automáticos basados en precios de oferta
-   - Maneja fechas de promoción (SaleStartDate/SaleEndDate)
-   - Soporta descuentos básicos y por aplicación
-
-6. **InventoryManager** (`app/services/inventory_manager.py`)
+5. **InventoryManager** (`app/services/inventory_manager.py`)
    - Gestiona cantidades de inventario por ubicación
    - Maneja activación de seguimiento de inventario
    - Actualiza stock en tiempo real
 
-7. **RMSHandler** (`app/db/rms_handler.py`)
+6. **RMSHandler** (`app/db/rms_handler.py`)
    - Conecta con SQL Server RMS
    - Ejecuta consultas optimizadas a View_Items
    - Maneja filtros y paginación
 
-8. **ShopifyGraphQLClient** (`app/db/shopify_graphql_client.py`)
+7. **ShopifyGraphQLClient** (`app/db/shopify_graphql_client.py`)
    - Cliente GraphQL optimizado para Shopify
    - Maneja operaciones masivas de metafields
    - Soporta taxonomía estándar de productos

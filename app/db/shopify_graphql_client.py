@@ -232,7 +232,7 @@ class ShopifyGraphQLClient:
         """Actualiza información de rate limit desde headers de respuesta."""
         if "X-Shopify-Api-Call-Limit" in headers:
             try:
-                used, total = headers["X-Shopify-Api-Call-Limit"].split("/")
+                used, _ = headers["X-Shopify-Api-Call-Limit"].split("/")
                 self.current_points = self.rate_limit_points - int(used)
             except Exception as e:
                 logger.warning(f"Could not parse rate limit header: {e}")
@@ -744,13 +744,21 @@ class ShopifyGraphQLClient:
             logger.error(f"Error updating variants for product {product_id}: {e}")
             raise
 
-    async def create_variants_bulk(self, product_id: str, variants_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def create_variants_bulk(
+        self,
+        product_id: str,
+        variants_data: List[Dict[str, Any]],
+        location_id: str = None,
+        inventory_quantities: Dict[str, int] = None,
+    ) -> Dict[str, Any]:
         """
         Crea múltiples variantes de producto en lote usando productVariantsBulkCreate.
 
         Args:
             product_id: ID del producto
             variants_data: Lista de datos de variantes a crear
+            location_id: ID de la ubicación para establecer inventario (opcional)
+            inventory_quantities: Dict con SKU como clave y cantidad como valor (opcional)
 
         Returns:
             Resultado de la creación masiva de variantes
@@ -767,13 +775,31 @@ class ShopifyGraphQLClient:
                 raise ShopifyAPIException(f"Bulk variant creation failed: {', '.join(error_messages)}")
 
             variants = bulk_result.get("productVariants", [])
-            product = bulk_result.get("product", {})
 
             if variants:
                 logger.info(f"✅ Created {len(variants)} variants for product {product_id}")
                 for variant in variants:
                     options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
                     logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
+
+                # Set inventory quantities if provided
+                if location_id and inventory_quantities:
+                    logger.info(f"Setting inventory quantities for {len(variants)} variants...")
+                    inventory_tasks = []
+
+                    for variant in variants:
+                        sku = variant.get("sku")
+                        if sku and sku in inventory_quantities:
+                            quantity = inventory_quantities[sku]
+                            if quantity is not None and quantity > 0:
+                                task = self.set_variant_inventory_quantity(variant, location_id, quantity)
+                                inventory_tasks.append(task)
+
+                    if inventory_tasks:
+                        inventory_results = await asyncio.gather(*inventory_tasks, return_exceptions=True)
+                        success_count = sum(1 for r in inventory_results if isinstance(r, dict) and r.get("success"))
+                        logger.info(f"✅ Set inventory for {success_count}/{len(inventory_tasks)} variants")
+
                 return bulk_result
 
             raise ShopifyAPIException("Bulk variant creation failed: No variants returned")
@@ -782,13 +808,17 @@ class ShopifyGraphQLClient:
             logger.error(f"Error creating variants for product {product_id}: {e}")
             raise
 
-    async def create_variant(self, product_id: str, variant_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_variant(
+        self, product_id: str, variant_data: Dict[str, Any], location_id: str = None, inventory_quantity: int = None
+    ) -> Dict[str, Any]:
         """
         Crea una nueva variante para un producto existente.
 
         Args:
             product_id: ID del producto
             variant_data: Datos de la variante
+            location_id: ID de la ubicación para establecer inventario (opcional)
+            inventory_quantity: Cantidad de inventario a establecer (opcional)
 
         Returns:
             Variante creada
@@ -810,6 +840,21 @@ class ShopifyGraphQLClient:
             variant = variant_result.get("productVariant")
             if variant:
                 logger.info(f"Created variant: {variant['id']} - SKU: {variant.get('sku')}")
+
+                # Set inventory quantity if provided
+                if location_id and inventory_quantity is not None and inventory_quantity > 0:
+                    logger.info(f"Setting inventory quantity for variant {variant.get('sku')} to {inventory_quantity}")
+                    inventory_result = await self.set_variant_inventory_quantity(
+                        variant, location_id, inventory_quantity
+                    )
+
+                    if not inventory_result.get("success"):
+                        logger.warning(
+                            f"Failed to set inventory for variant {variant.get('sku')}: {inventory_result.get('error')}"
+                        )
+                    else:
+                        variant["inventoryQuantity"] = inventory_quantity
+
                 return variant
 
             raise ShopifyAPIException("Variant creation failed: No variant returned")
@@ -818,28 +863,72 @@ class ShopifyGraphQLClient:
             logger.error(f"Error creating variant for product {product_id}: {e}")
             raise
 
-    async def update_variant(self, variant_id: str, variant_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def set_variant_inventory_quantity(
+        self, variant: Dict[str, Any], location_id: str, quantity: int
+    ) -> Dict[str, Any]:
         """
-        Actualiza una sola variante usando bulk update con una variante.
-        (Wrapper de compatibilidad que usa update_variants_bulk internamente)
+        Establece la cantidad de inventario para una variante recién creada.
 
         Args:
-            variant_id: ID de la variante
-            variant_data: Datos a actualizar
+            variant: Variante creada con inventoryItem
+            location_id: ID de la ubicación
+            quantity: Cantidad de inventario
 
         Returns:
-            Variante actualizada
+            Resultado de la operación
         """
-        logger.warning("update_variant is deprecated, but cannot determine product_id. Using fallback approach.")
+        try:
+            inventory_item = variant.get("inventoryItem", {})
+            if not inventory_item or not inventory_item.get("id"):
+                logger.warning(f"Variant {variant.get('id')} has no inventory item")
+                return {"success": False, "error": "No inventory item"}
 
-        # Para compatibilidad, necesitamos obtener el product_id de la variante
-        # Esto requiere una query adicional, pero es necesario para la nueva API
-        raise ShopifyAPIException(
-            "update_variant requires product_id. Use update_variants_bulk instead or "
-            "create_product_with_variants for new products."
-        )
+            inventory_item_id = inventory_item["id"]
 
-    async def activate_inventory_tracking(
+            # Usar INVENTORY_SET_QUANTITIES_MUTATION directamente
+            set_quantity_variables = {
+                "input": {
+                    "name": "available",
+                    "reason": "correction",
+                    "referenceDocumentUri": f"variant-creation-{variant.get('id')}",
+                    "ignoreCompareQuantity": True,
+                    "quantities": [
+                        {"inventoryItemId": inventory_item_id, "locationId": location_id, "quantity": quantity}
+                    ],
+                }
+            }
+
+            from .shopify_graphql_queries import INVENTORY_SET_QUANTITIES_MUTATION
+
+            result = await self._execute_query(INVENTORY_SET_QUANTITIES_MUTATION, set_quantity_variables)
+
+            set_data = result.get("inventorySetQuantities", {})
+            if set_errors := set_data.get("userErrors", []):
+                logger.error(f"Failed to set inventory quantity: {set_errors}")
+                return {"success": False, "errors": set_errors}
+
+            adjustment_group = set_data.get("inventoryAdjustmentGroup", {})
+            changes = adjustment_group.get("changes", [])
+
+            if changes:
+                available_change = next((c for c in changes if c.get("name") == "available"), changes[0])
+                delta = available_change.get("delta", 0)
+                logger.info(f"✅ Inventory set for variant {variant.get('sku')}: Δ{delta:+d} → {quantity}")
+            else:
+                logger.info(f"✅ Inventory quantity set to {quantity} for variant {variant.get('sku')}")
+
+            return {
+                "success": True,
+                "variant_id": variant.get("id"),
+                "inventory_item_id": inventory_item_id,
+                "quantity": quantity,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to set variant inventory quantity: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def activate_inventory_tracking_well(
         self, inventory_item_id: str, location_id: str, available_quantity: int = None
     ) -> Dict[str, Any]:
         """
@@ -862,7 +951,7 @@ class ShopifyGraphQLClient:
             from .shopify_graphql_queries import (
                 INVENTORY_ACTIVATE_MUTATION,
                 INVENTORY_ITEM_UPDATE_MUTATION,
-                INVENTORY_SET_QUANTITIES_MUTATION
+                INVENTORY_SET_QUANTITIES_MUTATION,
             )
 
             # 📝 PASO 1: Habilitar tracking en el inventory item
@@ -905,23 +994,20 @@ class ShopifyGraphQLClient:
                 set_quantity_variables = {
                     "input": {
                         "name": "available",
-                        "reason": "correction",  
+                        "reason": "correction",
                         "referenceDocumentUri": f"inventory-setup-{inventory_item_id}",
                         "ignoreCompareQuantity": True,  # Ignorar la verificación de cantidad actual
                         "quantities": [
                             {
                                 "inventoryItemId": inventory_item_id,
                                 "locationId": location_id,
-                                "quantity": available_quantity
+                                "quantity": available_quantity,
                             }
-                        ]
+                        ],
                     }
                 }
 
-                set_result = await self._execute_query(
-                    INVENTORY_SET_QUANTITIES_MUTATION,
-                    set_quantity_variables
-                )
+                set_result = await self._execute_query(INVENTORY_SET_QUANTITIES_MUTATION, set_quantity_variables)
 
                 set_data = set_result.get("inventorySetQuantities", {})
                 if set_errors := set_data.get("userErrors", []):
@@ -930,12 +1016,9 @@ class ShopifyGraphQLClient:
 
                 adjustment_group = set_data.get("inventoryAdjustmentGroup", {})
                 changes = adjustment_group.get("changes", [])
-                
+
                 if changes:
-                    available_change = next(
-                        (c for c in changes if c.get("name") == "available"),
-                        changes[0]
-                    )
+                    available_change = next((c for c in changes if c.get("name") == "available"), changes[0])
                     delta = available_change.get("delta", 0)
                     final_quantity = current_quantity + delta
                     logger.info(f"✅ Step 3: Quantity set (Δ{delta:+d}) → Final: {final_quantity}")
@@ -950,7 +1033,7 @@ class ShopifyGraphQLClient:
                 "success": True,
                 "inventoryLevel": inventory_level,
                 "tracked": True,
-                "finalQuantity": final_quantity
+                "finalQuantity": final_quantity,
             }
 
         except Exception as e:

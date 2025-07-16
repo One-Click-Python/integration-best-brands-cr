@@ -37,17 +37,6 @@ class MetricsSummary(BaseModel):
     error_metrics: Dict[str, Any]
 
 
-class SystemMetrics(BaseModel):
-    """Model for system metrics response."""
-
-    uptime_seconds: float
-    memory_usage_mb: float
-    cpu_usage_percent: float
-    active_connections: int
-    request_count: int
-    error_count: int
-
-
 async def verify_metrics_access():
     """
     Verify access to metrics endpoints.

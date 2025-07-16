@@ -140,7 +140,9 @@ class RMSOrder(BaseModel):
     shipping_tracking_number: Optional[str] = Field(None, max_length=100, description="Número de seguimiento")
 
     # Identificación externa
-    reference_number: Optional[str] = Field(None, max_length=50, description="Número de referencia (ej: SHOPIFY-123456)")
+    reference_number: Optional[str] = Field(
+        None, max_length=50, description="Número de referencia (ej: SHOPIFY-123456)"
+    )
     channel_type: int = Field(default=1, description="Tipo de canal (1=tienda, 2=Shopify, 3=web, etc.)")
 
     # Comentarios
@@ -192,44 +194,3 @@ class RMSOrderHistory(BaseModel):
     delta_deposit: Decimal = Field(default=Decimal("0.00"), decimal_places=2, description="Cambio en depósito")
     transaction_number: Optional[int] = Field(None, description="Número de transacción dentro del batch")
     comment: Optional[str] = Field(None, max_length=255, description="Descripción del movimiento")
-
-
-# Modelos de respuesta y agregación
-
-
-class RMSOrderWithEntries(BaseModel):
-    """
-    Modelo agregado que incluye una orden con sus líneas.
-    """
-
-    order: RMSOrder
-    entries: list[RMSOrderEntry]
-    history: Optional[list[RMSOrderHistory]] = None
-
-
-class RMSProductSyncStatus(BaseModel):
-    """
-    Modelo para tracking del estado de sincronización de productos.
-    """
-
-    c_articulo: str = Field(..., description="SKU del producto")
-    last_synced: Optional[datetime] = Field(None, description="Última sincronización")
-    shopify_product_id: Optional[str] = Field(None, description="ID en Shopify")
-    shopify_variant_id: Optional[str] = Field(None, description="ID de variante en Shopify")
-    sync_status: str = Field(default="pending", description="Estado: pending, synced, error")
-    error_message: Optional[str] = Field(None, description="Mensaje de error si aplica")
-
-
-class RMSSyncBatch(BaseModel):
-    """
-    Modelo para lotes de sincronización.
-    """
-
-    batch_id: str = Field(..., description="ID único del lote")
-    start_time: datetime = Field(default_factory=datetime.now)
-    end_time: Optional[datetime] = Field(None)
-    total_items: int = Field(default=0)
-    processed_items: int = Field(default=0)
-    success_items: int = Field(default=0)
-    error_items: int = Field(default=0)
-    status: str = Field(default="running")  # running, completed, failed

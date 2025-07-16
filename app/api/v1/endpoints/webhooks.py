@@ -70,7 +70,7 @@ async def product_created_webhook(request: Request, background_tasks: Background
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background
@@ -105,7 +105,7 @@ async def product_updated_webhook(request: Request, background_tasks: Background
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background
@@ -140,7 +140,7 @@ async def product_deleted_webhook(request: Request, background_tasks: Background
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background
@@ -175,7 +175,7 @@ async def order_created_webhook(request: Request, background_tasks: BackgroundTa
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background
@@ -210,7 +210,7 @@ async def order_updated_webhook(request: Request, background_tasks: BackgroundTa
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background
@@ -245,7 +245,7 @@ async def inventory_updated_webhook(request: Request, background_tasks: Backgrou
     """
     try:
         # Validar y extraer payload
-        topic, payload = await validate_webhook_request(request)
+        _, payload = await validate_webhook_request(request)
         webhook_id = request.headers.get("X-Shopify-Webhook-Id")
 
         # Procesar en background

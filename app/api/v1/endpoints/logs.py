@@ -71,8 +71,8 @@ async def search_logs(
     query: Optional[str] = Query(default=None, description="Search query"),
     level: Optional[str] = Query(default=None, regex="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$"),
     module: Optional[str] = Query(default=None, description="Module name filter"),
-    start_time: Optional[datetime] = Query(default=None),
-    end_time: Optional[datetime] = Query(default=None),
+    start_time: Optional[datetime] = Query(default=None),  # noqa: B008
+    end_time: Optional[datetime] = Query(default=None),  # noqa: B008
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=1000),
     _: None = Depends(verify_log_access),
@@ -95,13 +95,17 @@ async def search_logs(
     try:
         # TODO: Implement actual log search
         # This would search through log files or log aggregation system
+        print(
+            f"Search query: {query}, level: {level}, module: {module}, "
+            f"start_time: {start_time}, end_time: {end_time}, page: {page}, page_size: {page_size}"
+        )
 
         # For now, return empty results with proper structure
         return LogSearchResult(entries=[], total_count=0, page=page, page_size=page_size, has_more=False)
 
     except Exception as e:
         logger.error(f"Error searching logs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to search log entries")
+        raise HTTPException(status_code=500, detail="Failed to search log entries") from e
 
 
 @router.get("/recent", summary="Get recent log entries", description="Get the most recent log entries")
@@ -137,7 +141,7 @@ async def get_recent_logs(
 
     except Exception as e:
         logger.error(f"Error getting recent logs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve recent logs")
+        raise HTTPException(status_code=500, detail="Failed to retrieve recent logs") from e
 
 
 @router.get(
@@ -197,7 +201,7 @@ async def get_log_stats(_: None = Depends(verify_log_access)):
 
     except Exception as e:
         logger.error(f"Error getting log stats: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve log statistics")
+        raise HTTPException(status_code=500, detail="Failed to retrieve log statistics") from e
 
 
 @router.get("/download/{file_name}", summary="Download log file", description="Download a specific log file")
@@ -224,7 +228,7 @@ async def download_log_file(file_name: str, _: None = Depends(verify_log_access)
 
     except Exception as e:
         logger.error(f"Error downloading log file {file_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download log file: {file_name}")
+        raise HTTPException(status_code=500, detail=f"Failed to download log file: {file_name}") from e
 
 
 @router.get(
@@ -257,7 +261,7 @@ async def tail_log_file(
 
     except Exception as e:
         logger.error(f"Error tailing log file {file_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to tail log file: {file_name}")
+        raise HTTPException(status_code=500, detail=f"Failed to tail log file: {file_name}") from e
 
 
 @router.get("/errors", summary="Get recent errors", description="Get recent error and warning log entries")
@@ -293,7 +297,7 @@ async def get_recent_errors(
 
     except Exception as e:
         logger.error(f"Error getting recent errors: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve recent errors")
+        raise HTTPException(status_code=500, detail="Failed to retrieve recent errors") from e
 
 
 @router.post("/clear", summary="Clear log files", description="Clear or rotate log files (admin operation)")
@@ -329,14 +333,14 @@ async def clear_logs(
 
     except Exception as e:
         logger.error(f"Error clearing logs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to clear log files")
+        raise HTTPException(status_code=500, detail="Failed to clear log files") from e
 
 
 @router.get("/export", summary="Export logs", description="Export logs in various formats (JSON, CSV, etc.)")
 async def export_logs(
     format: str = Query(default="json", regex="^(json|csv|txt)$"),
-    start_time: Optional[datetime] = Query(default=None),
-    end_time: Optional[datetime] = Query(default=None),
+    start_time: Optional[datetime] = Query(default=None),  # noqa: B008
+    end_time: Optional[datetime] = Query(default=None),  # noqa: B008
     level: Optional[str] = Query(default=None, regex="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$"),
     _: None = Depends(verify_log_access),
 ):
@@ -369,4 +373,4 @@ async def export_logs(
 
     except Exception as e:
         logger.error(f"Error exporting logs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to export logs")
+        raise HTTPException(status_code=500, detail="Failed to export logs") from e
