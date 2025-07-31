@@ -34,6 +34,7 @@ class RMSToShopifySync:
         self.rms_handler = None
         self.shopify_client = None
         self.inventory_manager = None
+        self.collection_manager = None
         self.primary_location_id = None
         self.error_aggregator = ErrorAggregator()
         self.sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: F821
@@ -64,6 +65,12 @@ class RMSToShopifySync:
 
             self.inventory_manager = InventoryManager(self.shopify_client)
             await self.inventory_manager.initialize()
+
+            # Inicializar gestor de colecciones
+            from app.services.collection_manager import CollectionManager
+
+            self.collection_manager = CollectionManager(self.shopify_client)
+            await self.collection_manager.initialize()
 
             # Obtener ubicación principal para inventario
             self.primary_location_id = await self.shopify_client.get_primary_location_id()
@@ -434,6 +441,10 @@ class RMSToShopifySync:
 
         for shopify_input in batch:
             ccod = None  # Initialize ccod before try block
+            categoria = None
+            familia = None
+            extended_category = None
+            
             try:
                 # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
                 logger.info("=" * 50)
@@ -441,18 +452,31 @@ class RMSToShopifySync:
                     f"🔄 STEP A: Starting RMS→Shopify sync for product, restore of shopify: {shopify_input.title}"
                 )
 
-                # Extraer CCOD de los tags del producto (para logging)
+                # Extraer CCOD y categorías de los tags del producto
                 for tag in shopify_input.tags or []:
                     if tag.startswith("ccod_"):
                         ccod = tag.replace("ccod_", "").upper()
-                        break
+                    # Las categorías también vienen como tags desde el mapper
+                    
+                # Extraer categorías de los metafields
+                for metafield in shopify_input.metafields or []:
+                    if metafield.get("namespace") == "rms":
+                        if metafield.get("key") == "categoria":
+                            categoria = metafield.get("value")
+                        elif metafield.get("key") == "familia":
+                            familia = metafield.get("value")
+                        elif metafield.get("key") == "extended_category":
+                            extended_category = metafield.get("value")
 
                 if not ccod:
                     logger.warning(f"⚠️ No CCOD found in product tags: {shopify_input.title}")
                     stats["errors"] += 1
                     continue
 
-                logger.info(f"✅ STEP A: Prepared sync data for CCOD: {ccod}, handle: {shopify_input.handle}")
+                logger.info(
+                    f"✅ STEP A: Prepared sync data for CCOD: {ccod}, handle: {shopify_input.handle}, "
+                    f"categoria: {categoria}, familia: {familia}"
+                )
 
                 # Buscar producto existente por handle (más eficiente)
                 existing_product = shopify_products["by_handle"].get(shopify_input.handle)
@@ -474,6 +498,24 @@ class RMSToShopifySync:
                                 f"✅ Updated existing product: {ccod} (handle: "
                                 f"{shopify_input.handle}) - {shopify_input.title}"
                             )
+                            
+                            # Sincronizar colecciones del producto
+                            if self.collection_manager and updated_product.get("id"):
+                                try:
+                                    # Obtener colecciones actuales del producto
+                                    # Por ahora, simplemente agregar a las colecciones apropiadas
+                                    collections_added = await self.collection_manager.add_product_to_collections(
+                                        product_id=updated_product["id"],
+                                        categoria=categoria,
+                                        familia=familia,
+                                        extended_category=extended_category
+                                    )
+                                    if collections_added:
+                                        logger.info(
+                                            f"✅ Product collections updated: {len(collections_added)} collections"
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Failed to update product collections: {e}")
                         else:
                             stats["errors"] += 1
                             logger.error(
@@ -502,6 +544,22 @@ class RMSToShopifySync:
                             f"✅ Created new product: {ccod} (handle: {shopify_input.handle}) - {shopify_input.title} "
                             f"({len(shopify_input.variants)} variants)"
                         )
+                        
+                        # Agregar producto a colecciones basadas en categorías
+                        if self.collection_manager and created_product.get("id"):
+                            try:
+                                collections_added = await self.collection_manager.add_product_to_collections(
+                                    product_id=created_product["id"],
+                                    categoria=categoria,
+                                    familia=familia,
+                                    extended_category=extended_category
+                                )
+                                if collections_added:
+                                    logger.info(
+                                        f"✅ Product added to {len(collections_added)} collections"
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Failed to add product to collections: {e}")
                     else:
                         stats["errors"] += 1
                         logger.error(

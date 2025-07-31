@@ -6,28 +6,21 @@
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/logs.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/logs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/metrics.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/metrics.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/webhooks.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/webhooks.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/logging_config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/redis_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/redis_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/rms_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/shopify_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AUTOMATIC_SYNC_ENGINE.md" beforeDir="false" afterPath="$PROJECT_DIR$/AUTOMATIC_SYNC_ENGINE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/RMS_TO_SHOPIFY_SYNC.md" beforeDir="false" afterPath="$PROJECT_DIR$/RMS_TO_SHOPIFY_SYNC.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/SHOPIFY_TO_RMS_SYNC.md" beforeDir="false" afterPath="$PROJECT_DIR$/SHOPIFY_TO_RMS_SYNC.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/WEBHOOK_CONFIGURATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/WEBHOOK_CONFIGURATION.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/WINDOWS_INSTALLATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/WINDOWS_INSTALLATION.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/openapi_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/openapi_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/queries/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/db/shopify_graphql_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_graphql_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/discount_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/discount_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/enhanced_data_mapper.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/inventory_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/inventory_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/rms_shopify_mapper.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/structure.md" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/structure.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/shopify_to_rms.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/shopify_to_rms.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/sync_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/sync_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/webhook_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/webhook_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/utils/error_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/error_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/poetry.lock" beforeDir="false" afterPath="$PROJECT_DIR$/poetry.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements-customer.md" beforeDir="false" afterPath="$PROJECT_DIR$/requirements-customer.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -45,19 +38,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.debug_order_structure.executor&quot;: &quot;Run&quot;,
-    &quot;Python.uvicorn.executor&quot;: &quot;Debug&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/enzo/Documents/Python/oneclick/rms-shopify-integration&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.debug_order_structure.executor": "Run",
+    "Python.uvicorn.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "/Users/enzo/Documents/Python/oneclick/rms-shopify-integration",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "to.speed.mode.migration.done": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager" selected="Python.uvicorn">
     <configuration default="true" type="PythonConfigurationType" factoryName="Python">
       <module name="rms-shopify-integration" />
@@ -128,8 +122,8 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.uvicorn" />
       <item itemvalue="Python.debug_order_structure" />
+      <item itemvalue="Python.uvicorn" />
     </list>
     <recent_temporary>
       <list>
@@ -140,7 +134,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-890ed5b35930-d9c5bdb153f4-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.23774.444" />
+        <option value="bundled-python-sdk-41e8cd69c857-64d779b69b7a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26927.90" />
       </set>
     </attachedChunks>
   </component>
@@ -158,44 +152,29 @@
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>465</line>
-          <option name="timeStamp" value="52" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
-          <line>647</line>
+          <line>655</line>
           <option name="timeStamp" value="59" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
-          <line>691</line>
-          <option name="timeStamp" value="60" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
-          <line>971</line>
-          <option name="timeStamp" value="61" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/inventory_manager.py</url>
-          <line>205</line>
+          <line>176</line>
           <option name="timeStamp" value="67" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_graphql_client.py</url>
-          <line>902</line>
+          <line>910</line>
           <option name="timeStamp" value="68" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/inventory_manager.py</url>
-          <line>347</line>
+          <line>244</line>
           <option name="timeStamp" value="69" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/inventory_manager.py</url>
-          <line>272</line>
-          <option name="timeStamp" value="70" />
+          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
+          <line>536</line>
+          <option name="timeStamp" value="72" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

@@ -13,7 +13,11 @@ Sistema de integración bidireccional entre Microsoft Retail Management System (
 - **📡 API REST**: Control manual y programado con filtros avanzados
 - **🔗 Webhooks**: Captura en tiempo real de eventos Shopify con soporte para pedidos sin cliente
 - **📈 Sistema de Alertas**: Notificaciones de errores y estado con métricas en tiempo real
-- **📝 Logging Estructurado**: Auditoría completa de operaciones con statistics detalladas
+- **📝 Logging Estructurado**: Auditoría completa de operaciones con estadísticas detalladas
+- **🔒 Mecanismo de Bloqueo**: Prevención de operaciones concurrentes para garantizar consistencia
+- **🛒 Soporte para Pedidos de Invitados**: Procesamiento flexible de pedidos sin registro de cliente
+- **📊 Dashboard de Métricas**: Visualización en tiempo real del rendimiento del sistema
+- **🐳 Docker Ready**: Despliegue simplificado con Docker y Docker Compose
 
 ## 🏗️ Arquitectura
 
@@ -39,14 +43,17 @@ Sistema de integración bidireccional entre Microsoft Retail Management System (
 
 ## 🛠️ Stack Tecnológico
 
-- **Python 3.13**
-- **FastAPI** - Framework web asíncrono
-- **SQLAlchemy** - ORM para SQL Server
-- **Pydantic** - Validación y serialización de datos
-- **Celery + Redis** - Tareas asíncronas
-- **APScheduler** - Programación de tareas
-- **Requests/httpx** - Cliente HTTP
-- **SQL Server** - Base de datos RMS
+- **Python 3.13** - Lenguaje principal con soporte async/await
+- **FastAPI** - Framework web asíncrono de alto rendimiento
+- **SQLAlchemy 2.0** - ORM con soporte asíncrono para SQL Server
+- **Pydantic v2** - Validación y serialización de datos con rendimiento mejorado
+- **Redis** - Cache y gestión de bloqueos para operaciones concurrentes
+- **APScheduler** - Programación de tareas con soporte de zonas horarias
+- **httpx/aiohttp** - Clientes HTTP asíncronos para APIs externas
+- **SQL Server** - Base de datos RMS con soporte para triggers
+- **Docker** - Containerización para desarrollo y producción
+- **Poetry** - Gestión moderna de dependencias
+- **GraphQL** - Cliente para operaciones avanzadas en Shopify
 
 ## 🚀 Instalación
 
@@ -122,6 +129,16 @@ ALLOW_ORDERS_WITHOUT_CUSTOMER=true
 DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS=
 REQUIRE_CUSTOMER_EMAIL=false
 
+# 🔒 Control de Concurrencia
+ENABLE_SYNC_LOCK=true
+SYNC_LOCK_TIMEOUT_SECONDS=1800
+SYNC_LOCK_RETRY_ATTEMPTS=3
+
+# 📊 Métricas y Monitoreo
+METRICS_COLLECTION_ENABLED=true
+METRICS_RETENTION_DAYS=30
+HEALTH_CHECK_CACHE_TTL=60
+
 # Redis (para Celery)
 REDIS_URL=redis://localhost:6379/0
 
@@ -187,6 +204,12 @@ PUT /api/v1/sync/monitor/interval
 
 # Health check del motor
 GET /api/v1/sync/monitor/health
+
+# Actividad reciente del motor
+GET /api/v1/sync/monitor/recent-activity
+
+# Configuración actual
+GET /api/v1/sync/monitor/config
 ```
 
 #### Sincronización Manual
@@ -221,17 +244,28 @@ POST /api/v1/webhooks/shopify/orders/create
 POST /api/v1/webhooks/shopify/products/update
 ```
 
-#### Monitoreo
+#### Monitoreo y Administración
 
 ```bash
 # Salud del sistema
 GET /api/v1/health
+GET /api/v1/metrics/health-detailed
 
 # Métricas de sincronización
-GET /api/v1/metrics
+GET /api/v1/metrics/system
+GET /api/v1/metrics/performance
+GET /api/v1/metrics/dashboard
 
-# Logs de errores
+# Logs y auditoría
 GET /api/v1/logs?level=error&limit=50
+GET /api/v1/logs/stream  # Stream en tiempo real
+
+# Administración
+GET /api/v1/admin/system-info
+GET /api/v1/admin/cache-stats
+GET /api/v1/admin/active-syncs
+GET /api/v1/admin/database-health
+POST /api/v1/admin/maintenance
 ```
 
 ## 📁 Estructura del Proyecto
@@ -428,9 +462,12 @@ product_data = await mapper.map_rms_item_to_shopify_product(rms_item)
 ```bash
 # Variables de entorno adicionales
 SHOPIFY_API_VERSION=2025-04           # Versión API con soporte taxonomías
+SHOPIFY_RATE_LIMIT_PER_SECOND=2      # Límite de llamadas por segundo
 SYNC_INCLUDE_ZERO_STOCK=false        # Excluir productos sin stock
 SYNC_USE_ENHANCED_MAPPER=true        # Usar mapeador avanzado
 TAXONOMY_CACHE_TTL=3600              # Cache de taxonomías (segundos)
+BULK_OPERATION_TIMEOUT=600           # Timeout para operaciones masivas
+ENABLE_DRY_RUN_MODE=false           # Modo simulación sin cambios
 ```
 
 ### Filtros de Sincronización
@@ -450,6 +487,10 @@ SYNC_FILTER_EXCLUDE_INACTIVE=True
 - **Errores de Sincronización**: Fallos en mapeo de datos
 - **Rate Limit**: Límite de API alcanzado
 - **Datos Inconsistentes**: Discrepancias detectadas
+- **Operaciones Bloqueadas**: Intentos de sincronización concurrente
+- **Performance**: Degradación del rendimiento del sistema
+- **Espacio en Disco**: Alertas de capacidad para logs
+- **Motor Detenido**: Si el motor automático falla
 
 ### Configuración de Alertas
 
@@ -477,20 +518,53 @@ pytest tests/test_sync_services.py -v
 
 ## 📊 Métricas y KPIs
 
-- **Productos sincronizados/hora**
-- **Tiempo promedio de sincronización**
-- **Tasa de errores por servicio**
-- **Disponibilidad del sistema**
-- **Latencia de webhooks**
+### Métricas de Rendimiento
+- **Productos sincronizados/hora**: Throughput del sistema
+- **Tiempo promedio de sincronización**: Por producto y por lote
+- **Tasa de errores por servicio**: RMS, Shopify, Redis
+- **Disponibilidad del sistema**: Uptime y SLA
+- **Latencia de webhooks**: Tiempo de procesamiento
+
+### Métricas de Negocio
+- **Productos activos sincronizados**: Total y por categoría
+- **Órdenes procesadas**: Por día/hora con montos
+- **Discrepancias de inventario**: Detección automática
+- **Tiempo de actualización**: Desde cambio RMS hasta Shopify
+
+### Métricas del Sistema
+- **Uso de CPU/Memoria**: Por componente
+- **Conexiones de base de datos**: Pool y activas
+- **Cache hit rate**: Eficiencia del Redis
+- **API calls**: Por endpoint y cliente
 
 ## 🐳 Docker
 
+### Desarrollo
 ```bash
-# Construir imagen
-docker build -t rms-shopify-integration .
+# Construir imagen de desarrollo
+docker build -f Dockerfile.dev -t rms-shopify-integration:dev .
+
+# Ejecutar con hot-reload
+docker-compose -f docker-compose.dev.yml up
+
+# Ver logs en tiempo real
+docker-compose logs -f api
+```
+
+### Producción
+```bash
+# Construir imagen optimizada
+docker build -t rms-shopify-integration:latest .
 
 # Ejecutar con docker-compose
 docker-compose up -d
+
+# Escalar workers
+docker-compose up -d --scale api=3
+
+# Backup de volúmenes
+docker run --rm -v rms-shopify-integration_redis-data:/data \
+  -v $(pwd)/backup:/backup alpine tar czf /backup/redis-backup.tar.gz -C /data .
 ```
 
 ## 🤝 Contribución
@@ -508,6 +582,8 @@ docker-compose up -d
 - **[📄 Shopify → RMS](SHOPIFY_TO_RMS_SYNC.md)** - Guía completa de sincronización de pedidos desde Shopify hacia RMS
 - **[📄 Configuración de Webhooks](WEBHOOK_CONFIGURATION.md)** - Guía detallada para configurar webhooks de Shopify y manejo de pedidos sin cliente
 - **[🤖 Motor de Sincronización Automática](AUTOMATIC_SYNC_ENGINE.md)** - Guía completa del motor de detección de cambios automática
+- **[💻 Instalación en Windows](WINDOWS_INSTALLATION.md)** - Guía paso a paso para instalar en Windows Server
+- **[🔧 Guía para Desarrolladores](CLAUDE.md)** - Referencia rápida para desarrollo y mantenimiento
 
 ### 📊 APIs y Referencias
 - **[API Docs](http://localhost:8080/docs)** - Documentación interactiva Swagger (cuando la app esté corriendo)

@@ -4,39 +4,52 @@ Todas las modificaciones notables a este proyecto serán documentadas en este ar
 
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Sin versionar] - 2025-07-03
+## [2.5.0] - 2025-01-30
 
-### 🕐 Sincronización Completa Programada
+### 🚀 Características Principales de la Versión 2.5
 
-#### Agregado - Sistema de Sincronización por Horario
-- ⏰ **Sincronización completa programable** a horas específicas del día
-- 🌍 **Soporte de zonas horarias** configurable (UTC, America/Argentina/Buenos_Aires, etc.)
-- 📅 **Programación flexible** por días de la semana o diaria
-- 🔄 **Independiente del motor de cambios** para asegurar consistencia de datos
-- 📊 **Seguimiento de última sincronización** y cálculo de próxima ejecución
-- 🛡️ **Validación de configuración** con valores seguros por defecto
+#### Agregado - Motor de Sincronización Automática Completo
+- ⚡ **Motor automático de sincronización** basado en `Item.LastUpdated` de RMS
+- 🔄 **Detección de cambios en tiempo real** cada 5 minutos
+- 🛡️ **Sistema de bloqueo (locks)** para prevenir ejecuciones concurrentes
+- 📊 **Health monitoring** con auto-recovery automático
+- 🎯 **Soporte completo para pedidos de invitados** con configuración flexible
+- 🐳 **Soporte Docker** completo con docker-compose
+- 🔧 **Instalación Windows Service** con scripts PowerShell automatizados
+- 📈 **APIs de monitoreo avanzadas** con métricas en tiempo real
 
-#### Nuevas Variables de Configuración
+#### Variables de Configuración v2.5
 ```bash
-# Sincronización completa programada
-ENABLE_FULL_SYNC_SCHEDULE=true             # Habilitar sincronización programada
-FULL_SYNC_HOUR=23                          # Hora del día (0-23)
-FULL_SYNC_MINUTE=0                          # Minuto de la hora (0-59)
-FULL_SYNC_TIMEZONE=America/Argentina/Buenos_Aires  # Zona horaria
-FULL_SYNC_DAYS=0,1,2,3,4,5,6              # Días (0=Lunes, 6=Domingo) - opcional
+# Motor de sincronización automática
+ENABLE_SCHEDULED_SYNC=true                 # Activar motor automático
+SYNC_INTERVAL_MINUTES=5                    # Intervalo de verificación
+SYNC_BATCH_SIZE=10                         # Productos por lote
+SYNC_MAX_CONCURRENT_JOBS=3                 # Jobs paralelos máximos
+ENABLE_SYNC_LOCK=true                      # Sistema de locks
+SYNC_LOCK_TIMEOUT_SECONDS=1800             # Timeout del lock (30 min)
+
+# Soporte para pedidos de invitados
+ALLOW_ORDERS_WITHOUT_CUSTOMER=true         # Permitir pedidos sin cliente
+DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS=      # Cliente por defecto (opcional)
+REQUIRE_CUSTOMER_EMAIL=false               # Requerir email
+GUEST_CUSTOMER_NAME="Cliente Invitado"     # Nombre para invitados
 ```
 
-#### Casos de Uso Implementados
-- **Sincronización diaria**: Ejecutar todos los días a hora específica
-- **Días laborables**: Solo lunes a viernes para reducir carga en fines de semana
-- **Fines de semana**: Solo sábados y domingos para mantenimiento
-- **Reconciliación nocturna**: Asegurar consistencia de datos fuera de horario laboral
+#### Componentes Principales v2.5
+- **ChangeDetector**: Motor principal de detección de cambios usando `Item.LastUpdated`
+- **SyncMonitor**: Sistema de health checks y auto-recovery
+- **ShopifyToRMSSync**: Servicio completo para pedidos Shopify → RMS
+- **RMSToShopifySync**: Servicio mejorado para productos RMS → Shopify
+- **WebhookHandler**: Procesamiento de webhooks con validación HMAC
+- **LockManager**: Sistema de bloqueo distribuido con Redis
 
-#### Integración con Motor Existente
-- ✅ **Compatible con detección de cambios** - Ambos sistemas funcionan en paralelo
-- ✅ **Ventana de ejecución de 10 minutos** para evitar múltiples ejecuciones
-- ✅ **Estado en API de monitoreo** - Visible en `/api/v1/sync/monitor/status`
-- ✅ **Logging detallado** de ejecuciones programadas
+#### APIs de Monitoreo v2.5
+- `/api/v1/sync/monitor/status` - Estado general del motor
+- `/api/v1/sync/monitor/stats` - Estadísticas detalladas
+- `/api/v1/sync/monitor/trigger` - Trigger manual
+- `/api/v1/sync/monitor/health` - Health check
+- `/api/v1/webhooks/status` - Estado de webhooks
+- `/api/v1/metrics/dashboard` - Dashboard de métricas
 
 ### 🤖 Motor de Sincronización Automática RMS → Shopify
 
@@ -175,7 +188,7 @@ GUEST_CUSTOMER_NAME="Cliente Invitado"  # Nombre para invitados
 - 📚 **README.md actualizado**: Enlaces a nueva documentación
 - 🔧 **Scripts de utilidad**: check_sync_engine.sh, manual_sync.sh
 
-## [Sin versionar] - 2025-07-02
+## [2.4.0] - 2025-01-15
 
 ### 🚀 Conector de Captura de Pedidos Shopify → RMS
 
@@ -235,7 +248,7 @@ GUEST_CUSTOMER_NAME="Cliente Invitado"  # Nombre para invitados
 - ✅ **Consultas optimizadas**: Soporte para filtros y paginación
 - ✅ **Handler RMS mejorado**: Parámetro `include_zero_stock` agregado
 
-## [Sin versionar] - 2025-06-25
+## [2.3.0] - 2024-12-20
 
 ### 🚀 Sistema de Taxonomías y Metafields Mejorado
 
@@ -336,14 +349,14 @@ rms.product_attributes - JSON con todos los atributos RMS
 - 🧪 **Suite de testing** con pytest
 - 📚 **Documentación automática** con Swagger/OpenAPI
 
-## [Sin versionar] - 2025-06-24
+## [2.2.1] - 2024-12-15
 
 ### Arreglado
 - 🐛 Mejorado el manejo de sesiones HTTP de aiohttp para evitar warnings de sesiones no cerradas
 - 🔧 Agregado logging detallado para debugging de inicialización de sesiones Shopify  
 - 🔄 Mejorado el método close() del cliente GraphQL para verificar estado de sesión antes de cerrar
 
-## [Sin versionar] - 2025-06-23
+## [2.2.0] - 2024-12-10
 
 ### Agregado
 - ✨ Sistema de pruebas completo para conexiones de base de datos y Shopify
@@ -380,29 +393,38 @@ rms.product_attributes - JSON con todos los atributos RMS
 - 🎯 Background tasks para sincronización asíncrona configurados
 - 📈 Sistema de métricas y monitoreo inicializado
 
-## [0.1.0] - 2025-06-15
+## [1.0.0] - 2024-11-15
 
-### Agregado
-- ✨ Implementación inicial del sistema de integración RMS-Shopify
-- 🔄 Sincronización bidireccional básica entre RMS y Shopify
-- 📡 Sistema de webhooks para captura de eventos Shopify
-- 📊 Sistema completo de logging estructurado y monitoreo
-- 🐛 Manejo robusto de errores con reintentos automáticos
-- 🏗️ Arquitectura modular con servicios independientes
-- ⚙️ Configuración centralizada con variables de entorno
-- 🔐 Sistema de autenticación para APIs
-- 📈 Métricas y KPIs de sincronización
-- 🐳 Soporte para Docker y contenedores
+### Agregado - Versión Inicial Completa
+- ✨ **Sistema completo de integración RMS-Shopify** funcional
+- 🔄 **Sincronización bidireccional** entre RMS y Shopify
+- 📡 **Sistema de webhooks** para eventos en tiempo real
+- 📊 **Logging estructurado** y monitoreo avanzado
+- 🐛 **Manejo robusto de errores** con reintentos automáticos
+- 🏗️ **Arquitectura modular** con servicios independientes
+- ⚙️ **Configuración centralizada** con variables de entorno
+- 🔐 **Sistema de autenticación** para APIs
+- 📈 **Métricas y KPIs** de sincronización
+- 🐳 **Soporte Docker** y contenedores
 
-### Configuración Inicial
-- 🛠️ FastAPI como framework web principal
-- 🗄️ SQLAlchemy para manejo de base de datos SQL Server
-- 🔄 Sistema de tareas asíncronas con Celery + Redis
-- 📋 Validación de datos con Pydantic
-- 🧪 Suite de testing con pytest
-- 📚 Documentación automática con Swagger/OpenAPI
+### Stack Tecnológico
+- 🛠️ **FastAPI** - Framework web principal
+- 🗄️ **SQLAlchemy** - ORM para SQL Server
+- 🔴 **Redis** - Cache y sistema de locks
+- 📋 **Pydantic** - Validación de datos
+- 🧪 **pytest** - Suite de testing
+- 📚 **OpenAPI/Swagger** - Documentación automática
+- 🐍 **Python 3.13** - Lenguaje principal
 
 ---
+
+## Información del Sistema
+
+**Versión Actual**: 2.5.0  
+**Fecha de Última Actualización**: 30 de Enero 2025  
+**Autor**: Enzo Candotti (enzo@oneclick.cr)  
+**Empresa**: OneClick Costa Rica  
+**Compatibilidad**: Python 3.13+, FastAPI 0.100+, Shopify API 2025-04  
 
 **Leyenda de Símbolos:**
 - ✨ Nuevas características
@@ -414,6 +436,15 @@ rms.product_attributes - JSON con todos los atributos RMS
 - 📝 Documentación
 - 🔐 Seguridad
 - 🧪 Testing
-- 🐳 DevOps
+- 🐳 DevOps/Docker
 - ✅ Verificaciones
 - 🏗️ Arquitectura
+- ⚡ Performance
+- 🛡️ Confiabilidad
+- 🎯 Funcionalidad específica
+
+**Próximas Versiones Planificadas:**
+- **v2.6**: Sincronización de imágenes automática
+- **v2.7**: Multi-tenant support (múltiples tiendas)
+- **v2.8**: Dashboard web integrado
+- **v3.0**: Arquitectura event-driven con WebSockets

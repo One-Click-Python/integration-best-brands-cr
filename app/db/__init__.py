@@ -35,7 +35,7 @@ __all__ = [
 
 # Información del módulo
 __version__ = "1.0.0"
-__author__ = "Leonardo Illanez"
+__author__ = "Enzo Leonardo Illanez"
 __description__ = "Database access module with separated responsibilities"
 
 
