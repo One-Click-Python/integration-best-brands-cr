@@ -110,9 +110,9 @@ query GetMetafieldDefinitions($first: Int!, $after: String, $ownerType: Metafiel
 
 # Create metafield mutation
 CREATE_METAFIELD_MUTATION = """
-mutation CreateMetafield($input: MetafieldsSetInput!) {
-  metafieldsSet(metafields: [$input]) {
-    metafields {
+mutation CreateMetafield($input: MetafieldInput!) {
+  metafieldCreate(input: $input) {
+    metafield {
       id
       namespace
       key
@@ -145,9 +145,9 @@ mutation CreateMetafield($input: MetafieldsSetInput!) {
 
 # Update metafield mutation
 UPDATE_METAFIELD_MUTATION = """
-mutation UpdateMetafield($input: MetafieldsSetInput!) {
-  metafieldsSet(metafields: [$input]) {
-    metafields {
+mutation UpdateMetafield($input: MetafieldInput!) {
+  metafieldUpdate(input: $input) {
+    metafield {
       id
       namespace
       key

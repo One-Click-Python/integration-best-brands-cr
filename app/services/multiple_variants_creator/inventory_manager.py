@@ -11,6 +11,14 @@ Este módulo se encarga específicamente de:
 import logging
 from typing import Any, Dict, List
 
+from app.db.queries import (
+    INVENTORY_ACTIVATE_MUTATION,
+    INVENTORY_BULK_ADJUST_MUTATION,
+    INVENTORY_ITEM_UPDATE_MUTATION,
+    INVENTORY_SET_QUANTITIES_MUTATION,
+)
+from app.db.queries.products import PRODUCT_QUERY
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,27 +71,7 @@ class InventoryManager:
             logger.info(f"🔄 Processing inventory for {len(variants_with_inventory)} variants with inventory data")
 
             # Obtener todas las variantes del producto creado
-            query = """
-            query GetProductVariants($id: ID!) {
-              product(id: $id) {
-                variants(first: 50) {
-                  edges {
-                    node {
-                      id
-                      sku
-                      inventoryQuantity
-                      inventoryItem {
-                        id
-                        tracked
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            """
-
-            result = await self.shopify_client._execute_query(query, {"id": product_id})
+            result = await self.shopify_client._execute_query(PRODUCT_QUERY, {"id": product_id})
 
             if result and result.get("product"):
                 shopify_variants = result["product"].get("variants", {}).get("edges", [])
@@ -132,8 +120,8 @@ class InventoryManager:
                         try:
                             logger.info(f"🔄 Using proven working method for variant {sku}: {desired_quantity} units")
 
-                            # CAMBIO CRÍTICO: Usar el método probado activate_inventory_tracking_well
-                            tracking_result = await self.shopify_client.activate_inventory_tracking_well(
+                            # CAMBIO CRÍTICO: Usar el método correcto con queries importadas
+                            tracking_result = await self._activate_inventory_tracking_well(
                                 inventory_item_id, location_id, desired_quantity
                             )
 
@@ -190,52 +178,34 @@ class InventoryManager:
                     {"inventoryItemId": adj["inventory_item_id"], "availableDelta": adj["delta"]}
                 )
 
-            # Usar mutation de Shopify para ajustar inventario
-            mutation = """
-            mutation inventoryBulkAdjustQuantityAtLocation($inventoryItemAdjustments: 
-                    [InventoryAdjustItemInput!]!, $locationId: ID!) {
-                inventoryBulkAdjustQuantityAtLocation(inventoryItemAdjustments: 
-                    $inventoryItemAdjustments, locationId: $locationId) {
-                    inventoryLevels {
-                        id
-                        available
-                        item {
-                            id
-                            sku
-                        }
-                        location {
-                            id
-                            name
-                        }
-                    }
-                    userErrors {
-                        field
-                        message
-                    }
+            # Usar mutation correcta de Shopify para ajustar inventario
+            variables = {
+                "input": {
+                    "inventoryItemAdjustments": inventory_item_adjustments,
+                    "locationId": self.primary_location_id,
                 }
             }
-            """
-
-            variables = {"inventoryItemAdjustments": inventory_item_adjustments, "locationId": self.primary_location_id}
 
             logger.info(f"📦 Applying {len(inventory_item_adjustments)} inventory adjustments...")
-            result = await self.shopify_client._execute_query(mutation, variables)
+            result = await self.shopify_client._execute_query(INVENTORY_BULK_ADJUST_MUTATION, variables)
 
-            if result and result.get("inventoryBulkAdjustQuantityAtLocation"):
-                bulk_result = result["inventoryBulkAdjustQuantityAtLocation"]
+            if result and result.get("inventoryBulkAdjustQuantities"):
+                bulk_result = result["inventoryBulkAdjustQuantities"]
 
                 if bulk_result.get("userErrors"):
                     error_messages = [err.get("message", "Unknown error") for err in bulk_result["userErrors"]]
                     logger.warning(f"❌ Inventory adjustment errors: {error_messages}")
                     return
 
-                inventory_levels = bulk_result.get("inventoryLevels", [])
-                logger.info(f"✅ Successfully adjusted inventory for {len(inventory_levels)} variants:")
+                adjustment_group = bulk_result.get("inventoryAdjustmentGroup", {})
+                changes = adjustment_group.get("changes", [])
+                logger.info(f"✅ Successfully adjusted inventory for {len(changes)} variants:")
 
-                for level in inventory_levels:
-                    item_sku = level.get("item", {}).get("sku", "NO-SKU")
-                    available = level.get("available", 0)
-                    logger.info(f"   📦 {item_sku}: {available} units available")
+                for change in changes:
+                    item_sku = change.get("item", {}).get("sku", "NO-SKU")
+                    delta = change.get("delta", 0)
+                    quantity_after = change.get("quantityAfterChange", 0)
+                    logger.info(f"   📦 {item_sku}: Δ{delta:+d} → {quantity_after} units available")
 
             else:
                 logger.warning("❌ No response from inventory bulk adjustment")
@@ -264,25 +234,9 @@ class InventoryManager:
             logger.info(f"🔧 Activating inventory tracking for variant {sku}")
 
             # Usar GraphQL mutation inventoryItemUpdate para activar tracking
-            mutation = """
-            mutation inventoryItemUpdate($id: ID!, $input: InventoryItemInput!) {
-              inventoryItemUpdate(id: $id, input: $input) {
-                inventoryItem {
-                  id
-                  tracked
-                  requiresShipping
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-            """
-
             variables = {"id": inventory_item_id, "input": {"tracked": True, "requiresShipping": True}}
 
-            result = await self.shopify_client._execute_query(mutation, variables)
+            result = await self.shopify_client._execute_query(INVENTORY_ITEM_UPDATE_MUTATION, variables)
 
             if result and result.get("inventoryItemUpdate"):
                 update_result = result["inventoryItemUpdate"]
@@ -444,3 +398,136 @@ class InventoryManager:
         except Exception as e:
             logger.error(f"❌ Error validating inventory data: {e}")
             return {"is_valid": False, "error": str(e), "results": {"valid": [], "invalid": [], "warnings": []}}
+
+    async def _activate_inventory_tracking_well(
+        self, inventory_item_id: str, location_id: str, available_quantity: int = None
+    ) -> Dict[str, Any]:
+        """
+        Activa el tracking de inventario y establece la cantidad disponible inicial.
+
+        Flujo de 3 pasos:
+        1. Habilitar tracking en el inventory item
+        2. Activar inventory en la ubicación
+        3. Establecer cantidad disponible
+
+        Args:
+            inventory_item_id: ID del item de inventario
+            location_id: ID de la ubicación
+            available_quantity: Cantidad disponible inicial
+
+        Returns:
+            Resultado completo con el inventory level final
+        """
+        try:
+            # 📝 PASO 1: Habilitar tracking en el inventory item
+            logger.info(f"🔄 Step 1: Enabling tracking for item {inventory_item_id}")
+            update_variables = {"id": inventory_item_id, "input": {"tracked": True}}
+            update_result = await self.shopify_client._execute_query(INVENTORY_ITEM_UPDATE_MUTATION, update_variables)
+            update_data = update_result.get("inventoryItemUpdate", {})
+            if update_errors := update_data.get("userErrors", []):
+                logger.error(f"❌ Step 1 failed: {update_errors}")
+                return {"success": False, "step": 1, "errors": update_errors}
+
+            logger.info("✅ Step 1: Tracking enabled successfully")
+
+            # 📍 PASO 2: Activar inventory en la ubicación
+            activation_variables = {"inventoryItemId": inventory_item_id, "locationId": location_id}
+            activation_result = await self.shopify_client._execute_query(
+                INVENTORY_ACTIVATE_MUTATION, activation_variables
+            )
+            activation_data = activation_result.get("inventoryActivate", {})
+            if activation_errors := activation_data.get("userErrors", []):
+                logger.error(f"❌ Step 2 failed: {activation_errors}")
+                return {"success": False, "step": 2, "errors": activation_errors}
+
+            inventory_level = activation_data.get("inventoryLevel", {})
+            logger.info("✅ Step 2: Inventory activated at location")
+
+            # 📊 PASO 3: Establecer cantidad disponible (si se especifica)
+            if available_quantity is not None and available_quantity > 0:
+                logger.info(f"🔄 Step 3: Setting available quantity to {available_quantity}")
+                # Obtener la cantidad actual del inventory level
+                current_quantity = inventory_level.get("available", 0)
+                logger.info(f"   Current quantity: {current_quantity}")
+                # Para establecer la cantidad, usamos inventorySetQuantities
+                # Incluir ignoreCompareQuantity para forzar el establecimiento
+                set_quantity_variables = {
+                    "input": {
+                        "name": "available",
+                        "reason": "correction",
+                        "referenceDocumentUri": f"https://inventory-setup/item/{inventory_item_id.split('/')[-1]}",
+                        "ignoreCompareQuantity": True,
+                        "quantities": [
+                            {
+                                "inventoryItemId": inventory_item_id,
+                                "locationId": location_id,
+                                "quantity": available_quantity,
+                            }
+                        ],
+                    }
+                }
+
+                try:
+                    logger.debug(f"Sending inventorySetQuantities with variables: {set_quantity_variables}")
+                    set_result = await self.shopify_client._execute_query(
+                        INVENTORY_SET_QUANTITIES_MUTATION, set_quantity_variables
+                    )
+                    logger.debug(f"inventorySetQuantities response: {set_result}")
+                except Exception as query_error:
+                    logger.error(f"❌ Step 3 failed: GraphQL query error: {query_error}")
+                    return {
+                        "success": False,
+                        "step": 3,
+                        "errors": [{"message": f"GraphQL query failed: {str(query_error)}"}],
+                    }
+
+                # Verificar que set_result no sea None
+                if not set_result:
+                    logger.error("❌ Step 3 failed: No response from inventorySetQuantities")
+                    return {"success": False, "step": 3, "errors": [{"message": "No response from GraphQL"}]}
+
+                set_data = set_result.get("inventorySetQuantities", {})
+                if not set_data:
+                    logger.error("❌ Step 3 failed: No inventorySetQuantities in response")
+                    return {
+                        "success": False,
+                        "step": 3,
+                        "errors": [{"message": "No inventorySetQuantities field in response"}],
+                    }
+
+                if set_errors := set_data.get("userErrors", []):
+                    logger.error(f"❌ Step 3 failed: {set_errors}")
+                    return {"success": False, "step": 3, "errors": set_errors}
+
+                adjustment_group = set_data.get("inventoryAdjustmentGroup")
+                if adjustment_group is None:
+                    # Si no hay errores y adjustment_group es None, significa que no hubo cambios
+                    # Esto puede pasar cuando la cantidad ya es la deseada
+                    logger.info("✅ Step 3: Quantity already at desired value (no changes needed)")
+                    final_quantity = available_quantity
+                else:
+                    # Procesar cambios normalmente
+                    changes = adjustment_group.get("changes", [])
+
+                    if changes:
+                        available_change = next((c for c in changes if c.get("name") == "available"), changes[0])
+                        delta = available_change.get("delta", 0)
+                        final_quantity = available_change.get("quantityAfterChange", current_quantity + delta)
+                        logger.info(f"✅ Step 3: Quantity set (Δ{delta:+d}) → Final: {final_quantity}")
+                    else:
+                        final_quantity = available_quantity
+                        logger.info("✅ Step 3: Quantity operation completed")
+            else:
+                logger.info("ℹ️ Step 3: No quantity specified, skipping adjustment")
+                final_quantity = 0
+
+            return {
+                "success": True,
+                "inventoryLevel": inventory_level,
+                "tracked": True,
+                "finalQuantity": final_quantity,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Failed to activate inventory tracking: {e}")
+            return {"success": False, "error": str(e)}

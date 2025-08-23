@@ -145,9 +145,13 @@ class MultipleVariantsCreator:
                 logger.error(f"❌ Product data validation failed: {validation_result['results']['invalid']}")
                 raise Exception(f"Invalid product data: {validation_result['results']['invalid']}")
 
-            # B. ACTUALIZAR PRODUCTO básico
+            # B. ACTUALIZAR PRODUCTO básico (solo campos seguros de RMS)
             logger.info(f"🔄 STEP B: Updating base product - {shopify_input.title}")
-            product_update_data = self.data_preparator.prepare_product_update_data(shopify_input)
+            product_update_data = self.data_preparator.prepare_product_update_data(
+                shopify_input, 
+                preserve_media=True,      # Preservar imágenes y contenido
+                preserve_publishing=True  # Preservar configuración de publishing
+            )
             updated_product = await self.shopify_client.update_product(product_id, product_update_data)
             logger.info(f"✅ STEP B: Updated basic product info: {updated_product.get('title')}")
 

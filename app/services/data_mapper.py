@@ -276,6 +276,7 @@ class RMSToShopifyMapper:
         try:
             # Generar handle único
             from app.utils.shopify_utils import generate_shopify_handle
+
             handle = generate_shopify_handle(rms_item.ccod or rms_item.c_articulo, rms_item.familia)
 
             # Generar tags
@@ -296,6 +297,8 @@ class RMSToShopifyMapper:
             # Limpiar título - eliminar espacios múltiples
             clean_title = (rms_item.description or f"Producto {rms_item.c_articulo}").strip()
             clean_title = re.sub(r"\s+", " ", clean_title)
+            ccod_suffix = rms_item.ccod or rms_item.c_articulo
+            clean_title = f"{clean_title} - {ccod_suffix}"
 
             # Generar metafields incluyendo los específicos de categoría
             metafields = RMSToShopifyMapper._generate_complete_metafields(rms_item)

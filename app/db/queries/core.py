@@ -39,63 +39,18 @@ query GetShopInfo {
 # Locations query for inventory management
 LOCATIONS_QUERY = """
 query GetLocations {
-  locations(first: 250) {
+  locations(first: 10) {
     edges {
       node {
         id
         name
+        isActive
         address {
           address1
           address2
           city
-          country
-          countryCode
           province
-          provinceCode
-          zip
         }
-        fulfillsOnlineOrders
-        hasActiveInventory
-        hasUnfulfilledOrders
-        isActive
-        isPrimary
-        shipsInventory
-        inventoryLevels(first: 250) {
-          edges {
-            node {
-              id
-              available
-              inventoryItem {
-                id
-                sku
-              }
-            }
-          }
-        }
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-  }
-}
-"""
-
-# Simple locations query (lightweight)
-LOCATIONS_SIMPLE_QUERY = """
-query GetLocationsSimple {
-  locations(first: 250) {
-    edges {
-      node {
-        id
-        name
-        fulfillsOnlineOrders
-        hasActiveInventory
-        isActive
-        isPrimary
       }
     }
   }
@@ -131,3 +86,4 @@ query GetAPIVersion {
   }
 }
 """
+

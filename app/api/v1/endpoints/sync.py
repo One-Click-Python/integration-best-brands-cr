@@ -54,7 +54,7 @@ class SyncRequest(BaseModel):
     """Modelo para solicitudes de sincronización."""
 
     force_update: bool = Field(default=False, description="Forzar actualización de productos existentes")
-    batch_size: Optional[int] = Field(default=None, ge=1, le=1000, description="Tamaño del lote para procesamiento")
+    batch_size: Optional[int] = Field(default=1, ge=1, le=1000, description="Tamaño del lote para procesamiento")
     filter_categories: Optional[List[str]] = Field(default=None, description="Filtrar por categorías específicas")
     include_zero_stock: bool = Field(default=False, description="Incluir productos sin stock (cantidad = 0)")
     dry_run: bool = Field(default=False, description="Ejecutar en modo simulación sin hacer cambios")

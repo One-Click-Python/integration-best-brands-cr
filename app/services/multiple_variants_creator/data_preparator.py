@@ -10,7 +10,7 @@ Este módulo se encarga específicamente de:
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 
@@ -156,41 +156,92 @@ class DataPreparator:
             # Si hay más de 2 opciones (raro), usar nombres genéricos
             return f"Option{position + 1}"
 
-    def prepare_product_update_data(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
+    def prepare_product_update_data(
+        self, 
+        shopify_input: ShopifyProductInput,
+        preserve_media: bool = True,
+        preserve_publishing: bool = True,
+        fields_to_update: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Prepara los datos básicos del producto para actualización.
+        Prepara los datos básicos del producto para actualización selectiva.
 
         Args:
             shopify_input: Input del producto con nuevos datos
+            preserve_media: Si True, no sobrescribe imágenes/media existentes
+            preserve_publishing: Si True, no sobrescribe configuración de publishing
+            fields_to_update: Lista específica de campos a actualizar (None = usar defaults seguros)
 
         Returns:
-            Dict: Datos del producto para actualización
+            Dict: Datos del producto para actualización selectiva
         """
         update_data = {}
 
-        # Solo incluir campos que han cambiado o necesitan actualización
-        if shopify_input.title:
-            update_data["title"] = shopify_input.title
+        # Campos seguros para actualizar siempre (datos que vienen de RMS)
+        safe_fields = [
+            "title",        # Título del producto
+            "status",       # Solo si preserve_shopify_status es False
+            "productType",  # Tipo de producto
+            "vendor",       # Proveedor/marca
+            "category",     # Categoría de taxonomía
+        ]
 
-        if shopify_input.status:
-            update_data["status"] = (
-                shopify_input.status.value if hasattr(shopify_input.status, "value") else shopify_input.status
-            )
+        # Campos que pueden sobrescribir datos importantes en Shopify
+        risky_fields = [
+            "tags",           # Puede tener tags personalizados en Shopify
+            "descriptionHtml", # Puede tener descripción personalizada
+            "images",         # NUNCA actualizar - preservar fotos
+            "seo",            # Configuración SEO personalizada
+            "metafields",     # Datos estructurados (aunque se manejan por separado)
+        ]
 
-        if shopify_input.productType:
-            update_data["productType"] = shopify_input.productType
+        # Si se especifican campos específicos, usar solo esos
+        if fields_to_update:
+            fields_to_process = fields_to_update
+        else:
+            # Usar campos seguros por defecto
+            fields_to_process = safe_fields
 
-        if shopify_input.vendor:
-            update_data["vendor"] = shopify_input.vendor
+        # Procesar campos seguros
+        for field in fields_to_process:
+            if field == "title" and shopify_input.title:
+                update_data["title"] = shopify_input.title
 
-        if shopify_input.tags:
-            update_data["tags"] = shopify_input.tags
+            elif field == "status" and shopify_input.status:
+                update_data["status"] = (
+                    shopify_input.status.value if hasattr(shopify_input.status, "value") else shopify_input.status
+                )
 
-        if shopify_input.description:
-            update_data["descriptionHtml"] = shopify_input.description
+            elif field == "productType" and shopify_input.productType:
+                update_data["productType"] = shopify_input.productType
 
-        if shopify_input.category:
-            update_data["category"] = shopify_input.category
+            elif field == "vendor" and shopify_input.vendor:
+                update_data["vendor"] = shopify_input.vendor
+
+            elif field == "category" and shopify_input.category:
+                update_data["category"] = shopify_input.category
+
+            # Campos con lógica especial de preservación
+            elif field == "tags" and shopify_input.tags and not preserve_publishing:
+                # Solo actualizar tags si explícitamente se permite sobrescribir publishing
+                update_data["tags"] = shopify_input.tags
+
+            elif field == "descriptionHtml" and shopify_input.description and not preserve_media:
+                # Solo actualizar descripción si se permite sobrescribir contenido
+                update_data["descriptionHtml"] = shopify_input.description
+
+        # Alternativa: usar el método del ShopifyProductInput si no se especifican campos custom
+        if not fields_to_update:
+            update_data = shopify_input.to_safe_update_input(preserve_media, preserve_publishing)
+            logger.info(f"📝 Usando actualización segura con campos: {list(update_data.keys())}")
+        else:
+            logger.info(f"📝 Actualizando campos específicos: {list(update_data.keys())}")
+        
+        # Log de campos preservados para transparencia
+        if preserve_media:
+            logger.info("🖼️ Preservando: imágenes, media y contenido personalizado")
+        if preserve_publishing:
+            logger.info("📢 Preservando: configuración de publishing, tags personalizados")
 
         return update_data
 

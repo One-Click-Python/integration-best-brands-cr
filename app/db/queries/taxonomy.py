@@ -9,35 +9,16 @@ This module contains product taxonomy operations:
 
 # Product taxonomy categories query
 TAXONOMY_CATEGORIES_QUERY = """
-query GetTaxonomyCategories($query: String!) {
-  productTaxonomyNodes(first: 50, query: $query) {
-    edges {
-      node {
-        id
-        name
-        fullName
-        isLeaf
-        isRoot
-        level
-        childrenCount
-        parentId
-        ancestors(first: 10) {
-          id
-          name
-          level
-        }
-        children(first: 20) {
+query GetTaxonomyCategories($search: String) {
+  taxonomy {
+    categories(search: $search, first: 50) {
+      edges {
+        node {
           id
           name
           fullName
-          isLeaf
-          childrenCount
         }
       }
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
     }
   }
 }
@@ -45,40 +26,30 @@ query GetTaxonomyCategories($query: String!) {
 
 # Taxonomy category details query
 TAXONOMY_CATEGORY_DETAILS_QUERY = """
-query GetTaxonomyCategoryDetails($id: ID!) {
-  productTaxonomyNode(id: $id) {
-    id
-    name
-    fullName
-    isLeaf
-    isRoot
-    level
-    childrenCount
-    parentId
-    ancestors(first: 20) {
+query GetTaxonomyCategoryDetails($categoryId: ID!) {
+  taxonomy {
+    category(id: $categoryId) {
       id
       name
       fullName
-      level
-    }
-    children(first: 50) {
-      id
-      name
-      fullName
+      isRoot
       isLeaf
-      childrenCount
-      children(first: 10) {
+      level
+      attributes {
+        id
+        name
+        choices
+      }
+      ancestors {
         id
         name
         fullName
-        isLeaf
       }
-    }
-    parent {
-      id
-      name
-      fullName
-      level
+      children {
+        id
+        name
+        fullName
+      }
     }
   }
 }
@@ -86,30 +57,17 @@ query GetTaxonomyCategoryDetails($id: ID!) {
 
 # Browse taxonomy hierarchy
 TAXONOMY_BROWSE_QUERY = """
-query BrowseTaxonomy($first: Int = 50) {
-  productTaxonomyNodes(first: $first, query: "level:1") {
-    edges {
-      node {
-        id
-        name
-        fullName
-        level
-        childrenCount
-        children(first: 20) {
+query BrowseTaxonomyCategories($parentId: ID, $first: Int = 50) {
+  taxonomy {
+    categories(parentId: $parentId, first: $first) {
+      edges {
+        node {
           id
           name
           fullName
+          isLeaf
           level
           childrenCount
-          isLeaf
-          children(first: 10) {
-            id
-            name
-            fullName
-            level
-            isLeaf
-            childrenCount
-          }
         }
       }
     }

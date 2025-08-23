@@ -444,7 +444,7 @@ class RMSToShopifySync:
             categoria = None
             familia = None
             extended_category = None
-            
+
             try:
                 # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
                 logger.info("=" * 50)
@@ -457,7 +457,7 @@ class RMSToShopifySync:
                     if tag.startswith("ccod_"):
                         ccod = tag.replace("ccod_", "").upper()
                     # Las categorías también vienen como tags desde el mapper
-                    
+
                 # Extraer categorías de los metafields
                 for metafield in shopify_input.metafields or []:
                     if metafield.get("namespace") == "rms":
@@ -498,7 +498,7 @@ class RMSToShopifySync:
                                 f"✅ Updated existing product: {ccod} (handle: "
                                 f"{shopify_input.handle}) - {shopify_input.title}"
                             )
-                            
+
                             # Sincronizar colecciones del producto
                             if self.collection_manager and updated_product.get("id"):
                                 try:
@@ -506,9 +506,10 @@ class RMSToShopifySync:
                                     # Por ahora, simplemente agregar a las colecciones apropiadas
                                     collections_added = await self.collection_manager.add_product_to_collections(
                                         product_id=updated_product["id"],
+                                        product_handle=shopify_input.handle,
                                         categoria=categoria,
                                         familia=familia,
-                                        extended_category=extended_category
+                                        extended_category=extended_category,
                                     )
                                     if collections_added:
                                         logger.info(
@@ -544,7 +545,7 @@ class RMSToShopifySync:
                             f"✅ Created new product: {ccod} (handle: {shopify_input.handle}) - {shopify_input.title} "
                             f"({len(shopify_input.variants)} variants)"
                         )
-                        
+
                         # Agregar producto a colecciones basadas en categorías
                         if self.collection_manager and created_product.get("id"):
                             try:
@@ -552,12 +553,10 @@ class RMSToShopifySync:
                                     product_id=created_product["id"],
                                     categoria=categoria,
                                     familia=familia,
-                                    extended_category=extended_category
+                                    extended_category=extended_category,
                                 )
                                 if collections_added:
-                                    logger.info(
-                                        f"✅ Product added to {len(collections_added)} collections"
-                                    )
+                                    logger.info(f"✅ Product added to {len(collections_added)} collections")
                             except Exception as e:
                                 logger.warning(f"Failed to add product to collections: {e}")
                     else:

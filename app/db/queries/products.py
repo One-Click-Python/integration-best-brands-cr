@@ -1,18 +1,13 @@
 """
-Product-related GraphQL queries and mutations.
+Product-related GraphQL operations for Shopify API.
 
-This module contains all product operations organized by function:
-- Product queries (fetch, search, filter)
-- Product mutations (create, update, delete)
-- Variant operations (create, update, bulk operations)
-- Product publishing and status management
+This module contains all GraphQL queries and mutations specifically related
+to product operations, including product creation, updates, variant management,
+and product queries. Extracted from the main GraphQL queries module for
+better organization and maintainability.
 """
 
-# =============================================
-# PRODUCT QUERIES
-# =============================================
-
-# Single product query with full details
+# Product Queries
 PRODUCT_QUERY = """
 query GetProduct($id: ID!) {
   product(id: $id) {
@@ -23,37 +18,10 @@ query GetProduct($id: ID!) {
     productType
     vendor
     tags
-    description
-    descriptionHtml
-    onlineStoreUrl
-    createdAt
-    updatedAt
-    publishedAt
-    category {
-      id
-      name
-      fullName
-    }
-    seo {
-      title
-      description
-    }
     options {
       id
       name
       values
-      position
-    }
-    images(first: 250) {
-      edges {
-        node {
-          id
-          url
-          altText
-          width
-          height
-        }
-      }
     }
     variants(first: 250) {
       edges {
@@ -63,56 +31,28 @@ query GetProduct($id: ID!) {
           title
           price
           compareAtPrice
-          position
-          weight
-          weightUnit
-          availableForSale
           inventoryQuantity
-          inventoryPolicy
           inventoryItem {
             id
-            sku
-            tracked
-            requiresShipping
           }
           selectedOptions {
             name
             value
           }
-          metafields(first: 10) {
-            edges {
-              node {
-                id
-                namespace
-                key
-                value
-                type
-              }
-            }
-          }
         }
       }
-    }
-    metafields(first: 20) {
-      edges {
-        node {
-          id
-          namespace
-          key
-          value
-          type
-          description
-        }
+      pageInfo {
+        hasNextPage
+        endCursor
       }
     }
   }
 }
 """
 
-# Products query with pagination
 PRODUCTS_QUERY = """
-query GetProducts($first: Int!, $after: String, $query: String) {
-  products(first: $first, after: $after, query: $query) {
+query GetProducts($first: Int!, $after: String) {
+  products(first: $first, after: $after) {
     edges {
       node {
         id
@@ -124,58 +64,12 @@ query GetProducts($first: Int!, $after: String, $query: String) {
         tags
         createdAt
         updatedAt
-        publishedAt
-        onlineStoreUrl
-        category {
+        options {
           id
           name
+          values
         }
-        totalInventory
-        variants(first: 5) {
-          edges {
-            node {
-              id
-              sku
-              price
-              compareAtPrice
-              inventoryQuantity
-              availableForSale
-            }
-          }
-        }
-        images(first: 3) {
-          edges {
-            node {
-              id
-              url
-              altText
-            }
-          }
-        }
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-  }
-}
-"""
-
-# Product search by SKU
-PRODUCT_BY_SKU_QUERY = """
-query GetProductBySKU($query: String!) {
-  products(first: 10, query: $query) {
-    edges {
-      node {
-        id
-        title
-        handle
-        status
-        variants(first: 250) {
+        variants(first: 100) {
           edges {
             node {
               id
@@ -184,6 +78,38 @@ query GetProductBySKU($query: String!) {
               price
               compareAtPrice
               inventoryQuantity
+              inventoryItem {
+                id
+              }
+              selectedOptions {
+                name
+                value
+              }
+            }
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+"""
+
+PRODUCT_BY_SKU_QUERY = """
+query GetProductBySku($sku: String!) {
+  products(first: 1, query: $sku) {
+    edges {
+      node {
+        id
+        title
+        variants(first: 250) {
+          edges {
+            node {
+              id
+              sku
               inventoryItem {
                 id
               }
@@ -196,57 +122,9 @@ query GetProductBySKU($query: String!) {
 }
 """
 
-# Product search by handle
 PRODUCT_BY_HANDLE_QUERY = """
 query GetProductByHandle($handle: String!) {
-  productByHandle(handle: $handle) {
-    id
-    title
-    handle
-    status
-    productType
-    vendor
-    tags
-    description
-    variants(first: 250) {
-      edges {
-        node {
-          id
-          sku
-          title
-          price
-          compareAtPrice
-          inventoryQuantity
-          availableForSale
-          inventoryItem {
-            id
-          }
-          selectedOptions {
-            name
-            value
-          }
-        }
-      }
-    }
-    metafields(first: 20) {
-      edges {
-        node {
-          id
-          namespace
-          key
-          value
-          type
-        }
-      }
-    }
-  }
-}
-"""
-
-# Advanced product search query
-PRODUCT_SEARCH_QUERY = """
-query SearchProducts($first: Int!, $after: String, $query: String, $sortKey: ProductSortKeys, $reverse: Boolean) {
-  products(first: $first, after: $after, query: $query, sortKey: $sortKey, reverse: $reverse) {
+  products(first: 1, query: $handle) {
     edges {
       node {
         id
@@ -256,34 +134,32 @@ query SearchProducts($first: Int!, $after: String, $query: String, $sortKey: Pro
         productType
         vendor
         tags
-        totalInventory
-        createdAt
-        updatedAt
-        variants(first: 1) {
+        variants(first: 250) {
           edges {
             node {
               id
               sku
+              title
               price
+              compareAtPrice
               inventoryQuantity
+              inventoryItem {
+                id
+              }
+              selectedOptions {
+                name
+                value
+              }
             }
           }
         }
       }
     }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
   }
 }
 """
 
-# =============================================
-# PRODUCT MUTATIONS
-# =============================================
-
-# Create product mutation
+# Product Mutations
 CREATE_PRODUCT_MUTATION = """
 mutation CreateProduct($input: ProductInput!) {
   productCreate(input: $input) {
@@ -292,35 +168,26 @@ mutation CreateProduct($input: ProductInput!) {
       title
       handle
       status
-      productType
-      vendor
-      tags
-      category {
+      options {
         id
         name
+        values
       }
-      variants(first: 250) {
+      variants(first: 100) {
         edges {
           node {
             id
             sku
-            title
             price
             compareAtPrice
+            inventoryQuantity
             inventoryItem {
               id
             }
-          }
-        }
-      }
-      metafields(first: 20) {
-        edges {
-          node {
-            id
-            namespace
-            key
-            value
-            type
+            selectedOptions {
+              name
+              value
+            }
           }
         }
       }
@@ -333,7 +200,6 @@ mutation CreateProduct($input: ProductInput!) {
 }
 """
 
-# Update product mutation
 UPDATE_PRODUCT_MUTATION = """
 mutation UpdateProduct($input: ProductInput!) {
   productUpdate(input: $input) {
@@ -342,22 +208,13 @@ mutation UpdateProduct($input: ProductInput!) {
       title
       handle
       status
-      productType
-      vendor
-      tags
-      updatedAt
-      category {
-        id
-        name
-      }
-      variants(first: 250) {
+      variants(first: 100) {
         edges {
           node {
             id
             sku
-            title
             price
-            compareAtPrice
+            inventoryQuantity
           }
         }
       }
@@ -370,80 +227,21 @@ mutation UpdateProduct($input: ProductInput!) {
 }
 """
 
-# Delete product mutation
-DELETE_PRODUCT_MUTATION = """
-mutation DeleteProduct($input: ProductDeleteInput!) {
-  productDelete(input: $input) {
-    deletedProductId
-    shop {
-      id
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-# Publish product mutation
-PUBLISH_PRODUCT_MUTATION = """
-mutation PublishProduct($input: ProductPublishInput!) {
-  productPublish(input: $input) {
-    product {
-      id
-      title
-      status
-      publishedAt
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-# Unpublish product mutation
-UNPUBLISH_PRODUCT_MUTATION = """
-mutation UnpublishProduct($input: ProductUnpublishInput!) {
-  productUnpublish(input: $input) {
-    product {
-      id
-      title
-      status
-      publishedAt
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-# =============================================
-# VARIANT OPERATIONS
-# =============================================
-
-# Create single variant
 CREATE_VARIANT_MUTATION = """
-mutation CreateVariant($input: ProductVariantInput!) {
+mutation productVariantCreate($input: ProductVariantInput!) {
   productVariantCreate(input: $input) {
     productVariant {
       id
       sku
-      title
       price
       compareAtPrice
-      position
       inventoryQuantity
       inventoryItem {
         id
       }
-      product {
-        id
-        title
+      selectedOptions {
+        name
+        value
       }
     }
     userErrors {
@@ -454,18 +252,21 @@ mutation CreateVariant($input: ProductVariantInput!) {
 }
 """
 
-# Update single variant
-UPDATE_VARIANT_MUTATION = """
-mutation UpdateVariant($input: ProductVariantInput!) {
-  productVariantUpdate(input: $input) {
-    productVariant {
+UPDATE_VARIANTS_BULK_MUTATION = """
+mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(
+    productId: $productId
+    variants: $variants
+  ) {
+    product {
+      id
+    }
+    productVariants {
       id
       sku
-      title
       price
       compareAtPrice
       inventoryQuantity
-      updatedAt
     }
     userErrors {
       field
@@ -475,50 +276,34 @@ mutation UpdateVariant($input: ProductVariantInput!) {
 }
 """
 
-# Delete variant
-DELETE_VARIANT_MUTATION = """
-mutation DeleteVariant($input: ProductVariantDeleteInput!) {
-  productVariantDelete(input: $input) {
-    deletedProductVariantId
-    product {
-      id
-      title
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-# Bulk create variants
 CREATE_VARIANTS_BULK_MUTATION = """
-mutation CreateVariantsBulk($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-  productVariantsBulkCreate(productId: $productId, variants: $variants) {
+mutation productVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkCreate(
+    productId: $productId
+    variants: $variants
+  ) {
     product {
       id
       title
-      variants(first: 250) {
-        edges {
-          node {
-            id
-            sku
-            title
-            price
-            compareAtPrice
-            inventoryItem {
-              id
-            }
-          }
-        }
+      options {
+        name
+        values
       }
     }
     productVariants {
       id
       sku
-      title
       price
+      compareAtPrice
+      inventoryQuantity
+      selectedOptions {
+        name
+        value
+      }
+      inventoryItem {
+        id
+        tracked
+      }
     }
     userErrors {
       field
@@ -528,45 +313,7 @@ mutation CreateVariantsBulk($productId: ID!, $variants: [ProductVariantsBulkInpu
 }
 """
 
-# Bulk update variants
-UPDATE_VARIANTS_BULK_MUTATION = """
-mutation UpdateVariantsBulk($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-    product {
-      id
-      title
-      variants(first: 250) {
-        edges {
-          node {
-            id
-            sku
-            title
-            price
-            compareAtPrice
-            updatedAt
-          }
-        }
-      }
-    }
-    productVariants {
-      id
-      sku
-      title
-      price
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-# =============================================
-# PRODUCT WITH CATEGORY OPERATIONS
-# =============================================
-
-# Create product with category
+# Enhanced product creation with category and metafields
 CREATE_PRODUCT_WITH_CATEGORY_MUTATION = """
 mutation CreateProductWithCategory($input: ProductInput!) {
   productCreate(input: $input) {
@@ -576,24 +323,80 @@ mutation CreateProductWithCategory($input: ProductInput!) {
       handle
       status
       productType
+      vendor
+      tags
       category {
         id
         name
         fullName
+      }
+      metafields(first: 50) {
+        edges {
+          node {
+            id
+            namespace
+            key
+            value
+            type
+          }
+        }
+      }
+      options {
+        id
+        name
+        values
       }
       variants(first: 250) {
         edges {
           node {
             id
             sku
+            title
             price
-            inventoryItem {
-              id
+            compareAtPrice
+            inventoryQuantity
+            metafields(first: 20) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                  type
+                }
+              }
             }
           }
         }
       }
-      metafields(first: 20) {
+    }
+    userErrors {
+      field
+      message
+      code
+    }
+  }
+}
+"""
+
+# Enhanced product update with category and metafields
+UPDATE_PRODUCT_WITH_CATEGORY_MUTATION = """
+mutation UpdateProductWithCategory($input: ProductInput!) {
+  productUpdate(input: $input) {
+    product {
+      id
+      title
+      handle
+      status
+      productType
+      vendor
+      tags
+      category {
+        id
+        name
+        fullName
+      }
+      metafields(first: 50) {
         edges {
           node {
             id
@@ -608,30 +411,7 @@ mutation CreateProductWithCategory($input: ProductInput!) {
     userErrors {
       field
       message
-    }
-  }
-}
-"""
-
-# Update product with category
-UPDATE_PRODUCT_WITH_CATEGORY_MUTATION = """
-mutation UpdateProductWithCategory($input: ProductInput!) {
-  productUpdate(input: $input) {
-    product {
-      id
-      title
-      handle
-      status
-      category {
-        id
-        name
-        fullName
-      }
-      updatedAt
-    }
-    userErrors {
-      field
-      message
+      code
     }
   }
 }

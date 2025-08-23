@@ -73,8 +73,36 @@ class VariantMapper:
         return filtered_groups
 
     @staticmethod
+    async def _get_existing_product_status(
+        handle: str, shopify_client
+    ) -> Optional[ProductStatus]:
+        """
+        Obtiene el status actual de un producto existente en Shopify.
+
+        Args:
+            handle: Handle del producto a buscar
+            shopify_client: Cliente de Shopify
+
+        Returns:
+            ProductStatus del producto existente o None si no existe
+        """
+        try:
+            existing_product = await shopify_client.get_product_by_handle(handle)
+            if existing_product and existing_product.get("status"):
+                current_status = existing_product["status"]
+                logger.info(f"Producto existente '{handle}' tiene status: {current_status}")
+                return ProductStatus(current_status)
+            return None
+        except Exception as e:
+            logger.warning(f"Error al verificar producto existente '{handle}': {e}")
+            return None
+
+    @staticmethod
     async def map_product_group_with_variants(
-        items: List[RMSViewItem], shopify_client, location_id: Optional[str] = None
+        items: List[RMSViewItem], 
+        shopify_client, 
+        location_id: Optional[str] = None,
+        preserve_shopify_status: bool = True
     ) -> ShopifyProductInput:
         """
         Mapea un grupo de items RMS a un producto Shopify con múltiples variantes.
@@ -83,6 +111,7 @@ class VariantMapper:
             items: Lista de items RMS del mismo modelo
             shopify_client: Cliente de Shopify para resolución de categorías
             location_id: ID de ubicación para inventario
+            preserve_shopify_status: Si True, preserva el status existente del producto en Shopify
 
         Returns:
             ShopifyProductInput: Producto con variantes múltiples
@@ -100,6 +129,16 @@ class VariantMapper:
         from app.utils.shopify_utils import generate_shopify_handle
 
         handle = generate_shopify_handle(base_item.ccod, base_item.familia)
+
+        # Determinar status del producto
+        product_status = ProductStatus.DRAFT  # Default para productos nuevos
+        if preserve_shopify_status:
+            existing_status = await VariantMapper._get_existing_product_status(handle, shopify_client)
+            if existing_status:
+                product_status = existing_status
+                logger.info(f"🔄 Preservando status existente '{existing_status}' para producto '{handle}'")
+            else:
+                logger.info(f"🆕 Producto nuevo '{handle}', usando status DRAFT")
 
         # Generar opciones del producto basadas en variaciones reales
         options = VariantMapper._generate_product_options(items)
@@ -133,7 +172,7 @@ class VariantMapper:
         return ShopifyProductInput(
             title=base_title,
             handle=handle,
-            status=ProductStatus.DRAFT,
+            status=product_status,
             productType=RMSToShopifyMapper._get_product_type(base_item),
             vendor=base_item.familia or "",
             category=category_id,
@@ -166,10 +205,12 @@ class VariantMapper:
                     # Limpiar espacios múltiples
                     base_title = " ".join(base_title.split())
 
-                    # Si el título es válido, usarlo
+                    # Si el título es válido, usarlo con CCOD
                     if not base_title.replace(" ", "").isdigit():
-                        logger.debug(f"Título extraído por split: '{description}' → '{base_title}'")
-                        return base_title[:255]
+                        ccod_suffix = base_item.ccod or base_item.c_articulo
+                        title_with_code = f"{base_title} - {ccod_suffix}"
+                        logger.debug(f"Título extraído por split: '{description}' → '{title_with_code}'")
+                        return title_with_code[:255]
 
             # Si no hay guion o el split no funcionó, intentar usar descripción completa
             # pero removiendo patrones conocidos de talla/color
@@ -189,7 +230,10 @@ class VariantMapper:
 
             # Si después de limpiar tenemos un título válido
             if title and len(title) >= 3 and not title.replace(" ", "").isdigit():
-                return title[:255]
+                # Agregar CCOD al título
+                ccod_suffix = base_item.ccod or base_item.c_articulo
+                title_with_code = f"{title} - {ccod_suffix}"
+                return title_with_code[:255]
 
         # Estrategia fallback: Usar categoría o familia
         if base_item.categoria:
@@ -409,7 +453,10 @@ class VariantMapper:
 
 # Función helper para integración con el sistema existente
 async def create_products_with_variants(
-    rms_items: List[RMSViewItem], shopify_client, location_id: Optional[str] = None
+    rms_items: List[RMSViewItem], 
+    shopify_client, 
+    location_id: Optional[str] = None,
+    preserve_shopify_status: bool = True
 ) -> List[ShopifyProductInput]:
     """
     Genera productos con variantes inteligentes a partir de items RMS.
@@ -418,6 +465,7 @@ async def create_products_with_variants(
         rms_items: Lista de items RMS
         shopify_client: Cliente de Shopify
         location_id: ID de ubicación para inventario
+        preserve_shopify_status: Si True, preserva el status existente del producto en Shopify
 
     Returns:
         List: Lista de productos Shopify con variantes
@@ -430,7 +478,9 @@ async def create_products_with_variants(
         logger.info(f"Generating product for model '{model_key}' with {len(items)} variants")
 
         # Crear producto con variantes
-        product = await VariantMapper.map_product_group_with_variants(items, shopify_client, location_id)
+        product = await VariantMapper.map_product_group_with_variants(
+            items, shopify_client, location_id, preserve_shopify_status
+        )
         products.append(product)
 
     return products

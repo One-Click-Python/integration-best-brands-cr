@@ -41,6 +41,11 @@ async def test_shopify_connection() -> bool:
     """
     try:
         client = get_graphql_client()
+        
+        # Inicializar el cliente si no está inicializado
+        if not hasattr(client, 'session') or client.session is None:
+            await client.initialize()
+            
         return await client.test_connection()
     except Exception as e:
         logger.error(f"Shopify connection test failed: {e}")

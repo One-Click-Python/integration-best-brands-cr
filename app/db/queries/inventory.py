@@ -223,24 +223,14 @@ query GetInventoryItem($id: ID!) {
 
 # Set inventory quantity mutation
 INVENTORY_SET_MUTATION = """
-mutation InventorySetOnHandQuantities($input: InventorySetOnHandQuantitiesInput!) {
-  inventorySetOnHandQuantities(input: $input) {
+mutation SetInventory($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
     inventoryAdjustmentGroup {
-      id
       reason
       referenceDocumentUri
       changes {
         name
         delta
-        quantityAfterChange
-        item {
-          id
-          sku
-        }
-        location {
-          id
-          name
-        }
       }
     }
     userErrors {
@@ -258,20 +248,6 @@ mutation InventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
     inventoryAdjustmentGroup {
       id
       reason
-      referenceDocumentUri
-      changes {
-        name
-        delta
-        quantityAfterChange
-        item {
-          id
-          sku
-        }
-        location {
-          id
-          name
-        }
-      }
     }
     userErrors {
       field
@@ -283,19 +259,11 @@ mutation InventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
 
 # Legacy inventory adjust mutation (for compatibility)
 INVENTORY_ADJUST_MUTATION = """
-mutation InventoryAdjust($input: InventoryAdjustInput!) {
-  inventoryAdjust(input: $input) {
+mutation AdjustInventory($input: InventoryAdjustQuantityInput!) {
+  inventoryAdjustQuantity(input: $input) {
     inventoryLevel {
       id
       available
-      item {
-        id
-        sku
-      }
-      location {
-        id
-        name
-      }
     }
     userErrors {
       field
@@ -307,20 +275,10 @@ mutation InventoryAdjust($input: InventoryAdjustInput!) {
 
 # Activate inventory tracking
 INVENTORY_ACTIVATE_MUTATION = """
-mutation InventoryActivate($inventoryItemId: ID!, $locationId: ID!, $tracked: Boolean, $availableWhenSoldOut: Boolean) {
-  inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId, tracked: $tracked, availableWhenSoldOut: $availableWhenSoldOut) {
+mutation ActivateInventory($inventoryItemId: ID!, $locationId: ID!) {
+  inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
     inventoryLevel {
       id
-      available
-      item {
-        id
-        sku
-        tracked
-      }
-      location {
-        id
-        name
-      }
     }
     userErrors {
       field
@@ -347,22 +305,13 @@ mutation InventoryDeactivate($inventoryLevelId: ID!) {
 # =============================================
 
 # Update inventory item
+# Enable inventory tracking for an inventory item
 INVENTORY_ITEM_UPDATE_MUTATION = """
-mutation InventoryItemUpdate($input: InventoryItemInput!) {
-  inventoryItemUpdate(input: $input) {
+mutation UpdateInventoryItem($id: ID!, $input: InventoryItemInput!) {
+  inventoryItemUpdate(id: $id, input: $input) {
     inventoryItem {
       id
-      sku
       tracked
-      requiresShipping
-      cost
-      countryCodeOfOrigin
-      provinceCodeOfOrigin
-      harmonizedSystemCode
-      countryHarmonizedSystemCodes {
-        countryCode
-        harmonizedSystemCode
-      }
     }
     userErrors {
       field
@@ -565,6 +514,33 @@ query GetInventoryValue($first: Int!, $locationId: ID) {
           name
         }
       }
+    }
+  }
+}
+"""
+
+# =============================================
+# LEGACY INVENTORY MUTATIONS (for compatibility)
+# =============================================
+
+# Set inventory quantities mutation (legacy compatibility)
+INVENTORY_SET_QUANTITIES_MUTATION = """
+mutation InventorySetQuantities($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
+    inventoryAdjustmentGroup {
+      createdAt
+      reason
+      referenceDocumentUri
+      changes {
+        name
+        delta
+        quantityAfterChange
+      }
+    }
+    userErrors {
+      code
+      field
+      message
     }
   }
 }

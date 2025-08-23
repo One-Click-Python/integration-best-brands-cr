@@ -72,17 +72,23 @@ class Settings(BaseSettings):
     DEFAULT_BATCH_SIZE: int = Field(default=1, env="DEFAULT_BATCH_SIZE")
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
-    
+
     # === CONFIGURACIÓN DE SINCRONIZACIÓN COMPLETA PROGRAMADA ===
     ENABLE_FULL_SYNC_SCHEDULE: bool = Field(default=False, env="ENABLE_FULL_SYNC_SCHEDULE")
-    FULL_SYNC_HOUR: int = Field(default=2, env="FULL_SYNC_HOUR")  # Hora del día (0-23)
-    FULL_SYNC_MINUTE: int = Field(default=0, env="FULL_SYNC_MINUTE")  # Minuto de la hora (0-59)
-    FULL_SYNC_TIMEZONE: str = Field(default="UTC", env="FULL_SYNC_TIMEZONE")  # Zona horaria para la sincronización
-    FULL_SYNC_DAYS: Optional[List[int]] = Field(default=None, env="FULL_SYNC_DAYS")  # Días de la semana (0=Lunes, 6=Domingo)
-    
+    # Hora del día (0-23)
+    FULL_SYNC_HOUR: int = Field(default=2, env="FULL_SYNC_HOUR")
+    # Minuto de la hora (0-59)
+    FULL_SYNC_MINUTE: int = Field(default=0, env="FULL_SYNC_MINUTE")
+    # Zona horaria para la sincronización
+    FULL_SYNC_TIMEZONE: str = Field(default="UTC", env="FULL_SYNC_TIMEZONE")
+    # Días de la semana (0=Lunes, 6=Domingo)
+    FULL_SYNC_DAYS: Optional[List[int]] = Field(default=None, env="FULL_SYNC_DAYS")
+
     # === CONFIGURACIÓN DE PEDIDOS SIN CLIENTE ===
     ALLOW_ORDERS_WITHOUT_CUSTOMER: bool = Field(default=True, env="ALLOW_ORDERS_WITHOUT_CUSTOMER")
-    DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS: Optional[int] = Field(default=None, env="DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS")
+    DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS: Optional[int] = Field(
+        default=None, env="DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS"
+    )
     REQUIRE_CUSTOMER_EMAIL: bool = Field(default=False, env="REQUIRE_CUSTOMER_EMAIL")
     GUEST_CUSTOMER_NAME: str = Field(default="Cliente Invitado", env="GUEST_CUSTOMER_NAME")
 
@@ -99,9 +105,12 @@ class Settings(BaseSettings):
 
     # === CONFIGURACIÓN DE MÉTRICAS Y MONITOREO ===
     METRICS_ENABLED: bool = Field(default=True, env="METRICS_ENABLED")
-    HEALTH_CHECK_TIMEOUT: int = Field(default=5, env="HEALTH_CHECK_TIMEOUT")  # Reducido para endpoints
-    HEALTH_CHECK_INDIVIDUAL_TIMEOUT: int = Field(default=3, env="HEALTH_CHECK_INDIVIDUAL_TIMEOUT")  # Timeout por servicio
-    HEALTH_CHECK_CACHE_TTL: int = Field(default=60, env="HEALTH_CHECK_CACHE_TTL")  # Cache en segundos
+    # Reducido para endpoints
+    HEALTH_CHECK_TIMEOUT: int = Field(default=5, env="HEALTH_CHECK_TIMEOUT")
+    # Timeout por servicio
+    HEALTH_CHECK_INDIVIDUAL_TIMEOUT: int = Field(default=3, env="HEALTH_CHECK_INDIVIDUAL_TIMEOUT")
+    # Cache en segundos
+    HEALTH_CHECK_CACHE_TTL: int = Field(default=60, env="HEALTH_CHECK_CACHE_TTL")
     SLOW_REQUEST_THRESHOLD: float = Field(default=5.0, env="SLOW_REQUEST_THRESHOLD")
 
     # === CONFIGURACIÓN DE ALERTAS ===
@@ -156,7 +165,9 @@ class Settings(BaseSettings):
                         raise ValueError(f"Día {day} fuera de rango (0-6)")
                 return days
             except ValueError as e:
-                raise ValueError(f"FULL_SYNC_DAYS debe ser una lista de números entre 0-6 separados por comas: {e}")
+                raise ValueError(
+                    f"FULL_SYNC_DAYS debe ser una lista de números entre 0-6 separados por comas: {e}"
+                ) from e
         return v
 
     @field_validator("FULL_SYNC_HOUR")
