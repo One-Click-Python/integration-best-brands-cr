@@ -206,7 +206,14 @@ class RMSToShopifySync:
             SELECT 
                 Familia, Genero, Categoria, CCOD, C_ARTICULO,
                 ItemID, Description, color, talla, Quantity,
-                Price, SalePrice, ExtendedCategory, Tax,
+                -- Calcular precios con tax incluido y redondear a 2 decimales
+                ROUND(Price * IIF(Tax > 0, 1 + (Tax / 100.0), 1), 2) AS Price,
+                CASE 
+                    WHEN SalePrice IS NOT NULL AND SalePrice > 0 
+                    THEN ROUND(SalePrice * IIF(Tax > 0, 1 + (Tax / 100.0), 1), 2)
+                    ELSE NULL
+                END AS SalePrice,
+                ExtendedCategory, Tax,
                 SaleStartDate, SaleEndDate
             FROM View_Items 
             WHERE CCOD IS NOT NULL 
@@ -439,7 +446,13 @@ class RMSToShopifySync:
             "inventory_failed": 0,
         }
 
-        for shopify_input in batch:
+        # Track progress for this batch
+        batch_total = len(batch)
+
+        for idx, shopify_input in enumerate(batch, 1):
+            # Calculate progress percentage
+            progress_percentage = (idx / batch_total) * 100
+
             ccod = None  # Initialize ccod before try block
             categoria = None
             familia = None
@@ -449,7 +462,9 @@ class RMSToShopifySync:
                 # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
                 logger.info("=" * 50)
                 logger.info(
-                    f"🔄 STEP A: Starting RMS→Shopify sync for product, restore of shopify: {shopify_input.title}"
+                    f"🔄 STEP A: Starting RMS→Shopify sync for product \
+                        [{idx}/{batch_total}] ({progress_percentage:.1f}%), "
+                    f"restore of shopify: {shopify_input.title}"
                 )
 
                 # Extraer CCOD y categorías de los tags del producto
@@ -568,11 +583,23 @@ class RMSToShopifySync:
 
                 stats["total_processed"] += 1
 
+                # Log progress summary
+                logger.info(
+                    f"📊 Progress: [{idx}/{batch_total}] ({progress_percentage:.1f}%) | "
+                    f"Created: {stats['created']} | Updated: {stats['updated']} | "
+                    f"Skipped: {stats['skipped']} | Errors: {stats['errors']}"
+                )
+
             except Exception as e:
                 stats["errors"] += 1
                 self.error_aggregator.add_error(
                     e,
                     {"ccod": ccod or "unknown", "title": shopify_input.title},
+                )
+
+                # Log error with progress
+                logger.error(
+                    f"❌ Error processing product [{idx}/{batch_total}] ({progress_percentage:.1f}%): {str(e)}"
                 )
 
         return stats

@@ -184,22 +184,19 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
         """
         try:
             variables = {"productId": product_id, "variants": variants_data}
-
             result = await self._execute_query(CREATE_VARIANTS_BULK_MUTATION, variables)
 
-            variants_result = result.get("productVariantsBulkCreate", {})
-            self._handle_graphql_errors(variants_result, "Bulk variant creation")
+            bulk_result = result.get("productVariantsBulkCreate", {})
+            self._handle_graphql_errors(bulk_result, "Bulk variant creation")
 
-            product = variants_result.get("product")
-            if product:
-                variant_count = len(variants_data)
-                logger.info(
-                    f"✅ Created {variant_count} variants for product "
-                    f"{product.get('title', 'Unknown')} (ID: {product_id})"
-                )
-                return variants_result
+            variants = bulk_result.get("productVariants")
+            if variants:
+                logger.info(f"✅ Created {len(variants)} variants for product {product_id}")
+                for variant in variants:
+                    options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
+                    logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
 
-            raise ShopifyAPIException("Bulk variant creation failed: No product returned")
+            return bulk_result
 
         except Exception as e:
             logger.error(f"Error creating variants in bulk for product {product_id}: {e}")

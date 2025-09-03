@@ -32,13 +32,20 @@ class DataPreparator:
         Returns:
             Dict: Datos del producto base
         """
+        # Extract vendor from title if not provided
+        vendor = shopify_input.vendor
+        if shopify_input.title and "-" in shopify_input.title:
+            vendor = shopify_input.title.split("-")[0].strip()
+            if vendor:
+                logger.info(f"🏷️ Extracted vendor from title: '{vendor}'")
+        
         # Crear producto base con opciones pero sin variantes específicas
         product_data = {
             "title": shopify_input.title,
             "handle": shopify_input.handle,
             "status": shopify_input.status.value if shopify_input.status else "DRAFT",
             "productType": shopify_input.productType or "",
-            "vendor": shopify_input.vendor or "",
+            "vendor": vendor or "",
             "tags": shopify_input.tags or [],
         }
 
@@ -157,11 +164,11 @@ class DataPreparator:
             return f"Option{position + 1}"
 
     def prepare_product_update_data(
-        self, 
+        self,
         shopify_input: ShopifyProductInput,
         preserve_media: bool = True,
         preserve_publishing: bool = True,
-        fields_to_update: Optional[List[str]] = None
+        fields_to_update: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Prepara los datos básicos del producto para actualización selectiva.
@@ -179,20 +186,11 @@ class DataPreparator:
 
         # Campos seguros para actualizar siempre (datos que vienen de RMS)
         safe_fields = [
-            "title",        # Título del producto
-            "status",       # Solo si preserve_shopify_status es False
+            "title",  # Título del producto
+            "status",  # Solo si preserve_shopify_status es False
             "productType",  # Tipo de producto
-            "vendor",       # Proveedor/marca
-            "category",     # Categoría de taxonomía
-        ]
-
-        # Campos que pueden sobrescribir datos importantes en Shopify
-        risky_fields = [
-            "tags",           # Puede tener tags personalizados en Shopify
-            "descriptionHtml", # Puede tener descripción personalizada
-            "images",         # NUNCA actualizar - preservar fotos
-            "seo",            # Configuración SEO personalizada
-            "metafields",     # Datos estructurados (aunque se manejan por separado)
+            "vendor",  # Proveedor/marca
+            "category",  # Categoría de taxonomía
         ]
 
         # Si se especifican campos específicos, usar solo esos
@@ -215,8 +213,17 @@ class DataPreparator:
             elif field == "productType" and shopify_input.productType:
                 update_data["productType"] = shopify_input.productType
 
-            elif field == "vendor" and shopify_input.vendor:
-                update_data["vendor"] = shopify_input.vendor
+            elif field == "vendor":
+                # Split title by "-" and use first part as vendor if vendor not provided
+                if shopify_input.vendor:
+                    update_data["vendor"] = shopify_input.vendor
+                elif shopify_input.title and "-" in shopify_input.title:
+                    # Extract vendor from title (first part before "-")
+                    vendor_from_title = shopify_input.title.split("-")[0].strip()
+                    if vendor_from_title:
+                        update_data["vendor"] = vendor_from_title
+                        logger.info(f"🏷️ Extracted vendor from title: '{vendor_from_title}'")
+                # If no vendor and no "-" in title, field won't be updated
 
             elif field == "category" and shopify_input.category:
                 update_data["category"] = shopify_input.category
@@ -236,7 +243,7 @@ class DataPreparator:
             logger.info(f"📝 Usando actualización segura con campos: {list(update_data.keys())}")
         else:
             logger.info(f"📝 Actualizando campos específicos: {list(update_data.keys())}")
-        
+
         # Log de campos preservados para transparencia
         if preserve_media:
             logger.info("🖼️ Preservando: imágenes, media y contenido personalizado")

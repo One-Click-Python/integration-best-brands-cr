@@ -5,6 +5,7 @@ This module provides a single interface that delegates to specialized clients
 while maintaining backward compatibility with the existing codebase.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -98,9 +99,35 @@ class ShopifyGraphQLClient(BaseShopifyGraphQLClient):
         """Delegate to product client."""
         return await self.products.update_product(product_id, product_data)
 
-    async def create_variants_bulk(self, product_id: str, variants_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def create_variants_bulk(
+        self,
+        product_id: str,
+        variants_data: List[Dict[str, Any]],
+        location_id: str = None,
+        inventory_quantities: Dict[str, int] = None,
+    ) -> Dict[str, Any]:
         """Delegate to product client."""
-        return await self.products.create_variants_bulk(product_id, variants_data)
+        bulk_result = await self.products.create_variants_bulk(product_id, variants_data)
+
+        # Set inventory quantities if provided
+        if location_id and inventory_quantities:
+            inventory_tasks = []
+            variants = bulk_result.get("productVariants", [])
+
+            for variant in variants:
+                sku = variant.get("sku")
+                if sku and sku in inventory_quantities:
+                    quantity = inventory_quantities[sku]
+                    if quantity is not None and quantity > 0:
+                        task = self.set_variant_inventory_quantity(variant, location_id, quantity)
+                        inventory_tasks.append(task)
+
+            if inventory_tasks:
+                inventory_results = await asyncio.gather(*inventory_tasks, return_exceptions=True)
+                success_count = sum(1 for r in inventory_results if isinstance(r, dict) and r.get("success"))
+                logger.info(f"✅ Set inventory for {success_count}/{len(inventory_tasks)} variants")
+
+        return bulk_result
 
     async def update_variants_bulk(self, product_id: str, variants_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Delegate to product client."""
@@ -299,4 +326,3 @@ class ShopifyGraphQLClient(BaseShopifyGraphQLClient):
             f"initialized={self.session is not None}, "
             f"specialized_clients=['products', 'collections', 'inventory'])"
         )
-
