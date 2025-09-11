@@ -173,6 +173,10 @@ class ShopifyGraphQLClient(BaseShopifyGraphQLClient):
         """Delegate to collection client."""
         return await self.collections.create_collection(collection_data)
 
+    async def create_or_get_collection(self, collection_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Delegate to collection client."""
+        return await self.collections.create_or_get_collection(collection_data)
+
     async def update_collection(self, collection_id: str, collection_data: Dict[str, Any]) -> Dict[str, Any]:
         """Delegate to collection client."""
         return await self.collections.update_collection(collection_id, collection_data)

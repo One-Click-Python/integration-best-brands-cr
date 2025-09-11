@@ -460,7 +460,7 @@ class RMSToShopifySync:
 
             try:
                 # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
-                logger.info("=" * 50)
+                logger.info("==========" * 50)
                 logger.info(
                     f"🔄 STEP A: Starting RMS→Shopify sync for product \
                         [{idx}/{batch_total}] ({progress_percentage:.1f}%), "

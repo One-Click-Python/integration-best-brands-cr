@@ -6,15 +6,16 @@ following the single responsibility principle.
 """
 
 from .base_client import BaseShopifyGraphQLClient
-from .product_client import ShopifyProductClient
 from .collection_client import ShopifyCollectionClient
 from .inventory_client import ShopifyInventoryClient
+from .product_client import ShopifyProductClient
 from .unified_client import ShopifyGraphQLClient
 
 __all__ = [
     "BaseShopifyGraphQLClient",
-    "ShopifyProductClient", 
+    "ShopifyProductClient",
     "ShopifyCollectionClient",
     "ShopifyInventoryClient",
-    "ShopifyGraphQLClient"
+    "ShopifyGraphQLClient",
 ]
+

@@ -183,10 +183,48 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
             Bulk operation result
         """
         try:
+            # Log what we're trying to create for debugging
+            logger.info(f"📦 Attempting to create {len(variants_data)} variants for product {product_id}")
+            for i, variant_data in enumerate(variants_data[:3]):  # Log first 3 for debugging
+                logger.debug(f"   Variant {i+1}: {variant_data}")
+            if len(variants_data) > 3:
+                logger.debug(f"   ... and {len(variants_data) - 3} more variants")
+            
             variables = {"productId": product_id, "variants": variants_data}
             result = await self._execute_query(CREATE_VARIANTS_BULK_MUTATION, variables)
 
             bulk_result = result.get("productVariantsBulkCreate", {})
+            
+            # Check for user errors before calling generic error handler
+            user_errors = bulk_result.get("userErrors", [])
+            if user_errors:
+                # Handle duplicate variant errors specifically
+                duplicate_errors = []
+                other_errors = []
+                
+                for error in user_errors:
+                    error_msg = error.get("message", "")
+                    if "already exists" in error_msg.lower():
+                        duplicate_errors.append(error_msg)
+                        logger.warning(f"⚠️ Duplicate variant detected: {error_msg}")
+                    else:
+                        other_errors.append(f"{error.get('field', 'unknown')}: {error_msg}")
+                
+                # If ALL errors are duplicate errors, log as warning but don't fail
+                if duplicate_errors and not other_errors:
+                    logger.warning(f"⚠️ All {len(duplicate_errors)} variants already exist, skipping creation")
+                    # Return a result indicating no new variants were created
+                    return {
+                        "productVariants": [],
+                        "userErrors": user_errors,
+                        "duplicatesSkipped": len(duplicate_errors)
+                    }
+                
+                # If there are other errors besides duplicates, raise exception
+                if other_errors:
+                    raise ShopifyAPIException(f"Bulk variant creation failed: {', '.join(other_errors)}")
+            
+            # If no errors, handle normally
             self._handle_graphql_errors(bulk_result, "Bulk variant creation")
 
             variants = bulk_result.get("productVariants")
@@ -195,9 +233,14 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
                 for variant in variants:
                     options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
                     logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
+            else:
+                logger.info(f"ℹ️ No new variants created (they may already exist)")
 
             return bulk_result
 
+        except ShopifyAPIException:
+            # Re-raise ShopifyAPIException as-is
+            raise
         except Exception as e:
             logger.error(f"Error creating variants in bulk for product {product_id}: {e}")
             raise ShopifyAPIException(f"Failed to create variants in bulk: {str(e)}") from e

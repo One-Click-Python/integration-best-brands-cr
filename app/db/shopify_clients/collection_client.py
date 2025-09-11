@@ -162,6 +162,71 @@ class ShopifyCollectionClient(BaseShopifyGraphQLClient):
             logger.error(f"Error fetching all collections: {e}")
             raise ShopifyAPIException(f"Failed to fetch all collections: {str(e)}") from e
 
+    async def create_or_get_collection(self, collection_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a collection or return existing one if handle already exists.
+        This method is idempotent and handles race conditions gracefully.
+
+        Args:
+            collection_data: Collection data dictionary
+
+        Returns:
+            Created or existing collection data
+        """
+        handle = collection_data.get("handle")
+        title = collection_data.get("title", "Unknown")
+
+        if not handle:
+            logger.warning(f"No handle provided for collection '{title}', proceeding with creation")
+            return await self.create_collection(collection_data)
+
+        # First, try to get existing collection by handle
+        logger.info(f"Checking if collection with handle '{handle}' already exists...")
+        existing_collection = await self.get_collection_by_handle(handle)
+
+        if existing_collection:
+            logger.info(
+                f"✅ Collection with handle '{handle}' already exists: {existing_collection.get('title')} "
+                f"(ID: {existing_collection.get('id')})"
+            )
+            return existing_collection
+
+        # Collection doesn't exist, try to create it
+        logger.info(f"Collection with handle '{handle}' not found, creating new collection...")
+
+        try:
+            return await self.create_collection(collection_data)
+        except ShopifyAPIException as e:
+            # Check if it's a duplicate handle error (race condition)
+            error_message = str(e).lower()
+            if (
+                "handle has already been taken" in error_message
+                or "handle" in error_message
+                and "taken" in error_message
+            ):
+                logger.warning(
+                    f"Handle '{handle}' was taken by another process during creation, "
+                    f"fetching the existing collection..."
+                )
+
+                # Try to fetch the collection again
+                existing_collection = await self.get_collection_by_handle(handle)
+                if existing_collection:
+                    logger.info(
+                        f"✅ Successfully fetched collection created by another process: "
+                        f"{existing_collection.get('title')} (ID: {existing_collection.get('id')})"
+                    )
+                    return existing_collection
+                else:
+                    # This shouldn't happen, but handle it just in case
+                    logger.error(f"Failed to fetch collection with handle '{handle}' after duplicate handle error")
+                    raise ShopifyAPIException(
+                        f"Collection with handle '{handle}' exists but couldn't be fetched"
+                    ) from e
+
+            # Not a duplicate handle error, re-raise
+            raise
+
     async def create_collection(self, collection_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a new collection in Shopify.
@@ -173,10 +238,42 @@ class ShopifyCollectionClient(BaseShopifyGraphQLClient):
             Created collection data
         """
         try:
+            handle = collection_data.get("handle")
+
             variables = {"input": collection_data}
             result = await self._execute_query(CREATE_COLLECTION_MUTATION, variables)
 
             collection_result = result.get("collectionCreate", {})
+
+            # Check for duplicate handle error specifically before general error handling
+            user_errors = collection_result.get("userErrors", [])
+            for error in user_errors:
+                error_field = error.get("field", [])
+                error_message = error.get("message", "")
+
+                # Check if it's a handle-related error
+                if isinstance(error_field, list) and "handle" in error_field:
+                    if "already been taken" in error_message.lower() or "already taken" in error_message.lower():
+                        logger.warning(
+                            f"Handle '{handle}' already taken according to Shopify, "
+                            f"attempting to fetch existing collection..."
+                        )
+
+                        # Try to fetch the existing collection
+                        existing_collection = await self.get_collection_by_handle(handle)
+                        if existing_collection:
+                            logger.info(
+                                f"✅ Found existing collection: {existing_collection.get('title')} "
+                                f"(ID: {existing_collection.get('id')}, handle: {handle})"
+                            )
+                            return existing_collection
+                        else:
+                            # Log the full error for debugging
+                            logger.error(
+                                f"Handle '{handle}' is taken but collection couldn't be fetched. Full error: {error}"
+                            )
+
+            # If we have user errors that aren't handled above, handle them normally
             self._handle_graphql_errors(collection_result, "Collection creation")
 
             collection = collection_result.get("collection")
@@ -189,6 +286,9 @@ class ShopifyCollectionClient(BaseShopifyGraphQLClient):
 
             raise ShopifyAPIException("Collection creation failed: No collection returned")
 
+        except ShopifyAPIException:
+            # Re-raise ShopifyAPIException as is
+            raise
         except Exception as e:
             logger.error(f"Error creating collection: {e}")
             raise ShopifyAPIException(f"Failed to create collection: {str(e)}") from e
@@ -381,4 +481,3 @@ class ShopifyCollectionClient(BaseShopifyGraphQLClient):
         except Exception as e:
             logger.error(f"Error syncing collection products: {e}")
             raise ShopifyAPIException(f"Failed to sync collection products: {str(e)}") from e
-

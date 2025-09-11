@@ -6,10 +6,15 @@
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/shopify_clients/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_clients/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/shopify_clients/collection_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_clients/collection_client.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/db/shopify_clients/product_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_clients/product_client.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/db/shopify_clients/unified_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/shopify_clients/unified_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator/data_preparator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/multiple_variants_creator/data_preparator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/collection_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/collection_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator/inventory_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/multiple_variants_creator/inventory_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator/variant_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/multiple_variants_creator/variant_manager.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/variant_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/variant_mapper.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -123,7 +128,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-7e47963ff851-f0eec537fc84-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.23892.515" />
+        <option value="bundled-python-sdk-ce6832f46686-7b97d883f26b-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.25557.178" />
       </set>
     </attachedChunks>
   </component>
@@ -147,11 +152,6 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
-          <line>146</line>
-          <option name="timeStamp" value="80" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
           <line>154</line>
           <option name="timeStamp" value="81" />
         </line-breakpoint>
@@ -167,23 +167,18 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>
-          <line>201</line>
+          <line>244</line>
           <option name="timeStamp" value="84" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>
-          <line>235</line>
+          <line>278</line>
           <option name="timeStamp" value="85" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>
-          <line>268</line>
+          <line>311</line>
           <option name="timeStamp" value="86" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/variant_manager.py</url>
-          <line>199</line>
-          <option name="timeStamp" value="108" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
@@ -196,14 +191,9 @@
           <option name="timeStamp" value="112" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/variant_manager.py</url>
-          <line>202</line>
-          <option name="timeStamp" value="114" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/multiple_variants_creator/data_preparator.py</url>
-          <line>35</line>
-          <option name="timeStamp" value="119" />
+          <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
+          <line>146</line>
+          <option name="timeStamp" value="125" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

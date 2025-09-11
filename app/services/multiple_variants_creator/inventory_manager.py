@@ -388,9 +388,8 @@ class InventoryManager:
                     validation_results["warnings"].append(f"SKU {sku}: No inventory quantities specified")
 
             logger.info(
-                f"📋 Inventory validation: {len(validation_results['valid'])} valid, {
-                    len(validation_results['invalid'])
-                } invalid, {len(validation_results['warnings'])} warnings"
+                f"📋 Inventory validation: {len(validation_results['valid'])} valid, "
+                f"{len(validation_results['invalid'])} invalid, {len(validation_results['warnings'])} warnings"
             )
 
             return {"is_valid": len(validation_results["invalid"]) == 0, "results": validation_results}

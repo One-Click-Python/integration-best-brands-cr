@@ -6,11 +6,14 @@ basadas en las categorías de productos RMS y asigna productos a las colecciones
 correspondientes durante la sincronización.
 """
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
+from app.utils.id_utils import normalize_collection_id, is_valid_graphql_id
+from app.utils.distributed_lock import collection_lock
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +64,24 @@ class CollectionManager:
                 handle = collection.get("handle", "")
                 title = collection.get("title", "")
                 collection_id = collection.get("id", "")
+                
+                # Normalizar el ID al formato GraphQL
+                normalized_id = normalize_collection_id(collection_id)
 
                 # Almacenar en cache
                 self._collections_cache[handle] = collection
 
-                # Mapear por título normalizado
+                # Mapear por título normalizado usando ID normalizado
                 normalized_title = self._normalize_name(title)
-                self._category_to_collection[normalized_title] = collection_id
+                self._category_to_collection[normalized_title] = normalized_id
 
-                # También mapear el título original
-                self._category_to_collection[title.lower()] = collection_id
+                # También mapear el título original usando ID normalizado
+                self._category_to_collection[title.lower()] = normalized_id
 
-                logger.debug(f"Colección cargada: '{title}' (handle: {handle}, normalized: {normalized_title})")
+                logger.debug(
+                    f"Colección cargada: '{title}' (handle: {handle}, "
+                    f"normalized_title: {normalized_title}, ID: {normalized_id})"
+                )
 
         except Exception as e:
             logger.error(f"Error cargando colecciones existentes: {e}")
@@ -107,8 +116,69 @@ class CollectionManager:
 
         return normalized
 
+    def _generate_collection_handle(self, collection_name: str, collection_type: str) -> str:
+        """
+        Genera un handle único y consistente para una colección basado en su nombre y tipo.
+
+        Args:
+            collection_name: Nombre de la colección
+            collection_type: Tipo de colección (categoria/familia/extended)
+
+        Returns:
+            Handle normalizado para la colección
+        """
+        if not collection_name:
+            return f"rms-{collection_type}-unknown"
+
+        # Normalizar el nombre
+        normalized = self._normalize_name(collection_name)
+        
+        # Reemplazar espacios por guiones
+        handle_base = normalized.replace(" ", "-").replace("_", "-")
+        
+        # Asegurar que no hay guiones dobles
+        handle_base = re.sub(r"-+", "-", handle_base)
+        
+        # Remover guiones al inicio y final
+        handle_base = handle_base.strip("-")
+        
+        # Generar handle simple (sin prefijo para compatibilidad con colecciones manuales existentes)
+        handle = handle_base
+        
+        logger.debug(f"Generated handle for '{collection_name}' ({collection_type}): {handle}")
+        return handle
+
+    def _get_alternative_handles(self, collection_name: str, collection_type: str) -> List[str]:
+        """
+        Genera handles alternativos para buscar colecciones existentes.
+        
+        Args:
+            collection_name: Nombre de la colección
+            collection_type: Tipo de colección
+            
+        Returns:
+            Lista de handles posibles
+        """
+        base_handle = self._generate_collection_handle(collection_name, collection_type)
+        
+        alternatives = [
+            base_handle,  # Handle simple: "tenis"
+            f"rms-{collection_type}-{base_handle}",  # Handle con prefijo: "rms-categoria-tenis"
+            f"{collection_type}-{base_handle}",  # Handle con tipo: "categoria-tenis"
+        ]
+        
+        # Remover duplicados manteniendo el orden
+        seen = set()
+        unique_alternatives = []
+        for handle in alternatives:
+            if handle not in seen:
+                seen.add(handle)
+                unique_alternatives.append(handle)
+        
+        return unique_alternatives
+
     async def ensure_collection_exists(
-        self, handle: str, categoria: Optional[str], familia: Optional[str], extended_category: Optional[str] = None
+        self, categoria: Optional[str], familia: Optional[str], extended_category: Optional[str] = None
     ) -> Optional[str]:
         """
         Asegura que existe una colección para la categoría/familia dada.
@@ -148,24 +218,107 @@ class CollectionManager:
                 logger.warning("No se pudo determinar nombre de colección - sin categoría/familia")
                 return None
 
-            # Verificar si ya existe en cache
-            normalized_name = self._normalize_name(collection_name)
+            # Generar handle consistente basado en el nombre de la colección
+            handle = self._generate_collection_handle(collection_name, collection_type)
+            
+            # Usar lock distribuido para prevenir race conditions durante la creación
+            async with collection_lock(handle, timeout_seconds=30) as lock_acquired:
+                if not lock_acquired:
+                    logger.info(f"⏳ Otra operación está procesando la colección '{collection_name}', esperando...")
+                    # Si no pudimos obtener el lock, hacer una verificación final
+                    await asyncio.sleep(1)  # Breve espera
+                    
+                    # Verificar cache nuevamente por si se creó mientras esperábamos
+                    normalized_name = self._normalize_name(collection_name)
+                    if normalized_name in self._category_to_collection:
+                        collection_id = self._category_to_collection[normalized_name]
+                        logger.info(f"✅ Colección encontrada después de espera: '{collection_name}' -> {collection_id}")
+                        return collection_id
+                    
+                    # Si aún no existe, hacer verificación API
+                    try:
+                        fresh_collection = await self.shopify_client.get_collection_by_handle(handle)
+                        if fresh_collection:
+                            collection_id = fresh_collection.get("id")
+                            normalized_id = normalize_collection_id(collection_id)
+                            
+                            # Actualizar caches
+                            self._collections_cache[handle] = fresh_collection
+                            self._category_to_collection[normalized_name] = normalized_id
+                            self._category_to_collection[collection_name.lower()] = normalized_id
+                            
+                            return normalized_id
+                    except Exception as e:
+                        logger.warning(f"Error verificando colección después de lock fallido: {e}")
+                    
+                    return None  # No pudimos crear ni encontrar la colección
+                
+                # Lock adquirido, proceder con verificaciones y creación
+                logger.debug(f"🔒 Lock adquirido para colección: {collection_name}")
+                
+                # Verificar si ya existe en cache
+                normalized_name = self._normalize_name(collection_name)
 
-            # Buscar por nombre normalizado
-            if normalized_name in self._category_to_collection:
-                collection_id = self._category_to_collection[normalized_name]
-                logger.debug(f"Colección encontrada en cache: '{collection_name}' -> {collection_id}")
-                return collection_id
+                # Buscar por nombre normalizado
+                if normalized_name in self._category_to_collection:
+                    collection_id = self._category_to_collection[normalized_name]
+                    logger.debug(f"Colección encontrada en cache por nombre: '{collection_name}' -> {collection_id}")
+                    return collection_id
 
-            # Buscar por handle
-            if handle in self._collections_cache:
-                collection = self._collections_cache[handle]
-                collection_id = collection.get("id")
-                logger.debug(f"Colección encontrada por handle: '{collection_name}' -> {collection_id}")
-                return collection_id
+                # Obtener handles alternativos para buscar colecciones existentes
+                possible_handles = self._get_alternative_handles(collection_name, collection_type)
+                logger.debug(f"Buscando colección '{collection_name}' con handles: {possible_handles}")
+                
+                # Buscar por handles en cache
+                for candidate_handle in possible_handles:
+                    if candidate_handle in self._collections_cache:
+                        collection = self._collections_cache[candidate_handle]
+                        collection_id = collection.get("id")
+                        normalized_id = normalize_collection_id(collection_id)
+                        
+                        logger.info(f"✅ Colección encontrada en cache por handle: '{candidate_handle}' -> {normalized_id}")
+                        
+                        # Actualizar caches con el handle principal también
+                        self._collections_cache[handle] = collection
+                        self._category_to_collection[normalized_name] = normalized_id
+                        self._category_to_collection[collection_name.lower()] = normalized_id
+                        
+                        return normalized_id
 
-            # Si no existe, crearla
-            logger.info(f"Creando nueva colección: '{collection_name}' (tipo: {collection_type})")
+                # Antes de crear, hacer una verificación fresca con la API de Shopify
+                logger.info(f"Verificando existencia de colección '{collection_name}' con API de Shopify...")
+                
+                # Probar todos los handles posibles en Shopify
+                for candidate_handle in possible_handles:
+                    try:
+                        fresh_collection = await self.shopify_client.get_collection_by_handle(candidate_handle)
+                        
+                        if fresh_collection:
+                            collection_id = fresh_collection.get("id")
+                            normalized_id = normalize_collection_id(collection_id)
+                            actual_handle = fresh_collection.get("handle", candidate_handle)
+                            
+                            logger.info(
+                                f"✅ Colección encontrada en Shopify con handle '{actual_handle}': '{collection_name}' "
+                                f"(ID: {normalized_id})"
+                            )
+                            
+                            # Actualizar caches con la colección encontrada usando el handle real
+                            self._collections_cache[actual_handle] = fresh_collection
+                            self._collections_cache[handle] = fresh_collection  # También con el handle generado
+                            self._category_to_collection[normalized_name] = normalized_id
+                            self._category_to_collection[collection_name.lower()] = normalized_id
+                            
+                            return normalized_id
+                            
+                    except Exception as e:
+                        logger.debug(f"Handle '{candidate_handle}' no encontrado: {e}")
+                        continue
+                
+                logger.debug(f"Ninguno de los handles {possible_handles} encontrado en Shopify")
+                
+                # Si no existe, crearla
+                logger.info(f"Creando nueva colección: '{collection_name}' (tipo: {collection_type})")
 
             # Preparar datos de la colección
             collection_data = {
@@ -194,20 +347,31 @@ class CollectionManager:
                     {"namespace": "rms", "key": "familia", "value": familia, "type": "single_line_text_field"}
                 )
 
-            # Crear la colección
-            created_collection = await self.shopify_client.create_collection(collection_data)
+            # Crear la colección o obtener la existente si el handle ya está tomado
+            created_collection = await self.shopify_client.create_or_get_collection(collection_data)
 
             if created_collection:
                 collection_id = created_collection.get("id")
-                # Actualizar caches
+                normalized_id = normalize_collection_id(collection_id)
+                
+                # Actualizar caches inmediatamente con ID normalizado
                 self._collections_cache[handle] = created_collection
-                self._category_to_collection[normalized_name] = collection_id
-                self._category_to_collection[collection_name.lower()] = collection_id
-
-                logger.info(
-                    f"✅ Colección creada exitosamente: '{collection_name}' (ID: {collection_id}, handle: {handle})"
-                )
-                return collection_id
+                self._category_to_collection[normalized_name] = normalized_id
+                self._category_to_collection[collection_name.lower()] = normalized_id
+                
+                # Verificar que el ID es válido
+                if is_valid_graphql_id(normalized_id, "Collection"):
+                    logger.info(
+                        f"✅ Colección creada exitosamente: '{collection_name}' "
+                        f"(ID: {normalized_id}, handle: {handle})"
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ Colección creada con ID inválido: '{collection_name}' "
+                        f"(ID: {normalized_id}, handle: {handle})"
+                    )
+                
+                return normalized_id
             else:
                 logger.error(f"No se pudo crear la colección: '{collection_name}'")
                 return None
@@ -278,7 +442,7 @@ class CollectionManager:
             # Intentar agregar a colección de categoría
             if categoria:
                 collection_id = await self.ensure_collection_exists(
-                    handle=product_handle, categoria=categoria, familia=familia, extended_category=extended_category
+                    categoria=categoria, familia=familia, extended_category=extended_category
                 )
 
                 if collection_id:
@@ -294,7 +458,7 @@ class CollectionManager:
             # También agregar a colección de familia si es diferente
             if familia and familia != categoria:
                 collection_id = await self.ensure_collection_exists(
-                    handle=product_handle, categoria=None, familia=familia, extended_category=None
+                    categoria=None, familia=familia, extended_category=None
                 )
 
                 if collection_id and collection_id not in added_to_collections:
@@ -353,7 +517,7 @@ class CollectionManager:
             # Colección de categoría
             if categoria:
                 collection_id = await self.ensure_collection_exists(
-                    handle=product_handle, categoria=categoria, familia=familia, extended_category=extended_category
+                    categoria=categoria, familia=familia, extended_category=extended_category
                 )
                 if collection_id:
                     target_collections.add(collection_id)
@@ -361,7 +525,7 @@ class CollectionManager:
             # Colección de familia
             if familia and familia != categoria:
                 collection_id = await self.ensure_collection_exists(
-                    handle=product_handle, categoria=None, familia=familia, extended_category=None
+                    categoria=None, familia=familia, extended_category=None
                 )
                 if collection_id:
                     target_collections.add(collection_id)

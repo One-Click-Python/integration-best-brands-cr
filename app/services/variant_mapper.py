@@ -27,7 +27,7 @@ class VariantMapper:
     @staticmethod
     def group_items_by_model(items: List[RMSViewItem]) -> Dict[str, List[RMSViewItem]]:
         """
-        Agrupa items RMS por modelo usando los primeros 4 caracteres del CCOD.
+        Agrupa items RMS por modelo usando CCOD.
 
         Args:
             items: Lista de items RMS
@@ -40,12 +40,11 @@ class VariantMapper:
         for item in items:
             # CCOD siempre viene con valor, usar los primeros 4 caracteres para agrupar
             if item.ccod and item.ccod.strip():
-                # Tomar los primeros 4 caracteres del CCOD normalizado
                 normalized_ccod = item.ccod.strip().upper()
-                ccod_prefix = normalized_ccod[:4]  # Primeros 4 caracteres
+                ccod_prefix = normalized_ccod
                 model_key = f"ccod_{ccod_prefix}".replace(" ", "_").lower()
             else:
-                # Esto no debería ocurrir según el usuario, pero mantener como fallback
+                # Esto no debería ocurrir, pero mantener como fallback
                 logger.warning(f"Item sin CCOD encontrado: {item.c_articulo} - usando C_ARTICULO como clave")
                 model_key = f"fallback_{item.c_articulo}".replace(" ", "_").lower()
 
@@ -73,9 +72,7 @@ class VariantMapper:
         return filtered_groups
 
     @staticmethod
-    async def _get_existing_product_status(
-        handle: str, shopify_client
-    ) -> Optional[ProductStatus]:
+    async def _get_existing_product_status(handle: str, shopify_client) -> Optional[ProductStatus]:
         """
         Obtiene el status actual de un producto existente en Shopify.
 
@@ -99,10 +96,10 @@ class VariantMapper:
 
     @staticmethod
     async def map_product_group_with_variants(
-        items: List[RMSViewItem], 
-        shopify_client, 
+        items: List[RMSViewItem],
+        shopify_client,
         location_id: Optional[str] = None,
-        preserve_shopify_status: bool = True
+        preserve_shopify_status: bool = True,
     ) -> ShopifyProductInput:
         """
         Mapea un grupo de items RMS a un producto Shopify con múltiples variantes.
@@ -453,10 +450,10 @@ class VariantMapper:
 
 # Función helper para integración con el sistema existente
 async def create_products_with_variants(
-    rms_items: List[RMSViewItem], 
-    shopify_client, 
+    rms_items: List[RMSViewItem],
+    shopify_client,
     location_id: Optional[str] = None,
-    preserve_shopify_status: bool = True
+    preserve_shopify_status: bool = True,
 ) -> List[ShopifyProductInput]:
     """
     Genera productos con variantes inteligentes a partir de items RMS.

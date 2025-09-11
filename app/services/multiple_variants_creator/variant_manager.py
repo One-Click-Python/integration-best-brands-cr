@@ -48,34 +48,90 @@ class VariantManager:
             List: Lista de variantes existentes
         """
         try:
-            query = """
-            query GetProductVariants($id: ID!) {
-              product(id: $id) {
-                variants(first: 50) {
-                  edges {
-                    node {
-                      id
-                      sku
-                      selectedOptions {
-                        name
-                        value
+            all_variants = []
+            has_next_page = True
+            cursor = None
+            
+            while has_next_page:
+                if cursor:
+                    query = """
+                    query GetProductVariants($id: ID!, $cursor: String!) {
+                      product(id: $id) {
+                        variants(first: 100, after: $cursor) {
+                          edges {
+                            node {
+                              id
+                              sku
+                              price
+                              selectedOptions {
+                                name
+                                value
+                              }
+                            }
+                            cursor
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
                       }
                     }
-                  }
-                }
-              }
-            }
-            """
+                    """
+                    variables = {"id": product_id, "cursor": cursor}
+                else:
+                    query = """
+                    query GetProductVariants($id: ID!) {
+                      product(id: $id) {
+                        variants(first: 100) {
+                          edges {
+                            node {
+                              id
+                              sku
+                              price
+                              selectedOptions {
+                                name
+                                value
+                              }
+                            }
+                            cursor
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                    """
+                    variables = {"id": product_id}
 
-            result = await self.shopify_client._execute_query(query, {"id": product_id})
+                result = await self.shopify_client._execute_query(query, variables)
 
-            if result and result.get("product"):
-                variants = result["product"].get("variants", {}).get("edges", [])
-                existing_variants = [variant["node"] for variant in variants]
-                logger.info(f"🔍 Found {len(existing_variants)} existing variants in product")
-                return existing_variants
+                if result and result.get("product"):
+                    variants_response = result["product"].get("variants", {})
+                    variants = variants_response.get("edges", [])
+                    all_variants.extend([variant["node"] for variant in variants])
+                    
+                    page_info = variants_response.get("pageInfo", {})
+                    has_next_page = page_info.get("hasNextPage", False)
+                    cursor = page_info.get("endCursor")
+                    
+                    logger.info(f"📄 Fetched page with {len(variants)} variants (total so far: {len(all_variants)})")
+                else:
+                    has_next_page = False
 
-            return []
+            logger.info(f"🔍 Found {len(all_variants)} total existing variants in product")
+            
+            # Log details of existing variants for debugging
+            for variant in all_variants[:5]:  # Show first 5 for debugging
+                options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
+                logger.debug(f"   Existing: SKU={variant.get('sku', 'N/A')}, Options={options_str}")
+            
+            if len(all_variants) > 5:
+                logger.debug(f"   ... and {len(all_variants) - 5} more variants")
+            
+            return all_variants
 
         except Exception as e:
             logger.warning(f"❌ Error getting existing variants: {e}")
@@ -95,6 +151,16 @@ class VariantManager:
         try:
             logger.info(f"🔄 Syncing {len(new_variants)} variants with {len(existing_variants)} existing variants")
 
+            # Build a set of existing variant option combinations for fast lookup
+            existing_combinations = {}  # Map combo to existing variant
+            for existing in existing_variants:
+                existing_options = existing.get("selectedOptions", [])
+                # Sort options by name to ensure consistent comparison
+                sorted_options = sorted(existing_options, key=lambda x: x.get("name", ""))
+                # Create a normalized string representation
+                combo = " / ".join([f"{opt['name']}:{opt['value']}" for opt in sorted_options])
+                existing_combinations[combo] = existing
+
             # Separar variantes en crear/actualizar
             variants_to_create = []
             variants_to_update = []
@@ -102,24 +168,29 @@ class VariantManager:
             for new_variant in new_variants:
                 # Buscar si existe una variante con las mismas opciones
                 existing_match = None
+                variant_combo = ""
 
                 if hasattr(new_variant, "options") and new_variant.options:
-                    new_variant_options = "-".join(str(opt) for opt in new_variant.options)
-
-                    for existing in existing_variants:
-                        existing_options = existing.get("selectedOptions", [])
-                        if len(existing_options) == len(new_variant.options):
-                            existing_combo = "-".join([opt["value"] for opt in existing_options])
-                            if new_variant_options == existing_combo:
-                                existing_match = existing
-                                break
+                    # Create normalized option representation
+                    # Assume first option is Color, second is Size (as per RMS convention)
+                    option_pairs = []
+                    for i, option_value in enumerate(new_variant.options):
+                        option_name = "Color" if i == 0 else "Size" if i == 1 else f"Option{i+1}"
+                        option_pairs.append((option_name, str(option_value)))
+                    
+                    # Sort by option name for consistent comparison
+                    option_pairs.sort(key=lambda x: x[0])
+                    variant_combo = " / ".join([f"{name}:{value}" for name, value in option_pairs])
+                    
+                    # Check if this exact combination exists in Shopify
+                    existing_match = existing_combinations.get(variant_combo)
 
                 if existing_match:
                     variants_to_update.append((existing_match, new_variant))
-                    logger.info(f"🔄 Will update variant: {new_variant.sku}")
+                    logger.info(f"🔄 Will update variant: {new_variant.sku} - {variant_combo}")
                 else:
                     variants_to_create.append(new_variant)
-                    logger.info(f"🆕 Will create variant: {new_variant.sku}")
+                    logger.info(f"🆕 Will create variant: {new_variant.sku} - {variant_combo}")
 
             # Crear nuevas variantes si las hay
             if variants_to_create:
@@ -151,34 +222,64 @@ class VariantManager:
         try:
             existing_variants = existing_variants or []
 
+            # Build a set of existing variant option combinations for fast lookup
+            existing_combinations = set()
+            for existing in existing_variants:
+                existing_options = existing.get("selectedOptions", [])
+                # Sort options by name to ensure consistent comparison
+                sorted_options = sorted(existing_options, key=lambda x: x.get("name", ""))
+                # Create a normalized string representation
+                combo = " / ".join([f"{opt['name']}:{opt['value']}" for opt in sorted_options])
+                existing_combinations.add(combo)
+                logger.debug(f"   Existing combo in Shopify: {combo}")
+
             # Determinar qué variantes necesitamos crear (evitar duplicados)
             variants_to_create = []
             variants_to_update = []
-            variant_options = ""
+            seen_combinations = set()  # Track combinations we're trying to create
 
             for variant in variants:
                 # Verificar si esta variante ya existe
                 existing_match = None
+                variant_combo = ""
+                
                 if hasattr(variant, "options") and variant.options:
-                    # Crear combinación de opciones flexible (puede ser 1 o 2 opciones)
-                    variant_options = "-".join(variant.options)
-
-                    for existing in existing_variants:
-                        existing_options = existing.get("selectedOptions", [])
-                        if len(existing_options) == len(variant.options):
-                            existing_combo = "-".join([opt["value"] for opt in existing_options])
-                            if variant_options == existing_combo:
+                    # Create normalized option representation
+                    # Assume first option is Color, second is Size (as per RMS convention)
+                    option_pairs = []
+                    for i, option_value in enumerate(variant.options):
+                        option_name = "Color" if i == 0 else "Size" if i == 1 else f"Option{i+1}"
+                        option_pairs.append((option_name, str(option_value)))
+                    
+                    # Sort by option name for consistent comparison
+                    option_pairs.sort(key=lambda x: x[0])
+                    variant_combo = " / ".join([f"{name}:{value}" for name, value in option_pairs])
+                    
+                    logger.debug(f"   Checking variant: SKU={variant.sku}, Combo={variant_combo}")
+                    
+                    # Check if this exact combination exists in Shopify
+                    if variant_combo in existing_combinations:
+                        # Find the matching existing variant for update
+                        for existing in existing_variants:
+                            existing_options = existing.get("selectedOptions", [])
+                            sorted_existing = sorted(existing_options, key=lambda x: x.get("name", ""))
+                            existing_combo = " / ".join([f"{opt['name']}:{opt['value']}" for opt in sorted_existing])
+                            if existing_combo == variant_combo:
                                 existing_match = existing
                                 break
 
                 if existing_match:
                     # Variante existe - marcar para actualización
                     variants_to_update.append((existing_match, variant))
-                    logger.info(f"🔄 Will update existing variant: {variant_options}")
+                    logger.info(f"🔄 Will update existing variant: SKU={variant.sku}, Options={variant_combo}")
+                elif variant_combo in seen_combinations:
+                    # We're already trying to create this combination - skip duplicate
+                    logger.warning(f"⚠️ Skipping duplicate in batch: SKU={variant.sku}, Options={variant_combo}")
                 else:
                     # Variante nueva - marcar para creación
                     variants_to_create.append(variant)
-                    logger.info(f"🆕 Will create new variant: {variant_options}")
+                    seen_combinations.add(variant_combo)
+                    logger.info(f"🆕 Will create new variant: SKU={variant.sku}, Options={variant_combo}")
 
             # Preparar datos de variantes para bulk creation (solo las nuevas)
             variants_data = []
@@ -204,6 +305,11 @@ class VariantManager:
                     inventory_quantities=inventory_quantities,
                 )
 
+                # Check if duplicates were skipped
+                duplicates_skipped = bulk_result.get("duplicatesSkipped", 0)
+                if duplicates_skipped > 0:
+                    logger.warning(f"⚠️ {duplicates_skipped} variants were already present and skipped")
+
                 if bulk_result and bulk_result.get("productVariants"):
                     created_variants = bulk_result["productVariants"]
                     logger.info(f"✅ Successfully created {len(created_variants)} new variants")
@@ -217,6 +323,8 @@ class VariantManager:
                         logger.info(
                             f"   ✅ New variant: {variant.get('sku', 'NO-SKU')} - {options_str} - ${variant['price']}"
                         )
+                elif duplicates_skipped > 0:
+                    logger.info(f"ℹ️ All {duplicates_skipped} variants already existed, none created")
                 else:
                     logger.warning("❌ No variants returned from bulk creation")
             else:
