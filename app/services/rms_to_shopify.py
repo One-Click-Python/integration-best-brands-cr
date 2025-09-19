@@ -127,6 +127,11 @@ class RMSToShopifySync:
         self.checkpoint_manager = SyncCheckpointManager(self.sync_id)
         self.batch_handle_cache = {}  # Cache para búsquedas por handle
 
+        # Checkpoint configuration
+        self._resume_from_checkpoint = True
+        self._checkpoint_frequency = 100
+        self._force_fresh_start = False
+
     async def initialize(self):
         """
         Inicializa las conexiones necesarias.
@@ -177,6 +182,26 @@ class RMSToShopifySync:
                 service="rms_to_shopify",
                 operation="initialize",
             ) from e
+
+    def configure_checkpoint_behavior(
+        self, resume_from_checkpoint: bool = True, checkpoint_frequency: int = 100, force_fresh_start: bool = False
+    ):
+        """
+        Configura el comportamiento de checkpoints.
+
+        Args:
+            resume_from_checkpoint: Reanudar desde checkpoint si existe
+            checkpoint_frequency: Frecuencia de guardado de checkpoint
+            force_fresh_start: Forzar inicio desde cero ignorando checkpoints
+        """
+        self._resume_from_checkpoint = resume_from_checkpoint
+        self._checkpoint_frequency = checkpoint_frequency
+        self._force_fresh_start = force_fresh_start
+
+        logger.info(
+            f"📋 Checkpoint configuration: resume={resume_from_checkpoint}, "
+            f"frequency={checkpoint_frequency}, fresh_start={force_fresh_start}"
+        )
 
     async def close(self):
         """
@@ -261,7 +286,15 @@ class RMSToShopifySync:
                     "inventory_failed": 0,
                 }
 
-                if checkpoint and await self.checkpoint_manager.should_resume():
+                # Check checkpoint configuration
+                should_resume = (
+                    self._resume_from_checkpoint
+                    and not self._force_fresh_start
+                    and checkpoint
+                    and await self.checkpoint_manager.should_resume()
+                )
+
+                if should_resume and checkpoint:
                     logger.info(
                         f"📊 Resuming sync from checkpoint: {checkpoint['processed_count']}/{
                             checkpoint['total_count']
@@ -269,8 +302,16 @@ class RMSToShopifySync:
                     )
                     start_index = checkpoint["processed_count"]
                     initial_stats = checkpoint["stats"]
+                    initial_stats["resumed_from_checkpoint"] = True
                 else:
-                    logger.info("🚀 Starting fresh sync - no valid checkpoint found")
+                    if self._force_fresh_start:
+                        logger.info("🚀 Starting fresh sync - forced fresh start")
+                        # Clear any existing checkpoint
+                        await self.checkpoint_manager.delete_checkpoint()
+                    elif not self._resume_from_checkpoint:
+                        logger.info("🚀 Starting fresh sync - resume disabled")
+                    else:
+                        logger.info("🚀 Starting fresh sync - no valid checkpoint found")
 
                 # 3. Procesar en lotes (sin cargar todos los productos en memoria)
                 sync_stats = await self._process_products_in_batches_optimized(
@@ -556,8 +597,10 @@ class RMSToShopifySync:
             for key in stats:
                 stats[key] += batch_stats.get(key, 0)
 
-            # Guardar checkpoint cada cierto número de productos
-            if (current_index + len(batch)) % 100 == 0 or (i + batch_size >= len(products_to_process)):
+            # Guardar checkpoint según frecuencia configurada
+            if (current_index + len(batch)) % self._checkpoint_frequency == 0 or (
+                i + batch_size >= len(products_to_process)
+            ):
                 last_ccod = batch[-1].tags[0].replace("ccod_", "") if batch and batch[-1].tags else "unknown"
 
                 await self.checkpoint_manager.save_checkpoint(
@@ -1279,6 +1322,10 @@ async def sync_rms_to_shopify(
     filter_categories: Optional[List[str]] = None,
     include_zero_stock: bool = False,
     ccod: Optional[str] = None,
+    # Checkpoint parameters
+    resume_from_checkpoint: bool = True,
+    checkpoint_frequency: int = 100,
+    force_fresh_start: bool = False,
 ) -> Dict[str, Any]:
     """
     Función de conveniencia para sincronización RMS → Shopify.
@@ -1289,14 +1336,25 @@ async def sync_rms_to_shopify(
         filter_categories: Categorías a filtrar
         include_zero_stock: Incluir productos sin stock
         ccod: CCOD específico a sincronizar (opcional)
+        resume_from_checkpoint: Reanudar desde checkpoint si existe
+        checkpoint_frequency: Frecuencia de guardado de checkpoint
+        force_fresh_start: Forzar inicio desde cero ignorando checkpoints
 
     Returns:
-        Dict: Resultado de la sincronización
+        Dict: Resultado de la sincronización con información de checkpoint
     """
     sync_service = RMSToShopifySync()
 
     try:
         await sync_service.initialize()
+
+        # Configure checkpoint behavior
+        sync_service.configure_checkpoint_behavior(
+            resume_from_checkpoint=resume_from_checkpoint,
+            checkpoint_frequency=checkpoint_frequency,
+            force_fresh_start=force_fresh_start,
+        )
+
         result = await sync_service.sync_products(
             force_update=force_update,
             batch_size=batch_size,

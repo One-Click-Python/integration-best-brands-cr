@@ -62,6 +62,22 @@ class SyncRequest(BaseModel):
         default=None, max_length=20, description="Sincronizar solo un producto específico por CCOD"
     )
 
+    # Checkpoint parameters
+    resume_from_checkpoint: bool = Field(
+        default=True,
+        description="Reanudar desde checkpoint existente si está disponible"
+    )
+    checkpoint_frequency: Optional[int] = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        description="Frecuencia de guardado de checkpoint (cada N productos)"
+    )
+    force_fresh_start: bool = Field(
+        default=False,
+        description="Forzar inicio desde cero ignorando checkpoints existentes"
+    )
+
     @field_validator("batch_size")
     @classmethod
     def validate_batch_size(cls, v):
@@ -69,6 +85,14 @@ class SyncRequest(BaseModel):
         if v is not None and v <= 0:
             raise ValueError("batch_size debe ser mayor que 0")
         return v or settings.SYNC_BATCH_SIZE
+
+    @field_validator("checkpoint_frequency")
+    @classmethod
+    def validate_checkpoint_frequency(cls, v):
+        """Valida la frecuencia de checkpoint."""
+        if v is not None and v <= 0:
+            raise ValueError("checkpoint_frequency debe ser mayor que 0")
+        return v or 100
 
 
 class SyncResponse(BaseModel):
@@ -82,6 +106,20 @@ class SyncResponse(BaseModel):
     recommendations: Optional[List[str]] = None
     timestamp: datetime
     duration_seconds: Optional[float] = None
+
+    # Checkpoint information
+    checkpoint_info: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Información del checkpoint si existe"
+    )
+    resumed_from_checkpoint: bool = Field(
+        default=False,
+        description="Indica si la sincronización se reanudó desde checkpoint"
+    )
+    checkpoint_frequency: Optional[int] = Field(
+        default=None,
+        description="Frecuencia de guardado de checkpoint configurada"
+    )
 
 
 class SyncStatusResponse(BaseModel):
@@ -214,6 +252,25 @@ async def sync_rms_to_shopify_endpoint(
             },
         )
 
+    # Checkpoint validation
+    if not sync_request.force_fresh_start and sync_request.resume_from_checkpoint:
+        # Check for existing checkpoints
+        from app.services.sync_checkpoint import SyncCheckpointManager
+        temp_sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        temp_checkpoint_manager = SyncCheckpointManager(temp_sync_id)
+
+        try:
+            await temp_checkpoint_manager.initialize()
+            existing_checkpoint = await temp_checkpoint_manager.load_checkpoint()
+
+            if existing_checkpoint and await temp_checkpoint_manager.should_resume():
+                logger.info(f"Found valid checkpoint: {existing_checkpoint['processed_count']}/{existing_checkpoint['total_count']} products")
+
+        except Exception as e:
+            logger.warning(f"Error checking for existing checkpoint: {e}")
+        finally:
+            await temp_checkpoint_manager.close()
+
     try:
         log_sync_operation(
             operation="start",
@@ -234,6 +291,8 @@ async def sync_rms_to_shopify_endpoint(
                 message="Synchronization started in background",
                 statistics={"status": "started"},
                 timestamp=datetime.now(timezone.utc),
+                checkpoint_frequency=sync_request.checkpoint_frequency,
+                resumed_from_checkpoint=False,  # Will be determined during execution
             )
         else:
             # Ejecutar sincrónicamente
@@ -248,6 +307,9 @@ async def sync_rms_to_shopify_endpoint(
                     filter_categories=sync_request.filter_categories,
                     include_zero_stock=sync_request.include_zero_stock,
                     ccod=sync_request.ccod,
+                    resume_from_checkpoint=sync_request.resume_from_checkpoint,
+                    checkpoint_frequency=sync_request.checkpoint_frequency,
+                    force_fresh_start=sync_request.force_fresh_start,
                 )
 
             return SyncResponse(
@@ -259,6 +321,9 @@ async def sync_rms_to_shopify_endpoint(
                 recommendations=result.get("recommendations"),
                 timestamp=datetime.now(timezone.utc),
                 duration_seconds=result.get("duration_seconds"),
+                checkpoint_info=result.get("checkpoint_info"),
+                resumed_from_checkpoint=result.get("statistics", {}).get("resumed_from_checkpoint", False),
+                checkpoint_frequency=sync_request.checkpoint_frequency,
             )
 
     except ValidationException as e:
@@ -640,6 +705,9 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
                 filter_categories=sync_request.filter_categories,
                 include_zero_stock=sync_request.include_zero_stock,
                 ccod=sync_request.ccod,
+                resume_from_checkpoint=sync_request.resume_from_checkpoint,
+                checkpoint_frequency=sync_request.checkpoint_frequency,
+                force_fresh_start=sync_request.force_fresh_start,
             )
 
             logger.info(f"✅ Background RMS sync completed with LOCK: {sync_id}")

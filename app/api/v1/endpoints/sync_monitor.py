@@ -28,16 +28,13 @@ router = APIRouter()
 
 class SyncIntervalUpdate(BaseModel):
     """Modelo para actualizar intervalo de sincronización."""
-    interval_minutes: int = Field(
-        ...,
-        ge=1,
-        le=1440,
-        description="Intervalo en minutos (1-1440)"
-    )
+
+    interval_minutes: int = Field(..., ge=1, le=1440, description="Intervalo en minutos (1-1440)")
 
 
 class CheckpointProgressResponse(BaseModel):
     """Respuesta con el progreso detallado desde checkpoint."""
+
     status: str
     sync_id: Optional[str] = None
     processed: int = 0
@@ -57,50 +54,40 @@ class CheckpointProgressResponse(BaseModel):
 async def get_sync_monitoring_status() -> Dict[str, Any]:
     """
     Obtiene el estado actual del sistema de monitoreo y sincronización.
-    
+
     Returns:
         Dict: Estado completo del sistema
     """
     try:
         status_info = get_scheduler_status()
-        
-        return {
-            "status": "success",
-            "data": status_info,
-            "message": "Estado del sistema obtenido correctamente"
-        }
-        
+
+        return {"status": "success", "data": status_info, "message": "Estado del sistema obtenido correctamente"}
+
     except Exception as e:
         logger.error(f"Error obteniendo estado del sistema: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error obteniendo estado: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error obteniendo estado: {str(e)}"
+        ) from e
 
 
 @router.get("/stats", status_code=status.HTTP_200_OK)
 async def get_sync_statistics() -> Dict[str, Any]:
     """
     Obtiene estadísticas detalladas de sincronización.
-    
+
     Returns:
         Dict: Estadísticas completas del sistema
     """
     try:
         stats = get_sync_stats()
-        
-        return {
-            "status": "success",
-            "data": stats,
-            "message": "Estadísticas obtenidas correctamente"
-        }
-        
+
+        return {"status": "success", "data": stats, "message": "Estadísticas obtenidas correctamente"}
+
     except Exception as e:
         logger.error(f"Error obteniendo estadísticas: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error obteniendo estadísticas: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error obteniendo estadísticas: {str(e)}"
+        ) from e
 
 
 @router.get("/progress", status_code=status.HTTP_200_OK)
@@ -122,7 +109,8 @@ async def get_sync_progress(sync_id: Optional[str] = None) -> CheckpointProgress
             # Si no se especifica sync_id, intentar encontrar el más reciente
             # Para simplificar, usaremos un ID genérico
             from datetime import datetime, timezone
-            current_time = datetime.now(timezone.utc).strftime('%Y%m%d')
+
+            current_time = datetime.now(timezone.utc).strftime("%Y%m%d")
             sync_id = f"rms_to_shopify_{current_time}"
             checkpoint_manager = SyncCheckpointManager(sync_id)
 
@@ -144,16 +132,175 @@ async def get_sync_progress(sync_id: Optional[str] = None) -> CheckpointProgress
             eta_seconds=progress_info.get("eta_seconds", 0.0),
             processing_rate=progress_info.get("processing_rate", 0.0),
             timestamp=progress_info.get("timestamp"),
-            message=progress_info.get("message")
+            message=progress_info.get("message"),
         )
 
     except Exception as e:
         logger.error(f"Error obteniendo progreso: {e}")
         # Retornar progreso vacío en caso de error
+        return CheckpointProgressResponse(status="error", message=f"Error obteniendo progreso: {str(e)}")
+
+
+@router.get("/checkpoint/status/{sync_id}", status_code=status.HTTP_200_OK)
+async def get_checkpoint_status(sync_id: str) -> CheckpointProgressResponse:
+    """
+    Obtiene el estado detallado de un checkpoint específico.
+
+    Args:
+        sync_id: ID de la sincronización
+
+    Returns:
+        CheckpointProgressResponse: Estado detallado del checkpoint
+    """
+    checkpoint_manager = None
+    try:
+        checkpoint_manager = SyncCheckpointManager(sync_id)
+        await checkpoint_manager.initialize()
+
+        progress_info = await checkpoint_manager.get_progress_info()
+
         return CheckpointProgressResponse(
-            status="error",
-            message=f"Error obteniendo progreso: {str(e)}"
+            status=progress_info.get("status", "unknown"),
+            sync_id=progress_info.get("sync_id"),
+            processed=progress_info.get("processed", 0),
+            total=progress_info.get("total", 0),
+            progress_percentage=progress_info.get("progress_percentage", 0.0),
+            last_ccod=progress_info.get("last_ccod"),
+            batch_number=progress_info.get("batch_number", 0),
+            stats=progress_info.get("stats", {}),
+            elapsed_seconds=progress_info.get("elapsed_seconds", 0.0),
+            eta_seconds=progress_info.get("eta_seconds", 0.0),
+            processing_rate=progress_info.get("processing_rate", 0.0),
+            timestamp=progress_info.get("timestamp"),
+            message=progress_info.get("message"),
         )
+
+    except Exception as e:
+        logger.error(f"Error getting checkpoint status for {sync_id}: {e}")
+        return CheckpointProgressResponse(
+            status="error", sync_id=sync_id, message=f"Error getting checkpoint status: {str(e)}"
+        )
+    finally:
+        if checkpoint_manager:
+            await checkpoint_manager.close()
+
+
+@router.post("/checkpoint/resume/{sync_id}", status_code=status.HTTP_200_OK)
+async def resume_from_checkpoint(sync_id: str) -> Dict[str, Any]:
+    """
+    Reanuda una sincronización desde un checkpoint específico.
+
+    Args:
+        sync_id: ID de la sincronización
+
+    Returns:
+        Dict: Resultado de la reanudación
+    """
+    checkpoint_manager = None
+    try:
+        checkpoint_manager = SyncCheckpointManager(sync_id)
+        await checkpoint_manager.initialize()
+
+        # Verificar si el checkpoint es válido
+        if not await checkpoint_manager.should_resume():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No se puede reanudar desde checkpoint {sync_id} - checkpoint inválido o muy antiguo",
+            )
+
+        # Usar el endpoint de sync existente para reanudar
+        from app.api.v1.endpoints.sync import SyncRequest, _execute_rms_to_shopify_sync
+
+        # Crear request con configuración de checkpoint
+        sync_request = SyncRequest(resume_from_checkpoint=True, force_fresh_start=False, checkpoint_frequency=100)
+
+        # Ejecutar sync en background (simular FastAPI background task)
+        import asyncio
+
+        asyncio.create_task(_execute_rms_to_shopify_sync(sync_request, sync_id))
+
+        return {
+            "status": "success",
+            "message": f"Sincronización reanudada desde checkpoint {sync_id}",
+            "sync_id": sync_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming from checkpoint {sync_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error reanudando desde checkpoint: {str(e)}"
+        ) from e
+    finally:
+        if checkpoint_manager:
+            await checkpoint_manager.close()
+
+
+@router.get("/checkpoint/list", status_code=status.HTTP_200_OK)
+async def list_active_checkpoints() -> Dict[str, Any]:
+    """
+    Lista todos los checkpoints activos disponibles.
+
+    Returns:
+        Dict: Lista de checkpoints activos
+    """
+    try:
+        from pathlib import Path
+
+        checkpoints_dir = Path("checkpoints")
+        if not checkpoints_dir.exists():
+            return {
+                "status": "success",
+                "data": {"checkpoints": [], "total_count": 0},
+                "message": "No hay checkpoints disponibles",
+            }
+
+        checkpoint_files = list(checkpoints_dir.glob("*.json"))
+        checkpoints = []
+
+        for checkpoint_file in checkpoint_files:
+            try:
+                sync_id = checkpoint_file.stem
+                checkpoint_manager = SyncCheckpointManager(sync_id)
+                await checkpoint_manager.initialize()
+
+                progress_info = await checkpoint_manager.get_progress_info()
+
+                if progress_info.get("status") != "not_started":
+                    checkpoints.append(
+                        {
+                            "sync_id": sync_id,
+                            "status": progress_info.get("status"),
+                            "progress_percentage": progress_info.get("progress_percentage", 0.0),
+                            "processed": progress_info.get("processed", 0),
+                            "total": progress_info.get("total", 0),
+                            "last_ccod": progress_info.get("last_ccod"),
+                            "timestamp": progress_info.get("timestamp"),
+                            "can_resume": await checkpoint_manager.should_resume(),
+                        }
+                    )
+
+                await checkpoint_manager.close()
+
+            except Exception as e:
+                logger.warning(f"Error reading checkpoint file {checkpoint_file}: {e}")
+                continue
+
+        # Sort by timestamp (most recent first)
+        checkpoints.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        return {
+            "status": "success",
+            "data": {"checkpoints": checkpoints, "total_count": len(checkpoints)},
+            "message": f"Se encontraron {len(checkpoints)} checkpoints",
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing checkpoints: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error listando checkpoints: {str(e)}"
+        ) from e
 
 
 @router.delete("/checkpoint/{sync_id}", status_code=status.HTTP_200_OK)
@@ -178,12 +325,11 @@ async def delete_sync_checkpoint(sync_id: str) -> Dict[str, Any]:
             return {
                 "status": "success",
                 "message": f"Checkpoint eliminado para sincronización {sync_id}",
-                "sync_id": sync_id
+                "sync_id": sync_id,
             }
         else:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No se pudo eliminar checkpoint para sync {sync_id}"
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"No se pudo eliminar checkpoint para sync {sync_id}"
             )
 
     except HTTPException:
@@ -191,143 +337,128 @@ async def delete_sync_checkpoint(sync_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error eliminando checkpoint: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error eliminando checkpoint: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error eliminando checkpoint: {str(e)}"
+        ) from e
 
 
 @router.post("/trigger", status_code=status.HTTP_200_OK)
 async def trigger_manual_sync() -> Dict[str, Any]:
     """
     Ejecuta una verificación y sincronización manual inmediata.
-    
+
     Returns:
         Dict: Resultado de la sincronización manual
     """
     try:
         logger.info("API: Iniciando sincronización manual")
-        
+
         result = await manual_sync_trigger()
-        
+
         if result.get("success"):
-            return {
-                "status": "success",
-                "data": result,
-                "message": "Sincronización manual ejecutada correctamente"
-            }
+            return {"status": "success", "data": result, "message": "Sincronización manual ejecutada correctamente"}
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error en sincronización manual: {result.get('error', 'Unknown error')}"
+                detail=f"Error en sincronización manual: {result.get('error', 'Unknown error')}",
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error en sincronización manual: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error ejecutando sincronización manual: {str(e)}"
-        )
+            detail=f"Error ejecutando sincronización manual: {str(e)}",
+        ) from e
 
 
 @router.post("/force-full-sync", status_code=status.HTTP_200_OK)
 async def trigger_full_sync() -> Dict[str, Any]:
     """
     Fuerza una sincronización completa de todos los productos.
-    
+
     Returns:
         Dict: Resultado de la sincronización completa
     """
     try:
         logger.info("API: Iniciando sincronización completa forzada")
-        
+
         result = await force_full_sync()
-        
+
         if result.get("success"):
-            return {
-                "status": "success",
-                "data": result,
-                "message": "Sincronización completa ejecutada correctamente"
-            }
+            return {"status": "success", "data": result, "message": "Sincronización completa ejecutada correctamente"}
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error en sincronización completa: {result.get('error', 'Unknown error')}"
+                detail=f"Error en sincronización completa: {result.get('error', 'Unknown error')}",
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error en sincronización completa: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error ejecutando sincronización completa: {str(e)}"
-        )
+            detail=f"Error ejecutando sincronización completa: {str(e)}",
+        ) from e
 
 
 @router.put("/interval", status_code=status.HTTP_200_OK)
-async def update_sync_monitoring_interval(
-    interval_data: SyncIntervalUpdate
-) -> Dict[str, Any]:
+async def update_sync_monitoring_interval(interval_data: SyncIntervalUpdate) -> Dict[str, Any]:
     """
     Actualiza el intervalo de verificación de cambios.
-    
+
     Args:
         interval_data: Nuevo intervalo en minutos
-        
+
     Returns:
         Dict: Confirmación de actualización
     """
     try:
         logger.info(f"API: Actualizando intervalo a {interval_data.interval_minutes} minutos")
-        
+
         success = await update_sync_interval(interval_data.interval_minutes)
-        
+
         if success:
             return {
                 "status": "success",
                 "data": {
                     "new_interval_minutes": interval_data.interval_minutes,
-                    "updated_at": "2025-07-03T10:00:00Z"  # You might want to use actual timestamp
+                    "updated_at": "2025-07-03T10:00:00Z",  # You might want to use actual timestamp
                 },
-                "message": f"Intervalo actualizado a {interval_data.interval_minutes} minutos"
+                "message": f"Intervalo actualizado a {interval_data.interval_minutes} minutos",
             }
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No se pudo actualizar el intervalo"
-            )
-            
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se pudo actualizar el intervalo")
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error actualizando intervalo: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error actualizando intervalo: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error actualizando intervalo: {str(e)}"
+        ) from e
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)
 async def get_sync_monitoring_health() -> Dict[str, Any]:
     """
     Verifica la salud del sistema de monitoreo.
-    
+
     Returns:
         Dict: Estado de salud del sistema
     """
     try:
         status_info = get_scheduler_status()
-        
+
         is_healthy = (
-            status_info.get("running", False) and
-            status_info.get("task_active", False) and
-            status_info.get("change_detection_enabled", False)
+            status_info.get("running", False)
+            and status_info.get("task_active", False)
+            and status_info.get("change_detection_enabled", False)
         )
-        
+
         health_status = "healthy" if is_healthy else "unhealthy"
-        
+
         response = {
             "status": "success",
             "data": {
@@ -338,36 +469,35 @@ async def get_sync_monitoring_health() -> Dict[str, Any]:
                 "last_check": status_info.get("change_detector", {}).get("last_check_time"),
                 "total_checks": status_info.get("change_detector", {}).get("total_checks", 0),
                 "changes_detected": status_info.get("change_detector", {}).get("changes_detected", 0),
-                "items_synced": status_info.get("change_detector", {}).get("items_synced", 0)
+                "items_synced": status_info.get("change_detector", {}).get("items_synced", 0),
             },
-            "message": f"Sistema de monitoreo está {health_status}"
+            "message": f"Sistema de monitoreo está {health_status}",
         }
-        
+
         # Si no está saludable, devolver código de error
         if not is_healthy:
             return response  # Aún devolver 200 pero con información de unhealthy
-            
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Error verificando salud del sistema: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error verificando salud: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error verificando salud: {str(e)}"
+        ) from e
 
 
 @router.get("/recent-activity", status_code=status.HTTP_200_OK)
 async def get_recent_sync_activity() -> Dict[str, Any]:
     """
     Obtiene actividad reciente de sincronización.
-    
+
     Returns:
         Dict: Actividad reciente del sistema
     """
     try:
         stats = get_sync_stats()
-        
+
         # Extraer información relevante de actividad reciente
         activity = {
             "last_sync_time": stats.get("last_sync_time"),
@@ -376,58 +506,49 @@ async def get_recent_sync_activity() -> Dict[str, Any]:
                 "total_checks": stats.get("total_checks", 0),
                 "changes_detected": stats.get("changes_detected", 0),
                 "items_synced": stats.get("items_synced", 0),
-                "errors": stats.get("errors", 0)
+                "errors": stats.get("errors", 0),
             },
             "system_status": {
                 "running": stats.get("running", False),
-                "monitoring_active": stats.get("monitoring_active", False)
-            }
+                "monitoring_active": stats.get("monitoring_active", False),
+            },
         }
-        
-        return {
-            "status": "success",
-            "data": activity,
-            "message": "Actividad reciente obtenida correctamente"
-        }
-        
+
+        return {"status": "success", "data": activity, "message": "Actividad reciente obtenida correctamente"}
+
     except Exception as e:
         logger.error(f"Error obteniendo actividad reciente: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error obteniendo actividad: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error obteniendo actividad: {str(e)}"
+        ) from e
 
 
 @router.get("/config", status_code=status.HTTP_200_OK)
 async def get_sync_configuration() -> Dict[str, Any]:
     """
     Obtiene la configuración actual del sistema de sincronización.
-    
+
     Returns:
         Dict: Configuración actual
     """
     try:
         from app.core.config import get_settings
+
         settings = get_settings()
-        
+
         config = {
             "sync_interval_minutes": settings.SYNC_INTERVAL_MINUTES,
             "enable_scheduled_sync": settings.ENABLE_SCHEDULED_SYNC,
             "batch_size": settings.SYNC_BATCH_SIZE,
             "max_concurrent_jobs": settings.SYNC_MAX_CONCURRENT_JOBS,
             "timeout_minutes": settings.SYNC_TIMEOUT_MINUTES,
-            "rms_sync_incremental_hours": settings.RMS_SYNC_INCREMENTAL_HOURS
+            "rms_sync_incremental_hours": settings.RMS_SYNC_INCREMENTAL_HOURS,
         }
-        
-        return {
-            "status": "success",
-            "data": config,
-            "message": "Configuración obtenida correctamente"
-        }
-        
+
+        return {"status": "success", "data": config, "message": "Configuración obtenida correctamente"}
+
     except Exception as e:
         logger.error(f"Error obteniendo configuración: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error obteniendo configuración: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error obteniendo configuración: {str(e)}"
+        ) from e
