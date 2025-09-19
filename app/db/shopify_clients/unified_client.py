@@ -91,6 +91,10 @@ class ShopifyGraphQLClient(BaseShopifyGraphQLClient):
         """Delegate to product client."""
         return await self.products.get_product_by_handle(handle)
 
+    async def get_products_by_handles_batch(self, handles: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
+        """Delegate to product client."""
+        return await self.products.get_products_by_handles_batch(handles)
+
     async def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """Delegate to product client."""
         return await self.products.create_product(product_data)

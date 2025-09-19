@@ -371,6 +371,21 @@ def configure_optional_routers(app: FastAPI) -> None:
         except ImportError:
             logger.warning("⚠️ Router de logs no disponible")
 
+    # Router de migración administrativa
+    if settings.DEBUG or settings.ENVIRONMENT == "production":
+        try:
+            from app.api.v1.endpoints.admin_migration import router as migration_router
+
+            app.include_router(
+                migration_router,
+                prefix="/api/v1",
+                tags=["Migration"],
+                responses={403: {"description": "Migration access forbidden"}},
+            )
+            logger.info("✅ Router de migración administrativa configurado")
+        except ImportError:
+            logger.warning("⚠️ Router de migración administrativa no disponible")
+
 
 def configure_all_routers(app: FastAPI) -> None:
     """

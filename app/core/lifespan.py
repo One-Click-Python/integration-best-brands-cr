@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
         app: Instancia de FastAPI
     """
     # === STARTUP ===
-    logger.info("🚀 Iniciando RMS-Shopify Integration...", app)
+    logger.info("🚀 Iniciando RMS-Shopify Integration...")
 
     try:
         # 1. Configurar logging

@@ -148,7 +148,7 @@ class VariantMapper:
 
         # NUEVA LÓGICA: Determinar precio del producto basado en el valor más alto del CCOD
         # Esto asegura consistencia sin importar el orden o múltiples sincronizaciones
-        highest_price = VariantMapper._calculate_product_base_price(items)
+        VariantMapper._calculate_product_base_price(items)
 
         # Resolver categoría de taxonomía
         from app.services.data_mapper import RMSToShopifyMapper
@@ -162,9 +162,6 @@ class VariantMapper:
 
         # Generar tags
         tags = VariantMapper._generate_tags(base_item)
-
-        # Log del precio más alto para referencia
-        logger.info(f"🎯 Producto {base_item.ccod}: Precio más alto entre variantes = ₡{highest_price:,.2f}")
 
         return ShopifyProductInput(
             title=base_title,
@@ -206,7 +203,6 @@ class VariantMapper:
                     if not base_title.replace(" ", "").isdigit():
                         ccod_suffix = base_item.ccod or base_item.c_articulo
                         title_with_code = f"{base_title} - {ccod_suffix}"
-                        logger.debug(f"Título extraído por split: '{description}' → '{title_with_code}'")
                         return title_with_code[:255]
 
             # Si no hay guion o el split no funcionó, intentar usar descripción completa
@@ -381,7 +377,6 @@ class VariantMapper:
             return Decimal("0.00")
 
         max_price = Decimal("0.00")
-        max_price_item = None
 
         for item in items:
             # Usar precio efectivo (considerando ofertas)
@@ -403,10 +398,6 @@ class VariantMapper:
 
             if item_price > max_price:
                 max_price = item_price
-                max_price_item = item
-
-        if max_price_item:
-            logger.info(f"💰 Precio base del producto: ₡{max_price:,.2f} (basado en SKU {max_price_item.c_articulo})")
 
         return max_price
 
@@ -421,7 +412,6 @@ class VariantMapper:
         if item.ccod:
             normalized_ccod = item.ccod.strip().upper()
             tags.append(f"ccod_{normalized_ccod}")
-            logger.debug(f"Generando tag CCOD normalizado: '{item.ccod}' → 'ccod_{normalized_ccod}'")
 
         if item.familia:
             tags.append(item.familia)
@@ -471,9 +461,7 @@ async def create_products_with_variants(
     grouped_items = VariantMapper.group_items_by_model(rms_items)
 
     products = []
-    for model_key, items in grouped_items.items():
-        logger.info(f"Generating product for model '{model_key}' with {len(items)} variants")
-
+    for _, items in grouped_items.items():
         # Crear producto con variantes
         product = await VariantMapper.map_product_group_with_variants(
             items, shopify_client, location_id, preserve_shopify_status

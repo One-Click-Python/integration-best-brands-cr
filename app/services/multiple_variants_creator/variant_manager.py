@@ -376,6 +376,23 @@ class VariantManager:
                     logger.error("   ⏸️ SALTANDO esta actualización para prevenir corrupción de datos")
                     continue
 
+                # CORRECCIÓN DE PRECIOS: Verificar si el precio existente tiene problema de doble IVA
+                try:
+                    existing_price_float = float(existing_price_str)
+                    price_difference = abs(existing_price_float - new_price_float)
+                    
+                    # Si el precio existente es significativamente más alto (posible doble IVA)
+                    if existing_price_float > new_price_float and price_difference > 1000:
+                        # Verificar si parece ser doble aplicación de IVA (13%)
+                        expected_inflated_price = new_price_float * 1.13
+                        if abs(existing_price_float - expected_inflated_price) < 1.0:
+                            logger.warning(f"🔧 CORRIGIENDO DOBLE IVA para {new_variant.sku}:")
+                            logger.warning(f"   Precio con doble IVA: ₡{existing_price_float:,.2f}")
+                            logger.warning(f"   Precio correcto RMS: ₡{new_price_float:,.2f}")
+                            logger.warning("   ➡️ Forzando corrección")
+                except (ValueError, TypeError):
+                    pass  # Usar el precio nuevo de RMS
+
                 # DEBUGGING: Log de datos antes de preparar actualización
                 logger.info(f"🔍 DEBUG VARIANT PREP - SKU: {new_variant.sku}")
                 logger.info(

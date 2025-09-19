@@ -68,10 +68,17 @@ class Settings(BaseSettings):
     # === CONFIGURACIÓN DE SINCRONIZACIÓN ===
     ENABLE_SCHEDULED_SYNC: bool = Field(default=True, env="ENABLE_SCHEDULED_SYNC")
     SYNC_INTERVAL_MINUTES: int = Field(default=15, env="SYNC_INTERVAL_MINUTES")
-    SYNC_BATCH_SIZE: int = Field(default=1, env="SYNC_BATCH_SIZE")
-    DEFAULT_BATCH_SIZE: int = Field(default=1, env="DEFAULT_BATCH_SIZE")
+    SYNC_BATCH_SIZE: int = Field(default=25, env="SYNC_BATCH_SIZE")  # Aumentado para mejor rendimiento
+    DEFAULT_BATCH_SIZE: int = Field(default=25, env="DEFAULT_BATCH_SIZE")
     SYNC_MAX_CONCURRENT_JOBS: int = Field(default=3, env="SYNC_MAX_CONCURRENT_JOBS")
     SYNC_TIMEOUT_MINUTES: int = Field(default=30, env="SYNC_TIMEOUT_MINUTES")
+    SYNC_CHECKPOINT_INTERVAL: int = Field(default=100, env="SYNC_CHECKPOINT_INTERVAL")
+    SYNC_PARALLEL_WORKERS: int = Field(default=3, env="SYNC_PARALLEL_WORKERS")
+    SYNC_HANDLE_BATCH_SIZE: int = Field(default=25, env="SYNC_HANDLE_BATCH_SIZE")
+
+    # === CONFIGURACIÓN DE PRODUCTOS CON STOCK 0 ===
+    SYNC_UPDATE_ZERO_STOCK_PRODUCTS: bool = Field(default=True, env="SYNC_UPDATE_ZERO_STOCK_PRODUCTS")
+    SYNC_CREATE_ZERO_STOCK_PRODUCTS: bool = Field(default=False, env="SYNC_CREATE_ZERO_STOCK_PRODUCTS")
 
     # === CONFIGURACIÓN DE SINCRONIZACIÓN COMPLETA PROGRAMADA ===
     ENABLE_FULL_SYNC_SCHEDULE: bool = Field(default=False, env="ENABLE_FULL_SYNC_SCHEDULE")

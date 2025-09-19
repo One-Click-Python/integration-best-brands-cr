@@ -54,7 +54,7 @@ class SyncRequest(BaseModel):
     """Modelo para solicitudes de sincronización."""
 
     force_update: bool = Field(default=False, description="Forzar actualización de productos existentes")
-    batch_size: Optional[int] = Field(default=1, ge=1, le=1000, description="Tamaño del lote para procesamiento")
+    batch_size: Optional[int] = Field(default=50, ge=1, le=1000, description="Tamaño del lote para procesamiento")
     filter_categories: Optional[List[str]] = Field(default=None, description="Filtrar por categorías específicas")
     include_zero_stock: bool = Field(default=False, description="Incluir productos sin stock (cantidad = 0)")
     dry_run: bool = Field(default=False, description="Ejecutar en modo simulación sin hacer cambios")
@@ -843,3 +843,144 @@ async def _simulate_rms_to_shopify_sync(sync_request: SyncRequest) -> Dict[str, 
     }
 
     return simulated_result
+
+
+@router.get(
+    "/products/low-price",
+    summary="Verificar productos con precio bajo",
+    description="Obtiene productos de Shopify con precio menor al umbral especificado",
+)
+async def check_low_price_products(
+    price_threshold: float = Query(500, description="Umbral de precio máximo", ge=0),
+    limit: int = Query(100, description="Límite de productos a revisar", ge=1, le=1000),
+):
+    """
+    Verifica productos en Shopify con precio menor al umbral especificado.
+    
+    Args:
+        price_threshold: Precio máximo para filtrar productos
+        limit: Número máximo de productos a revisar
+    
+    Returns:
+        Dict: Lista de productos con precios bajos y estadísticas
+    """
+    try:
+        from app.db.shopify_client import get_shopify_products, initialize_http_client, test_shopify_connection
+        
+        logger.info(f"Checking products with price < {price_threshold}")
+        
+        # Verificar conexión con Shopify
+        logger.info("Testing Shopify connection...")
+        connection_ok = await test_shopify_connection()
+        logger.info(f"Shopify connection test result: {connection_ok}")
+        
+        if not connection_ok:
+            raise HTTPException(status_code=503, detail="Shopify connection failed")
+        
+        # Inicializar cliente si es necesario
+        await initialize_http_client()
+        
+        # Lista para almacenar productos con precio bajo
+        low_price_products = []
+        
+        # Obtener productos de Shopify
+        cursor = None
+        page = 1
+        processed_products = 0
+        
+        while processed_products < limit:
+            # Calcular cuántos productos obtener en esta página
+            page_limit = min(50, limit - processed_products)
+            
+            # Obtener productos
+            logger.info(f"Requesting products: limit={page_limit}, cursor={cursor}")
+            result = await get_shopify_products(limit=page_limit, page_info=cursor)
+            products = result.get("products", [])
+            
+            logger.info(f"Received {len(products)} products from Shopify")
+            logger.info(f"Result keys: {list(result.keys())}")
+            
+            if not products:
+                logger.info("No more products to process")
+                break
+            
+            # Procesar productos de esta página
+            for product in products:
+                product_id = product.get("id", "N/A")
+                title = product.get("title", "Sin título")
+                
+                # Revisar variantes para encontrar precios
+                variants = product.get("variants", {}).get("edges", [])
+                
+                for variant_edge in variants:
+                    variant = variant_edge.get("node", {})
+                    variant_id = variant.get("id", "N/A")
+                    variant_title = variant.get("title", "")
+                    
+                    # Obtener precio
+                    price_str = variant.get("price", "0")
+                    try:
+                        price = float(price_str)
+                        
+                        # Verificar si el precio está por debajo del umbral
+                        if 0 < price < price_threshold:
+                            low_price_products.append({
+                                "product_id": product_id,
+                                "product_title": title,
+                                "variant_id": variant_id,
+                                "variant_title": variant_title if variant_title != "Default Title" else "",
+                                "price": price,
+                                "sku": variant.get("sku", ""),
+                                "inventory_quantity": variant.get("inventoryQuantity", 0),
+                                "product_type": product.get("productType", ""),
+                                "vendor": product.get("vendor", ""),
+                                "created_at": product.get("createdAt", ""),
+                                "updated_at": product.get("updatedAt", "")
+                            })
+                            
+                    except (ValueError, TypeError):
+                        # Skip if price is not a valid number
+                        continue
+            
+            processed_products += len(products)
+            
+            # Verificar si hay más páginas
+            page_info = result.get("page_info", {})
+            if not result.get("has_next_page", False) or processed_products >= limit:
+                break
+                
+            cursor = page_info.get("endCursor")
+            page += 1
+        
+        # Ordenar por precio ascendente
+        low_price_products.sort(key=lambda x: x["price"])
+        
+        # Calcular estadísticas
+        stats = {
+            "total_products_processed": processed_products,
+            "low_price_variants_found": len(low_price_products),
+            "unique_products": len(set(item["product_id"] for item in low_price_products)),
+            "price_threshold": price_threshold,
+        }
+        
+        if low_price_products:
+            prices = [item["price"] for item in low_price_products]
+            stats.update({
+                "lowest_price": min(prices),
+                "highest_price_in_results": max(prices),
+                "average_price": round(sum(prices) / len(prices), 2)
+            })
+        
+        return {
+            "success": True,
+            "statistics": stats,
+            "products": low_price_products,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking low price products: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to check products with low prices: {str(e)}"
+        ) from e

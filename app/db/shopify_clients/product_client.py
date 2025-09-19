@@ -110,6 +110,51 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
             logger.error(f"Error searching product by handle '{handle}': {e}")
             raise ShopifyAPIException(f"Failed to search product by handle: {str(e)}") from e
 
+    async def get_products_by_handles_batch(self, handles: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
+        """
+        Find multiple products by their handles in a single query.
+
+        Args:
+            handles: List of product handles to search for
+
+        Returns:
+            Dict mapping handle to product data (or None if not found)
+        """
+        if not handles:
+            return {}
+
+        try:
+            # Build search query with multiple handles
+            # Shopify search syntax: handle:handle1 OR handle:handle2 OR ...
+            handle_queries = [f"handle:{handle}" for handle in handles]
+            search_query = " OR ".join(handle_queries)
+
+            # Import the new query
+            from app.db.queries.products import PRODUCTS_BY_HANDLES_BATCH_QUERY
+
+            variables = {"handles": search_query}
+            result = await self._execute_query(PRODUCTS_BY_HANDLES_BATCH_QUERY, variables)
+
+            # Build result dictionary with correct typing
+            products_by_handle: Dict[str, Optional[Dict[str, Any]]] = {handle: None for handle in handles}
+
+            edges = result.get("products", {}).get("edges", [])
+            for edge in edges:
+                product = edge["node"]
+                product_handle = product.get("handle")
+                if product_handle in products_by_handle:
+                    products_by_handle[product_handle] = product
+
+            # Log results
+            found_count = sum(1 for p in products_by_handle.values() if p is not None)
+            logger.info(f"Batch search: Found {found_count}/{len(handles)} products by handle")
+
+            return products_by_handle
+
+        except Exception as e:
+            logger.error(f"Error in batch product search: {e}")
+            raise ShopifyAPIException(f"Failed to search products in batch: {str(e)}") from e
+
     async def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a new product in Shopify.
@@ -186,22 +231,22 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
             # Log what we're trying to create for debugging
             logger.info(f"📦 Attempting to create {len(variants_data)} variants for product {product_id}")
             for i, variant_data in enumerate(variants_data[:3]):  # Log first 3 for debugging
-                logger.debug(f"   Variant {i+1}: {variant_data}")
+                logger.debug(f"   Variant {i + 1}: {variant_data}")
             if len(variants_data) > 3:
                 logger.debug(f"   ... and {len(variants_data) - 3} more variants")
-            
+
             variables = {"productId": product_id, "variants": variants_data}
             result = await self._execute_query(CREATE_VARIANTS_BULK_MUTATION, variables)
 
             bulk_result = result.get("productVariantsBulkCreate", {})
-            
+
             # Check for user errors before calling generic error handler
             user_errors = bulk_result.get("userErrors", [])
             if user_errors:
                 # Handle duplicate variant errors specifically
                 duplicate_errors = []
                 other_errors = []
-                
+
                 for error in user_errors:
                     error_msg = error.get("message", "")
                     if "already exists" in error_msg.lower():
@@ -209,7 +254,7 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
                         logger.warning(f"⚠️ Duplicate variant detected: {error_msg}")
                     else:
                         other_errors.append(f"{error.get('field', 'unknown')}: {error_msg}")
-                
+
                 # If ALL errors are duplicate errors, log as warning but don't fail
                 if duplicate_errors and not other_errors:
                     logger.warning(f"⚠️ All {len(duplicate_errors)} variants already exist, skipping creation")
@@ -217,13 +262,13 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
                     return {
                         "productVariants": [],
                         "userErrors": user_errors,
-                        "duplicatesSkipped": len(duplicate_errors)
+                        "duplicatesSkipped": len(duplicate_errors),
                     }
-                
+
                 # If there are other errors besides duplicates, raise exception
                 if other_errors:
                     raise ShopifyAPIException(f"Bulk variant creation failed: {', '.join(other_errors)}")
-            
+
             # If no errors, handle normally
             self._handle_graphql_errors(bulk_result, "Bulk variant creation")
 
@@ -234,7 +279,7 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
                     options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
                     logger.info(f"   ✅ Variant: {variant['sku']} - {options_str} - ${variant['price']}")
             else:
-                logger.info(f"ℹ️ No new variants created (they may already exist)")
+                logger.info("ℹ️ No new variants created (they may already exist)")
 
             return bulk_result
 

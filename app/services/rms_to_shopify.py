@@ -7,6 +7,7 @@ desde Microsoft Retail Management System hacia Shopify.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -15,6 +16,7 @@ from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 from app.core.config import get_settings
 from app.core.logging_config import LogContext, log_sync_operation
+from app.services.sync_checkpoint import SyncCheckpointManager
 from app.utils.error_handler import (
     ErrorAggregator,
     SyncException,
@@ -22,6 +24,89 @@ from app.utils.error_handler import (
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+class SyncProgressTracker:
+    """Tracker para progreso de sincronización con ETA y métricas."""
+
+    def __init__(self, total_items: int, operation_name: str = "Sync"):
+        self.total_items = total_items
+        self.operation_name = operation_name
+        self.processed_items = 0
+        self.start_time = time.time()
+        self.last_log_time = self.start_time
+        self.stats = {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
+
+    def update(self, created: int = 0, updated: int = 0, skipped: int = 0, errors: int = 0):
+        """Actualiza las estadísticas y el progreso."""
+        self.processed_items += 1
+        self.stats["created"] += created
+        self.stats["updated"] += updated
+        self.stats["skipped"] += skipped
+        self.stats["errors"] += errors
+
+    def get_progress_info(self) -> Dict[str, Any]:
+        """Obtiene información completa del progreso."""
+        current_time = time.time()
+        elapsed = current_time - self.start_time
+
+        if self.processed_items == 0:
+            return {"percentage": 0.0, "eta_seconds": 0, "rate_per_minute": 0.0, "elapsed_str": "00:00:00"}
+
+        percentage = (self.processed_items / self.total_items) * 100
+        rate_per_minute = (self.processed_items / elapsed) * 60 if elapsed > 0 else 0
+
+        remaining_items = self.total_items - self.processed_items
+        eta_seconds = (remaining_items / rate_per_minute) * 60 if rate_per_minute > 0 else 0
+
+        return {
+            "percentage": percentage,
+            "eta_seconds": eta_seconds,
+            "rate_per_minute": rate_per_minute,
+            "elapsed_str": self._format_duration(elapsed),
+            "eta_str": self._format_duration(eta_seconds),
+            "processed": self.processed_items,
+            "total": self.total_items,
+        }
+
+    def should_log_progress(self, force: bool = False) -> bool:
+        """Determina si debe hacer log del progreso (cada 10% o cada 30 segundos)."""
+        current_time = time.time()
+        progress_info = self.get_progress_info()
+
+        # Log cada 10% de progreso o cada 30 segundos
+        percentage_milestone = int(progress_info["percentage"]) % 10 == 0
+        time_milestone = (current_time - self.last_log_time) >= 30
+
+        if force or percentage_milestone or time_milestone:
+            self.last_log_time = current_time
+            return True
+        return False
+
+    def log_progress(self, prefix: str = ""):
+        """Hace log del progreso actual."""
+        info = self.get_progress_info()
+
+        logger.info(
+            f"{prefix}📊 {self.operation_name}: "
+            f"{info['processed']}/{info['total']} ({info['percentage']:.1f}%) | "
+            f"⏱️ {info['elapsed_str']} elapsed, ETA: {info['eta_str']} | "
+            f"⚡ {info['rate_per_minute']:.1f}/min | "
+            f"✅ {self.stats['created']} created, "
+            f"🔄 {self.stats['updated']} updated, "
+            f"⏭️ {self.stats['skipped']} skipped, "
+            f"❌ {self.stats['errors']} errors"
+        )
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Formatea duración en formato HH:MM:SS."""
+        if seconds < 0:
+            return "00:00:00"
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 class RMSToShopifySync:
@@ -39,6 +124,8 @@ class RMSToShopifySync:
         self.error_aggregator = ErrorAggregator()
         self.sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: F821
         self._include_zero_stock = False
+        self.checkpoint_manager = SyncCheckpointManager(self.sync_id)
+        self.batch_handle_cache = {}  # Cache para búsquedas por handle
 
     async def initialize(self):
         """
@@ -79,6 +166,9 @@ class RMSToShopifySync:
             else:
                 logger.warning("No primary location found - inventory updates may fail")
 
+            # Inicializar checkpoint manager
+            await self.checkpoint_manager.initialize()
+
             logger.info(f"Sync service initialized - ID: {self.sync_id}")
 
         except Exception as e:
@@ -104,6 +194,11 @@ class RMSToShopifySync:
             if self.shopify_client:
                 await self.shopify_client.close()
                 logger.debug("Shopify client closed")
+
+            # Cerrar checkpoint manager
+            if self.checkpoint_manager:
+                await self.checkpoint_manager.close()
+                logger.debug("Checkpoint manager closed")
 
             # El inventory_manager no necesita cleanup específico
             # ya que usa el shopify_client que ya se cerró
@@ -151,15 +246,35 @@ class RMSToShopifySync:
             try:
                 # 1. Extraer productos de RMS
                 rms_products = await self._extract_rms_products(filter_categories, cod_product)
-                logger.info(f"❗️Extracted {len(rms_products)} products from RMS")
+                logger.info(f"📦 Extracted {len(rms_products)} products from RMS")
 
-                # 2. Obtener productos existentes de Shopify
-                shopify_products = await self._get_existing_shopify_products()
-                logger.info(f"💎Found {len(shopify_products)} existing products in Shopify")
+                # 2. Verificar si existe checkpoint para reanudar
+                checkpoint = await self.checkpoint_manager.load_checkpoint()
+                start_index = 0
+                initial_stats = {
+                    "total_processed": 0,
+                    "created": 0,
+                    "updated": 0,
+                    "errors": 0,
+                    "skipped": 0,
+                    "inventory_updated": 0,
+                    "inventory_failed": 0,
+                }
 
-                # 3. Procesar en lotes
-                sync_stats = await self._process_products_in_batches(
-                    rms_products, shopify_products, force_update, batch_size
+                if checkpoint and await self.checkpoint_manager.should_resume():
+                    logger.info(
+                        f"📊 Resuming sync from checkpoint: {checkpoint['processed_count']}/{
+                            checkpoint['total_count']
+                        } products"
+                    )
+                    start_index = checkpoint["processed_count"]
+                    initial_stats = checkpoint["stats"]
+                else:
+                    logger.info("🚀 Starting fresh sync - no valid checkpoint found")
+
+                # 3. Procesar en lotes (sin cargar todos los productos en memoria)
+                sync_stats = await self._process_products_in_batches_optimized(
+                    rms_products, force_update, batch_size, start_index, initial_stats
                 )
 
                 # 4. Generar reporte final
@@ -232,9 +347,8 @@ class RMSToShopifySync:
                 categories_str = "', '".join(filter_categories)
                 query += f" AND Categoria IN ('{categories_str}')"
 
-            # Agregar filtro para productos con stock (opcional)
-            if not getattr(self, "_include_zero_stock", True):
-                query += " AND Quantity > 0"
+            # NOTA: Siempre incluir productos con stock 0 para poder actualizar productos existentes
+            # La lógica de crear vs actualizar se maneja después de verificar si existe en Shopify
 
             query += " ORDER BY CCOD, talla"
 
@@ -242,10 +356,28 @@ class RMSToShopifySync:
             items_data = await self.rms_handler.execute_custom_query(query)
             logger.info(f"📊 Extraídos {len(items_data)} items de RMS")
 
+            # Logging detallado de CCODs extraídos
+            ccods_extracted = set(item.get("CCOD") for item in items_data if item.get("CCOD"))
+            logger.info(f"📋 CCODs únicos extraídos: {len(ccods_extracted)}")
+
             # Convertir a RMSViewItem objects
             rms_items = []
+            negative_quantity_count = 0
             for item_data in items_data:
                 try:
+                    # Normalizar cantidad: convertir valores negativos a 0
+                    raw_quantity = item_data.get("Quantity", 0)
+                    normalized_quantity = max(0, int(raw_quantity))
+
+                    # Log de normalizaciones de cantidades negativas
+                    if raw_quantity < 0:
+                        negative_quantity_count += 1
+                        c_articulo = item_data.get("C_ARTICULO", "unknown")
+                        logger.debug(
+                            f"📊 Cantidad negativa normalizada: {raw_quantity} → {normalized_quantity}\
+                                para item {c_articulo}"
+                        )
+
                     rms_item = RMSViewItem(
                         familia=item_data.get("Familia", ""),
                         genero=item_data.get("Genero", ""),
@@ -256,7 +388,7 @@ class RMSToShopifySync:
                         description=item_data.get("Description", ""),
                         color=item_data.get("color", ""),
                         talla=item_data.get("talla", ""),
-                        quantity=int(item_data.get("Quantity", 0)),
+                        quantity=normalized_quantity,
                         price=Decimal(str(item_data.get("Price", 0))),
                         sale_price=Decimal(str(item_data.get("SalePrice", 0))) if item_data.get("SalePrice") else None,
                         extended_category=item_data.get("ExtendedCategory", ""),
@@ -270,6 +402,8 @@ class RMSToShopifySync:
                     continue
 
             logger.info(f"✅ Procesados {len(rms_items)} items válidos de RMS")
+            if negative_quantity_count > 0:
+                logger.info(f"📊 Normalizadas {negative_quantity_count} cantidades negativas a 0")
 
             # Usar el nuevo sistema de variantes para agrupar por CCOD
             from app.services.variant_mapper import create_products_with_variants
@@ -307,58 +441,165 @@ class RMSToShopifySync:
             logger.info("🔄 Using new variants system for product extraction")
         return await self._extract_rms_products_with_variants(filter_categories, ccod)
 
-    async def _get_existing_shopify_products(self) -> Dict[str, Dict[str, Any]]:
+    async def _check_products_exist_batch(self, handles: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
         """
-        Obtiene productos existentes de Shopify indexados por CCOD y SKU.
+        Verifica la existencia de productos por sus handles usando búsqueda por lotes.
+
+        Args:
+            handles: Lista de handles de productos a verificar
 
         Returns:
-            Dict: Productos existentes con doble indexación:
-            {
-                "by_ccod": {ccod: product},
-                "by_sku": {sku: product}
-            }
+            Dict: Mapping handle -> producto existente (o None si no existe)
         """
-        try:
-            logger.info("🔍 Starting to fetch all existing Shopify products...")
-            products = await self.shopify_client.get_all_products()
-            logger.info(f"✅ Successfully fetched {len(products)} products from Shopify")
+        if not handles:
+            return {}
 
-            # Indexación dual: por handle y por SKU individual
-            indexed_products = {"by_handle": {}, "by_sku": {}}
+        # Usar cache para evitar búsquedas duplicadas
+        cached_results = {}
+        uncached_handles = []
 
-            for _, product in enumerate(products):
-                product_title = product.get("title", "Unknown")
-                product_handle = product.get("handle", "")
+        for handle in handles:
+            if handle in self.batch_handle_cache:
+                cached_results[handle] = self.batch_handle_cache[handle]
+            else:
+                uncached_handles.append(handle)
 
-                # Indexar por handle (más eficiente que buscar en tags)
-                if product_handle:
-                    indexed_products["by_handle"][product_handle] = product
-                    logger.debug(f"  Indexed product with handle: {product_handle}")
+        results = cached_results.copy()
+
+        # Buscar handles no cacheados
+        if uncached_handles:
+            try:
+                # Usar el nuevo método de búsqueda por lotes
+                batch_results = await self.shopify_client.get_products_by_handles_batch(uncached_handles)
+
+                # Actualizar cache y resultados
+                for handle, product in batch_results.items():
+                    self.batch_handle_cache[handle] = product
+                    results[handle] = product
+
+                # Log de resultados
+                found_count = sum(1 for p in batch_results.values() if p is not None)
+                logger.debug(f"🔍 Batch check: {found_count}/{len(uncached_handles)} products found in Shopify")
+
+            except Exception as e:
+                logger.error(f"Error in batch product check: {e}")
+                # En caso de error, asumir que no existen
+                for handle in uncached_handles:
+                    results[handle] = None
+
+        return results
+
+    async def _process_products_in_batches_optimized(
+        self,
+        rms_products: List[ShopifyProductInput],
+        force_update: bool,
+        batch_size: int,
+        start_index: int = 0,
+        initial_stats: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Procesa productos con búsqueda optimizada por lotes y checkpoints.
+
+        Args:
+            rms_products: Lista de productos de RMS a sincronizar
+            force_update: Forzar actualización
+            batch_size: Tamaño del lote
+            start_index: Índice de inicio (para reanudar)
+            initial_stats: Estadísticas iniciales (para reanudar)
+
+        Returns:
+            Dict: Estadísticas de sincronización
+        """
+        stats = initial_stats or {
+            "total_processed": 0,
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "inventory_updated": 0,
+            "inventory_failed": 0,
+        }
+
+        # Inicializar progress tracker
+        progress_tracker = SyncProgressTracker(total_items=len(rms_products), operation_name="Optimized Product Sync")
+
+        total_products = len(rms_products)
+        products_to_process = rms_products[start_index:]
+
+        logger.info(
+            f"🚀 Starting optimized sync: {len(products_to_process)} products "
+            f"(starting from index {start_index}/{total_products})"
+        )
+
+        # Procesar en lotes
+        for i in range(0, len(products_to_process), batch_size):
+            batch = products_to_process[i : i + batch_size]
+            batch_number = (start_index + i) // batch_size + 1
+            total_batches = (total_products + batch_size - 1) // batch_size
+            current_index = start_index + i
+
+            batch_start_time = time.time()
+            logger.info(f"🔄 Processing batch {batch_number}/{total_batches} ({len(batch)} products)")
+
+            # Extraer handles del lote para verificar existencia
+            batch_handles = [product.handle for product in batch if product.handle]
+
+            # Verificar existencia de productos en Shopify
+            existing_products = await self._check_products_exist_batch(batch_handles)
+
+            # Procesar lote con información de productos existentes
+            batch_stats = await self._process_product_batch_optimized(
+                batch, existing_products, force_update, progress_tracker
+            )
+
+            # Agregar estadísticas
+            for key in stats:
+                stats[key] += batch_stats.get(key, 0)
+
+            # Guardar checkpoint cada cierto número de productos
+            if (current_index + len(batch)) % 100 == 0 or (i + batch_size >= len(products_to_process)):
+                last_ccod = batch[-1].tags[0].replace("ccod_", "") if batch and batch[-1].tags else "unknown"
+
+                await self.checkpoint_manager.save_checkpoint(
+                    last_processed_ccod=last_ccod,
+                    processed_count=start_index + i + len(batch),
+                    total_count=total_products,
+                    stats=stats,
+                    batch_number=batch_number,
+                )
+
+            # Log de estadísticas del batch
+            batch_duration = time.time() - batch_start_time
+            logger.info(
+                f"✅ Batch {batch_number} completed in {batch_duration:.1f}s | "
+                f"Created: {batch_stats['created']}, Updated: {batch_stats['updated']}, "
+                f"Skipped: {batch_stats['skipped']}, Errors: {batch_stats['errors']}"
+            )
+
+            # Log de progreso general
+            progress_tracker.log_progress("Batch Progress - ")
+
+            # Pausa entre lotes para no sobrecargar la API
+            if i + batch_size < len(products_to_process):
+                # Rate limiting condicional basado en batch_size
+                if batch_size > 2:
+                    sleep_time = 3  # Para lotes grandes (reducido de 5s)
+                    logger.debug(f"🕐 Rate limiting: {sleep_time}s pause")
                 else:
-                    logger.debug(f"  Product {product_title} has no handle")
+                    sleep_time = 1  # Para lotes pequeños
+                    logger.debug(f"🕐 Minimal pause: {sleep_time}s")
 
-            sku_count = len(indexed_products["by_sku"])
-            handle_count = len(indexed_products["by_handle"])
+                await asyncio.sleep(sleep_time)
 
-            logger.info(f"📋 Indexed {sku_count} products by SKU and {handle_count} by handle")
+        # Log final del progreso
+        progress_tracker.log_progress("Final Progress - ")
 
-            # Log some examples if available
-            if sku_count > 0:
-                sample_skus = list(indexed_products["by_sku"].keys())[:5]
-                logger.info(f"   Sample SKUs: {sample_skus}")
+        # Eliminar checkpoint al completar exitosamente
+        if stats["total_processed"] >= total_products:
+            await self.checkpoint_manager.delete_checkpoint()
+            logger.info("🎉 Sync completed successfully - checkpoint deleted")
 
-            if handle_count > 0:
-                sample_handles = list(indexed_products["by_handle"].keys())[:5]
-                logger.info(f"   Sample handles: {sample_handles}")
-
-            return indexed_products
-
-        except Exception as e:
-            raise SyncException(
-                message=f"Failed to fetch existing Shopify products: {str(e)}",
-                service="shopify",
-                operation="get_products",
-            ) from e
+        return stats
 
     async def _process_products_in_batches(
         self,
@@ -389,49 +630,70 @@ class RMSToShopifySync:
             "inventory_failed": 0,
         }
 
+        # Inicializar progress tracker
+        progress_tracker = SyncProgressTracker(total_items=len(rms_products), operation_name="Product Sync")
+
+        logger.info(f"🚀 Starting sync of {len(rms_products)} products in batches of {batch_size}")
+
         # Procesar en lotes
         for i in range(0, len(rms_products), batch_size):
             batch = rms_products[i : i + batch_size]
             batch_number = (i // batch_size) + 1
+            total_batches = (len(rms_products) + batch_size - 1) // batch_size
 
-            logger.info(f"Processing batch {batch_number} ({len(batch)} products)")
+            batch_start_time = time.time()
+            logger.info(f"🔄 Processing batch {batch_number}/{total_batches} ({len(batch)} products)")
 
             # Procesar lote
-            batch_stats = await self._process_product_batch(batch, shopify_products, force_update)
+            batch_stats = await self._process_product_batch(batch, shopify_products, force_update, progress_tracker)
 
             # Agregar estadísticas
             for key in stats:
                 stats[key] += batch_stats.get(key, 0)
 
+            # Log de estadísticas del batch
+            batch_duration = time.time() - batch_start_time
+            logger.info(
+                f"✅ Batch {batch_number} completed in {batch_duration:.1f}s | "
+                f"Created: {batch_stats['created']}, Updated: {batch_stats['updated']}, "
+                f"Skipped: {batch_stats['skipped']}, Errors: {batch_stats['errors']}"
+            )
+
+            # Log de progreso general
+            progress_tracker.log_progress("Batch Progress - ")
+
             # Pausa entre lotes para no sobrecargar la API
             if i + batch_size < len(rms_products):
                 # Rate limiting condicional basado en batch_size
                 if batch_size > 2:
-                    # Para lotes grandes, aplicar rate limit más estricto
-                    sleep_time = 5  # 5 segundos entre lotes grandes
-                    logger.info(f"🕐 Rate limiting: sleeping {sleep_time}s (batch_size={batch_size} > 2)")
+                    sleep_time = 5  # Para lotes grandes
+                    logger.debug(f"🕐 Rate limiting: {sleep_time}s pause (batch_size={batch_size})")
                 else:
-                    # Para lotes pequeños, pausa mínima
-                    sleep_time = 1
-                    logger.debug(f"🕐 Minimal pause: {sleep_time}s (batch_size={batch_size} <= 2)")
+                    sleep_time = 1  # Para lotes pequeños
+                    logger.debug(f"🕐 Minimal pause: {sleep_time}s")
 
                 await asyncio.sleep(sleep_time)
 
+        # Log final del progreso
+        progress_tracker.log_progress("Final Progress - ")
+
         return stats
 
-    async def _process_product_batch(
+    async def _process_product_batch_optimized(
         self,
         batch: List[ShopifyProductInput],
-        shopify_products: Dict[str, Dict[str, Any]],
+        existing_products: Dict[str, Optional[Dict[str, Any]]],
         force_update: bool,
+        progress_tracker: Optional[SyncProgressTracker] = None,
     ) -> Dict[str, Any]:
         """
-        Procesa un lote de productos con múltiples variantes.
+        Procesa un lote de productos con búsqueda optimizada.
 
         Args:
-            batch: Lote de ShopifyProductInput con múltiples variantes
-            shopify_products: Productos existentes indexados por CCOD y SKU
+            batch: Lote de productos a procesar
+            existing_products: Productos existentes encontrados por handle
             force_update: Forzar actualización
+            progress_tracker: Tracker de progreso opcional
 
         Returns:
             Dict: Estadísticas del lote
@@ -459,13 +721,222 @@ class RMSToShopifySync:
             extended_category = None
 
             try:
-                # A. SINCRONIZACIÓN RMS→SHOPIFY - Preparar datos
-                logger.info("==========" * 50)
-                logger.info(
-                    f"🔄 STEP A: Starting RMS→Shopify sync for product \
-                        [{idx}/{batch_total}] ({progress_percentage:.1f}%), "
-                    f"restore of shopify: {shopify_input.title}"
+                # Log detallado solo si el nivel de logging es DEBUG
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"🔄 Processing product [{idx}/{batch_total}] ({progress_percentage:.1f}%): "
+                        f"{shopify_input.title}"
+                    )
+
+                # Extraer CCOD y categorías de los tags del producto
+                for tag in shopify_input.tags or []:
+                    if tag.startswith("ccod_"):
+                        ccod = tag.replace("ccod_", "").upper()
+
+                # Extraer categorías de los metafields
+                for metafield in shopify_input.metafields or []:
+                    if metafield.get("namespace") == "rms":
+                        if metafield.get("key") == "categoria":
+                            categoria = metafield.get("value")
+                        elif metafield.get("key") == "familia":
+                            familia = metafield.get("value")
+                        elif metafield.get("key") == "extended_category":
+                            extended_category = metafield.get("value")
+
+                if not ccod:
+                    logger.warning(f"⚠️ No CCOD found in product tags: {shopify_input.title}")
+                    stats["errors"] += 1
+                    continue
+
+                # Buscar producto existente usando el resultado de la búsqueda por lotes
+                existing_product = existing_products.get(shopify_input.handle)
+
+                if existing_product:
+                    # Producto existe - decidir si actualizar
+                    if force_update:
+                        # Actualizar producto siguiendo el flujo especificado
+                        updated_product = await self._update_shopify_product(shopify_input, existing_product)
+
+                        if updated_product:
+                            stats["updated"] += 1
+                            stats["inventory_updated"] += 1
+                            log_sync_operation("update", "shopify", ccod=ccod)
+
+                            # Calcular stock total para logging mejorado
+                            total_stock = 0
+                            for variant in shopify_input.variants or []:
+                                if hasattr(variant, "inventoryQuantities") and variant.inventoryQuantities:
+                                    for inv_qty in variant.inventoryQuantities:
+                                        total_stock += inv_qty.get("availableQuantity", 0)
+                            stock_status = f" (stock: {total_stock})"
+
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"✅ Updated: {ccod} - {shopify_input.title}{stock_status}")
+
+                            # Sincronizar colecciones del producto
+                            if self.collection_manager and updated_product.get("id"):
+                                try:
+                                    collections_added = await self.collection_manager.add_product_to_collections(
+                                        product_id=updated_product["id"],
+                                        product_handle=shopify_input.handle,
+                                        categoria=categoria,
+                                        familia=familia,
+                                        extended_category=extended_category,
+                                    )
+                                    if collections_added and logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            f"✅ Product collections updated: {len(collections_added)} collections"
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Failed to update product collections: {e}")
+                        else:
+                            stats["errors"] += 1
+                            logger.error(
+                                f"❌ Failed to update product: {ccod} "
+                                f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                            )
+                    else:
+                        # Skip si no es force_update
+                        stats["skipped"] += 1
+                        logger.info(
+                            f"⏭️ Skipped existing product: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                        )
+                else:
+                    # Verificar si tiene stock antes de crear producto nuevo
+                    total_stock = 0
+                    for variant in shopify_input.variants or []:
+                        if hasattr(variant, "inventoryQuantities") and variant.inventoryQuantities:
+                            for inv_qty in variant.inventoryQuantities:
+                                total_stock += inv_qty.get("availableQuantity", 0)
+
+                    if total_stock > 0 or settings.SYNC_CREATE_ZERO_STOCK_PRODUCTS:
+                        # Crear producto siguiendo el flujo especificado
+                        created_product = await self._create_shopify_product(shopify_input)
+                    else:
+                        # No crear productos nuevos con stock 0 (configurable)
+                        created_product = None
+                        stats["skipped"] += 1
+                        logger.info(
+                            f"⏭️ Skipped creating new product with zero stock: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title} (total_stock: {total_stock})"
+                        )
+
+                    if created_product:
+                        stats["created"] += 1
+                        stats["inventory_updated"] += 1
+                        log_sync_operation("create", "shopify", ccod=ccod)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"✅ Created: {ccod} - {shopify_input.title} ({len(shopify_input.variants)} variants)"
+                            )
+
+                        # Agregar producto a colecciones basadas en categorías
+                        if self.collection_manager and created_product.get("id"):
+                            try:
+                                collections_added = await self.collection_manager.add_product_to_collections(
+                                    product_id=created_product["id"],
+                                    categoria=categoria,
+                                    familia=familia,
+                                    extended_category=extended_category,
+                                )
+                                if collections_added and logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(f"✅ Product added to {len(collections_added)} collections")
+                            except Exception as e:
+                                logger.warning(f"Failed to add product to collections: {e}")
+                    else:
+                        stats["errors"] += 1
+                        logger.error(
+                            f"❌ Failed to create product: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title}"
+                        )
+
+                stats["total_processed"] += 1
+
+                # Actualizar progress tracker
+                if progress_tracker:
+                    # Determinar qué acción se realizó en este producto
+                    created = 1 if stats["created"] > stats.get("_prev_created", 0) else 0
+                    updated = 1 if stats["updated"] > stats.get("_prev_updated", 0) else 0
+                    skipped = 1 if stats["skipped"] > stats.get("_prev_skipped", 0) else 0
+                    errors = 1 if stats["errors"] > stats.get("_prev_errors", 0) else 0
+
+                    progress_tracker.update(created=created, updated=updated, skipped=skipped, errors=errors)
+
+                    # Log progreso inteligente (solo en hitos importantes)
+                    if progress_tracker.should_log_progress():
+                        progress_tracker.log_progress()
+
+                    # Guardar estadísticas previas para la siguiente comparación
+                    stats["_prev_created"] = stats["created"]
+                    stats["_prev_updated"] = stats["updated"]
+                    stats["_prev_skipped"] = stats["skipped"]
+                    stats["_prev_errors"] = stats["errors"]
+
+            except Exception as e:
+                stats["errors"] += 1
+                self.error_aggregator.add_error(
+                    e,
+                    {"ccod": ccod or "unknown", "title": shopify_input.title},
                 )
+
+                # Actualizar progress tracker con error
+                if progress_tracker:
+                    progress_tracker.update(errors=1)
+
+                # Log error simplificado
+                logger.error(f"❌ Error processing {ccod or 'unknown'}: {str(e)}")
+
+        return stats
+
+    async def _process_product_batch(
+        self,
+        batch: List[ShopifyProductInput],
+        shopify_products: Dict[str, Dict[str, Any]],
+        force_update: bool,
+        progress_tracker: Optional[SyncProgressTracker] = None,
+    ) -> Dict[str, Any]:
+        """
+        Procesa un lote de productos con múltiples variantes.
+
+        Args:
+            batch: Lote de ShopifyProductInput con múltiples variantes
+            shopify_products: Productos existentes indexados por CCOD y SKU
+            force_update: Forzar actualización
+            progress_tracker: Tracker de progreso opcional
+
+        Returns:
+            Dict: Estadísticas del lote
+        """
+        stats = {
+            "total_processed": 0,
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": 0,
+            "inventory_updated": 0,
+            "inventory_failed": 0,
+        }
+
+        # Track progress for this batch
+        batch_total = len(batch)
+
+        for idx, shopify_input in enumerate(batch, 1):
+            # Calculate progress percentage
+            progress_percentage = (idx / batch_total) * 100
+
+            ccod = None  # Initialize ccod before try block
+            categoria = None
+            familia = None
+            extended_category = None
+
+            try:
+                # Solo log detallado si el nivel de logging es DEBUG
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"🔄 Processing product [{idx}/{batch_total}] ({progress_percentage:.1f}%): "
+                        f"{shopify_input.title}"
+                    )
 
                 # Extraer CCOD y categorías de los tags del producto
                 for tag in shopify_input.tags or []:
@@ -488,10 +959,9 @@ class RMSToShopifySync:
                     stats["errors"] += 1
                     continue
 
-                logger.info(
-                    f"✅ STEP A: Prepared sync data for CCOD: {ccod}, handle: {shopify_input.handle}, "
-                    f"categoria: {categoria}, familia: {familia}"
-                )
+                # Log de preparación solo en modo DEBUG
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"✅ Prepared CCOD: {ccod}, handle: {shopify_input.handle}, categoria: {categoria}")
 
                 # Buscar producto existente por handle (más eficiente)
                 existing_product = shopify_products["by_handle"].get(shopify_input.handle)
@@ -509,10 +979,17 @@ class RMSToShopifySync:
                             # El inventario se actualiza dentro del MultipleVariantsCreator
                             stats["inventory_updated"] += 1
                             log_sync_operation("update", "shopify", ccod=ccod)
-                            logger.info(
-                                f"✅ Updated existing product: {ccod} (handle: "
-                                f"{shopify_input.handle}) - {shopify_input.title}"
-                            )
+
+                            # Calcular stock total para logging mejorado
+                            total_stock = 0
+                            for variant in shopify_input.variants or []:
+                                if hasattr(variant, "inventoryQuantities") and variant.inventoryQuantities:
+                                    for inv_qty in variant.inventoryQuantities:
+                                        total_stock += inv_qty.get("availableQuantity", 0)
+                            stock_status = f" (stock: {total_stock})"
+
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"✅ Updated: {ccod} - {shopify_input.title}{stock_status}")
 
                             # Sincronizar colecciones del producto
                             if self.collection_manager and updated_product.get("id"):
@@ -526,8 +1003,8 @@ class RMSToShopifySync:
                                         familia=familia,
                                         extended_category=extended_category,
                                     )
-                                    if collections_added:
-                                        logger.info(
+                                    if collections_added and logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
                                             f"✅ Product collections updated: {len(collections_added)} collections"
                                         )
                                 except Exception as e:
@@ -547,19 +1024,35 @@ class RMSToShopifySync:
                             f"(handle: {shopify_input.handle}) - {shopify_input.title}"
                         )
                 else:
-                    # FLUJO COMPLETO: Crear producto siguiendo el flujo especificado
-                    # A→B→C→D→E→F→G→H/I→J (Sync → Create Product → Create Variants → Update Inventory →
-                    # Create Metafields → Verify Sale Price → Create Discount → Complete)
-                    created_product = await self._create_shopify_product(shopify_input)
+                    # Verificar si tiene stock antes de crear producto nuevo
+                    total_stock = 0
+                    for variant in shopify_input.variants or []:
+                        if hasattr(variant, "inventoryQuantities") and variant.inventoryQuantities:
+                            for inv_qty in variant.inventoryQuantities:
+                                total_stock += inv_qty.get("availableQuantity", 0)
+
+                    if total_stock > 0 or settings.SYNC_CREATE_ZERO_STOCK_PRODUCTS:
+                        # FLUJO COMPLETO: Crear producto siguiendo el flujo especificado
+                        # A→B→C→D→E→F→G→H/I→J (Sync → Create Product → Create Variants → Update Inventory →
+                        # Create Metafields → Verify Sale Price → Create Discount → Complete)
+                        created_product = await self._create_shopify_product(shopify_input)
+                    else:
+                        # No crear productos nuevos con stock 0 (configurable)
+                        created_product = None
+                        stats["skipped"] += 1
+                        logger.info(
+                            f"⏭️ Skipped creating new product with zero stock: {ccod} "
+                            f"(handle: {shopify_input.handle}) - {shopify_input.title} (total_stock: {total_stock})"
+                        )
 
                     if created_product:
                         stats["created"] += 1
                         stats["inventory_updated"] += 1  # El inventario se actualiza dentro del MultipleVariantsCreator
                         log_sync_operation("create", "shopify", ccod=ccod)
-                        logger.info(
-                            f"✅ Created new product: {ccod} (handle: {shopify_input.handle}) - {shopify_input.title} "
-                            f"({len(shopify_input.variants)} variants)"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"✅ Created: {ccod} - {shopify_input.title} ({len(shopify_input.variants)} variants)"
+                            )
 
                         # Agregar producto a colecciones basadas en categorías
                         if self.collection_manager and created_product.get("id"):
@@ -570,8 +1063,8 @@ class RMSToShopifySync:
                                     familia=familia,
                                     extended_category=extended_category,
                                 )
-                                if collections_added:
-                                    logger.info(f"✅ Product added to {len(collections_added)} collections")
+                                if collections_added and logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(f"✅ Product added to {len(collections_added)} collections")
                             except Exception as e:
                                 logger.warning(f"Failed to add product to collections: {e}")
                     else:
@@ -583,12 +1076,25 @@ class RMSToShopifySync:
 
                 stats["total_processed"] += 1
 
-                # Log progress summary
-                logger.info(
-                    f"📊 Progress: [{idx}/{batch_total}] ({progress_percentage:.1f}%) | "
-                    f"Created: {stats['created']} | Updated: {stats['updated']} | "
-                    f"Skipped: {stats['skipped']} | Errors: {stats['errors']}"
-                )
+                # Actualizar progress tracker
+                if progress_tracker:
+                    # Determinar qué acción se realizó en este producto
+                    created = 1 if stats["created"] > stats.get("_prev_created", 0) else 0
+                    updated = 1 if stats["updated"] > stats.get("_prev_updated", 0) else 0
+                    skipped = 1 if stats["skipped"] > stats.get("_prev_skipped", 0) else 0
+                    errors = 1 if stats["errors"] > stats.get("_prev_errors", 0) else 0
+
+                    progress_tracker.update(created=created, updated=updated, skipped=skipped, errors=errors)
+
+                    # Log progreso inteligente (solo en hitos importantes)
+                    if progress_tracker.should_log_progress():
+                        progress_tracker.log_progress()
+
+                    # Guardar estadísticas previas para la siguiente comparación
+                    stats["_prev_created"] = stats["created"]
+                    stats["_prev_updated"] = stats["updated"]
+                    stats["_prev_skipped"] = stats["skipped"]
+                    stats["_prev_errors"] = stats["errors"]
 
             except Exception as e:
                 stats["errors"] += 1
@@ -597,10 +1103,12 @@ class RMSToShopifySync:
                     {"ccod": ccod or "unknown", "title": shopify_input.title},
                 )
 
-                # Log error with progress
-                logger.error(
-                    f"❌ Error processing product [{idx}/{batch_total}] ({progress_percentage:.1f}%): {str(e)}"
-                )
+                # Actualizar progress tracker con error
+                if progress_tracker:
+                    progress_tracker.update(errors=1)
+
+                # Log error simplificado
+                logger.error(f"❌ Error processing {ccod or 'unknown'}: {str(e)}")
 
         return stats
 
@@ -680,7 +1188,8 @@ class RMSToShopifySync:
             )
 
             sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
-            logger.info(f"✅ Updated product with multiple variants in Shopify: {sku}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"✅ Updated product with multiple variants in Shopify: {sku}")
             return updated_product
 
         except Exception as e:
@@ -712,8 +1221,13 @@ class RMSToShopifySync:
             "recommendations": self._generate_recommendations(stats, error_summary),
         }
 
-        # Log reporte final
-        logger.info(f"Sync completed - ID: {self.sync_id} - Success rate: {report['success_rate']:.1f}%")
+        # Log reporte final mejorado
+        logger.info(
+            f"🎉 Sync completed - ID: {self.sync_id} | "
+            f"✅ {stats['created']} created, 🔄 {stats['updated']} updated, "
+            f"⏭️ {stats['skipped']} skipped, ❌ {stats['errors']} errors | "
+            f"Success rate: {report['success_rate']:.1f}%"
+        )
 
         return report
 

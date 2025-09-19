@@ -50,6 +50,7 @@ __all__ = [
     "CREATE_VARIANT_MUTATION",  # noqa: F405
     "CREATE_VARIANTS_BULK_MUTATION",  # noqa: F405
     "UPDATE_VARIANTS_BULK_MUTATION",  # noqa: F405
+    "DELETE_VARIANTS_BULK_MUTATION",  # noqa: F405
     # Collection queries
     "COLLECTIONS_QUERY",  # noqa: F405
     "COLLECTIONS_SIMPLE_QUERY",  # noqa: F405

@@ -36,7 +36,7 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         variant_or_inventory_item_id,
         location_id: str,
         quantity: int,
-        disconnect_if_necessary: bool = False
+        disconnect_if_necessary: bool = False  # Parameter is used in the mutation logic
     ) -> Dict[str, Any]:
         """
         Set the inventory quantity for a variant at a specific location.

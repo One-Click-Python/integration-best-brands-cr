@@ -6,7 +6,7 @@ de cambios y sincronización automática entre RMS y Shopify.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
@@ -18,6 +18,7 @@ from app.core.scheduler import (
     manual_sync_trigger,
     update_sync_interval,
 )
+from app.services.sync_checkpoint import SyncCheckpointManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,28 @@ router = APIRouter()
 class SyncIntervalUpdate(BaseModel):
     """Modelo para actualizar intervalo de sincronización."""
     interval_minutes: int = Field(
-        ..., 
-        ge=1, 
-        le=1440, 
+        ...,
+        ge=1,
+        le=1440,
         description="Intervalo en minutos (1-1440)"
     )
+
+
+class CheckpointProgressResponse(BaseModel):
+    """Respuesta con el progreso detallado desde checkpoint."""
+    status: str
+    sync_id: Optional[str] = None
+    processed: int = 0
+    total: int = 0
+    progress_percentage: float = 0.0
+    last_ccod: Optional[str] = None
+    batch_number: int = 0
+    stats: Dict[str, int] = Field(default_factory=dict)
+    elapsed_seconds: float = 0.0
+    eta_seconds: float = 0.0
+    processing_rate: float = 0.0
+    timestamp: Optional[str] = None
+    message: Optional[str] = None
 
 
 @router.get("/status", status_code=status.HTTP_200_OK)
@@ -82,6 +100,99 @@ async def get_sync_statistics() -> Dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error obteniendo estadísticas: {str(e)}"
+        )
+
+
+@router.get("/progress", status_code=status.HTTP_200_OK)
+async def get_sync_progress(sync_id: Optional[str] = None) -> CheckpointProgressResponse:
+    """
+    Obtiene el progreso detallado de la sincronización actual desde checkpoint.
+
+    Args:
+        sync_id: ID específico de sincronización (opcional, usa el más reciente si no se especifica)
+
+    Returns:
+        CheckpointProgressResponse: Progreso detallado de la sincronización
+    """
+    try:
+        if sync_id:
+            # Buscar checkpoint específico
+            checkpoint_manager = SyncCheckpointManager(sync_id)
+        else:
+            # Si no se especifica sync_id, intentar encontrar el más reciente
+            # Para simplificar, usaremos un ID genérico
+            from datetime import datetime, timezone
+            current_time = datetime.now(timezone.utc).strftime('%Y%m%d')
+            sync_id = f"rms_to_shopify_{current_time}"
+            checkpoint_manager = SyncCheckpointManager(sync_id)
+
+        await checkpoint_manager.initialize()
+        progress_info = await checkpoint_manager.get_progress_info()
+
+        logger.info(f"API: Progreso obtenido para sync {sync_id}: {progress_info.get('progress_percentage', 0):.1f}%")
+
+        return CheckpointProgressResponse(
+            status=progress_info.get("status", "unknown"),
+            sync_id=progress_info.get("sync_id"),
+            processed=progress_info.get("processed", 0),
+            total=progress_info.get("total", 0),
+            progress_percentage=progress_info.get("progress_percentage", 0.0),
+            last_ccod=progress_info.get("last_ccod"),
+            batch_number=progress_info.get("batch_number", 0),
+            stats=progress_info.get("stats", {}),
+            elapsed_seconds=progress_info.get("elapsed_seconds", 0.0),
+            eta_seconds=progress_info.get("eta_seconds", 0.0),
+            processing_rate=progress_info.get("processing_rate", 0.0),
+            timestamp=progress_info.get("timestamp"),
+            message=progress_info.get("message")
+        )
+
+    except Exception as e:
+        logger.error(f"Error obteniendo progreso: {e}")
+        # Retornar progreso vacío en caso de error
+        return CheckpointProgressResponse(
+            status="error",
+            message=f"Error obteniendo progreso: {str(e)}"
+        )
+
+
+@router.delete("/checkpoint/{sync_id}", status_code=status.HTTP_200_OK)
+async def delete_sync_checkpoint(sync_id: str) -> Dict[str, Any]:
+    """
+    Elimina un checkpoint específico de sincronización.
+
+    Args:
+        sync_id: ID de la sincronización
+
+    Returns:
+        Dict: Confirmación de eliminación
+    """
+    try:
+        checkpoint_manager = SyncCheckpointManager(sync_id)
+        await checkpoint_manager.initialize()
+
+        success = await checkpoint_manager.delete_checkpoint()
+
+        if success:
+            logger.info(f"API: Checkpoint eliminado para sync {sync_id}")
+            return {
+                "status": "success",
+                "message": f"Checkpoint eliminado para sincronización {sync_id}",
+                "sync_id": sync_id
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se pudo eliminar checkpoint para sync {sync_id}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error eliminando checkpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error eliminando checkpoint: {str(e)}"
         )
 
 

@@ -159,6 +159,50 @@ query GetProductByHandle($handle: String!) {
 }
 """
 
+PRODUCTS_BY_HANDLES_BATCH_QUERY = """
+query ProductsByHandlesBatch($handles: String!) {
+  products(first: 250, query: $handles) {
+    edges {
+      node {
+        id
+        title
+        handle
+        status
+        productType
+        vendor
+        tags
+        createdAt
+        updatedAt
+        options {
+          id
+          name
+          values
+        }
+        variants(first: 100) {
+          edges {
+            node {
+              id
+              sku
+              title
+              price
+              compareAtPrice
+              inventoryQuantity
+              inventoryItem {
+                id
+              }
+              selectedOptions {
+                name
+                value
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 # Product Mutations
 CREATE_PRODUCT_MUTATION = """
 mutation CreateProduct($input: ProductInput!) {
@@ -373,7 +417,6 @@ mutation CreateProductWithCategory($input: ProductInput!) {
     userErrors {
       field
       message
-      code
     }
   }
 }
@@ -411,7 +454,34 @@ mutation UpdateProductWithCategory($input: ProductInput!) {
     userErrors {
       field
       message
-      code
+    }
+  }
+}
+"""
+
+# Variant deletion mutation (using bulk delete)
+DELETE_VARIANTS_BULK_MUTATION = """
+mutation DeleteVariantsBulk($productId: ID!, $variantsIds: [ID!]!) {
+  productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) {
+    product {
+      id
+      title
+      variants(first: 100) {
+        edges {
+          node {
+            id
+            sku
+            selectedOptions {
+              name
+              value
+            }
+          }
+        }
+      }
+    }
+    userErrors {
+      field
+      message
     }
   }
 }
