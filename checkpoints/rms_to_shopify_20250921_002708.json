@@ -1,0 +1,22 @@
+{
+  "sync_id": "rms_to_shopify_20250921_002708",
+  "timestamp": "2025-09-21T01:31:38.829550+00:00",
+  "last_processed_ccod": "26XC03",
+  "processed_count": 200,
+  "total_count": 465,
+  "batch_number": 2,
+  "progress_percentage": 43.01075268817204,
+  "stats": {
+    "total_processed": 200,
+    "created": 2,
+    "updated": 198,
+    "errors": 0,
+    "skipped": 0,
+    "inventory_updated": 200,
+    "inventory_failed": 0
+  },
+  "additional_data": {
+    "current_page": 3,
+    "total_pages": 5
+  }
+}

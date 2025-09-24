@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import get_settings
 from app.core.logging_config import log_sync_operation
-from app.services.rms_to_shopify import get_sync_status, sync_rms_to_shopify
+from app.services.rms_to_shopify.sync_orchestrator import get_sync_status, sync_rms_to_shopify
 from app.services.shopify_to_rms import sync_shopify_to_rms
 from app.utils.error_handler import (
     SyncException,
@@ -64,18 +64,13 @@ class SyncRequest(BaseModel):
 
     # Checkpoint parameters
     resume_from_checkpoint: bool = Field(
-        default=True,
-        description="Reanudar desde checkpoint existente si está disponible"
+        default=True, description="Reanudar desde checkpoint existente si está disponible"
     )
     checkpoint_frequency: Optional[int] = Field(
-        default=100,
-        ge=10,
-        le=1000,
-        description="Frecuencia de guardado de checkpoint (cada N productos)"
+        default=100, ge=10, le=1000, description="Frecuencia de guardado de checkpoint (cada N productos)"
     )
     force_fresh_start: bool = Field(
-        default=False,
-        description="Forzar inicio desde cero ignorando checkpoints existentes"
+        default=False, description="Forzar inicio desde cero ignorando checkpoints existentes"
     )
 
     @field_validator("batch_size")
@@ -108,17 +103,12 @@ class SyncResponse(BaseModel):
     duration_seconds: Optional[float] = None
 
     # Checkpoint information
-    checkpoint_info: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Información del checkpoint si existe"
-    )
+    checkpoint_info: Optional[Dict[str, Any]] = Field(default=None, description="Información del checkpoint si existe")
     resumed_from_checkpoint: bool = Field(
-        default=False,
-        description="Indica si la sincronización se reanudó desde checkpoint"
+        default=False, description="Indica si la sincronización se reanudó desde checkpoint"
     )
     checkpoint_frequency: Optional[int] = Field(
-        default=None,
-        description="Frecuencia de guardado de checkpoint configurada"
+        default=None, description="Frecuencia de guardado de checkpoint configurada"
     )
 
 
@@ -256,6 +246,7 @@ async def sync_rms_to_shopify_endpoint(
     if not sync_request.force_fresh_start and sync_request.resume_from_checkpoint:
         # Check for existing checkpoints
         from app.services.sync_checkpoint import SyncCheckpointManager
+
         temp_sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         temp_checkpoint_manager = SyncCheckpointManager(temp_sync_id)
 
@@ -264,7 +255,10 @@ async def sync_rms_to_shopify_endpoint(
             existing_checkpoint = await temp_checkpoint_manager.load_checkpoint()
 
             if existing_checkpoint and await temp_checkpoint_manager.should_resume():
-                logger.info(f"Found valid checkpoint: {existing_checkpoint['processed_count']}/{existing_checkpoint['total_count']} products")
+                logger.info(
+                    f"Found valid checkpoint: \
+                    {existing_checkpoint['processed_count']}/{existing_checkpoint['total_count']} products"
+                )
 
         except Exception as e:
             logger.warning(f"Error checking for existing checkpoint: {e}")
@@ -301,6 +295,7 @@ async def sync_rms_to_shopify_endpoint(
                 result = await _simulate_rms_to_shopify_sync(sync_request)
             else:
                 # Ejecución real
+                sync_id = f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 result = await sync_rms_to_shopify(
                     force_update=sync_request.force_update,
                     batch_size=sync_request.batch_size,
@@ -310,6 +305,7 @@ async def sync_rms_to_shopify_endpoint(
                     resume_from_checkpoint=sync_request.resume_from_checkpoint,
                     checkpoint_frequency=sync_request.checkpoint_frequency,
                     force_fresh_start=sync_request.force_fresh_start,
+                    sync_id=sync_id,
                 )
 
             return SyncResponse(
@@ -698,6 +694,11 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
     async with _sync_locks["rms_to_shopify"]:
         try:
             logger.info(f"🔒 Starting background RMS sync with LOCK: {sync_id}")
+            logger.info(f"🌟 [BACKGROUND TASK] Starting with parameters:")
+            logger.info(f"   - force_update: {sync_request.force_update}")
+            logger.info(f"   - batch_size: {sync_request.batch_size}")
+            logger.info(f"   - include_zero_stock: {sync_request.include_zero_stock}")
+            logger.info(f"   - checkpoint_frequency: {sync_request.checkpoint_frequency}")
 
             result = await sync_rms_to_shopify(
                 force_update=sync_request.force_update,
@@ -708,9 +709,16 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
                 resume_from_checkpoint=sync_request.resume_from_checkpoint,
                 checkpoint_frequency=sync_request.checkpoint_frequency,
                 force_fresh_start=sync_request.force_fresh_start,
+                sync_id=sync_id,  # Pass the sync_id to the function
             )
 
             logger.info(f"✅ Background RMS sync completed with LOCK: {sync_id}")
+            logger.info(f"🎆 [BACKGROUND TASK COMPLETE] Final statistics:")
+            logger.info(f"   - Total products synced: {result.get('total_products_synced', 0)}/{result.get('total_products_expected', 0)}")
+            logger.info(f"   - Pages processed: {result.get('pages_processed', 0)}/{result.get('total_pages', 0)}")
+            logger.info(f"   - Success rate: {result.get('success_rate', 0):.1f}%")
+            stats = result.get('statistics', {})
+            logger.info(f"   - Created: {stats.get('created', 0)}, Updated: {stats.get('updated', 0)}, Errors: {stats.get('errors', 0)}")
             log_sync_operation(
                 operation="complete",
                 service="rms_to_shopify",
@@ -764,7 +772,7 @@ async def _execute_full_sync(force_update: bool, sync_id: str):
         logger.info(f"Starting full bidirectional sync: {sync_id}")
 
         # 1. Primero sincronizar RMS → Shopify
-        await sync_rms_to_shopify(force_update=force_update)
+        await sync_rms_to_shopify(force_update=force_update, sync_id=sync_id)
 
         # 2. Luego procesar pedidos pendientes de Shopify
         # TODO: Implementar lógica para obtener pedidos pendientes
@@ -924,105 +932,107 @@ async def check_low_price_products(
 ):
     """
     Verifica productos en Shopify con precio menor al umbral especificado.
-    
+
     Args:
         price_threshold: Precio máximo para filtrar productos
         limit: Número máximo de productos a revisar
-    
+
     Returns:
         Dict: Lista de productos con precios bajos y estadísticas
     """
     try:
         from app.db.shopify_client import get_shopify_products, initialize_http_client, test_shopify_connection
-        
+
         logger.info(f"Checking products with price < {price_threshold}")
-        
+
         # Verificar conexión con Shopify
         logger.info("Testing Shopify connection...")
         connection_ok = await test_shopify_connection()
         logger.info(f"Shopify connection test result: {connection_ok}")
-        
+
         if not connection_ok:
             raise HTTPException(status_code=503, detail="Shopify connection failed")
-        
+
         # Inicializar cliente si es necesario
         await initialize_http_client()
-        
+
         # Lista para almacenar productos con precio bajo
         low_price_products = []
-        
+
         # Obtener productos de Shopify
         cursor = None
         page = 1
         processed_products = 0
-        
+
         while processed_products < limit:
             # Calcular cuántos productos obtener en esta página
             page_limit = min(50, limit - processed_products)
-            
+
             # Obtener productos
             logger.info(f"Requesting products: limit={page_limit}, cursor={cursor}")
             result = await get_shopify_products(limit=page_limit, page_info=cursor)
             products = result.get("products", [])
-            
+
             logger.info(f"Received {len(products)} products from Shopify")
             logger.info(f"Result keys: {list(result.keys())}")
-            
+
             if not products:
                 logger.info("No more products to process")
                 break
-            
+
             # Procesar productos de esta página
             for product in products:
                 product_id = product.get("id", "N/A")
                 title = product.get("title", "Sin título")
-                
+
                 # Revisar variantes para encontrar precios
                 variants = product.get("variants", {}).get("edges", [])
-                
+
                 for variant_edge in variants:
                     variant = variant_edge.get("node", {})
                     variant_id = variant.get("id", "N/A")
                     variant_title = variant.get("title", "")
-                    
+
                     # Obtener precio
                     price_str = variant.get("price", "0")
                     try:
                         price = float(price_str)
-                        
+
                         # Verificar si el precio está por debajo del umbral
                         if 0 < price < price_threshold:
-                            low_price_products.append({
-                                "product_id": product_id,
-                                "product_title": title,
-                                "variant_id": variant_id,
-                                "variant_title": variant_title if variant_title != "Default Title" else "",
-                                "price": price,
-                                "sku": variant.get("sku", ""),
-                                "inventory_quantity": variant.get("inventoryQuantity", 0),
-                                "product_type": product.get("productType", ""),
-                                "vendor": product.get("vendor", ""),
-                                "created_at": product.get("createdAt", ""),
-                                "updated_at": product.get("updatedAt", "")
-                            })
-                            
+                            low_price_products.append(
+                                {
+                                    "product_id": product_id,
+                                    "product_title": title,
+                                    "variant_id": variant_id,
+                                    "variant_title": variant_title if variant_title != "Default Title" else "",
+                                    "price": price,
+                                    "sku": variant.get("sku", ""),
+                                    "inventory_quantity": variant.get("inventoryQuantity", 0),
+                                    "product_type": product.get("productType", ""),
+                                    "vendor": product.get("vendor", ""),
+                                    "created_at": product.get("createdAt", ""),
+                                    "updated_at": product.get("updatedAt", ""),
+                                }
+                            )
+
                     except (ValueError, TypeError):
                         # Skip if price is not a valid number
                         continue
-            
+
             processed_products += len(products)
-            
+
             # Verificar si hay más páginas
             page_info = result.get("page_info", {})
             if not result.get("has_next_page", False) or processed_products >= limit:
                 break
-                
+
             cursor = page_info.get("endCursor")
             page += 1
-        
+
         # Ordenar por precio ascendente
         low_price_products.sort(key=lambda x: x["price"])
-        
+
         # Calcular estadísticas
         stats = {
             "total_products_processed": processed_products,
@@ -1030,25 +1040,24 @@ async def check_low_price_products(
             "unique_products": len(set(item["product_id"] for item in low_price_products)),
             "price_threshold": price_threshold,
         }
-        
+
         if low_price_products:
             prices = [item["price"] for item in low_price_products]
-            stats.update({
-                "lowest_price": min(prices),
-                "highest_price_in_results": max(prices),
-                "average_price": round(sum(prices) / len(prices), 2)
-            })
-        
+            stats.update(
+                {
+                    "lowest_price": min(prices),
+                    "highest_price_in_results": max(prices),
+                    "average_price": round(sum(prices) / len(prices), 2),
+                }
+            )
+
         return {
             "success": True,
             "statistics": stats,
             "products": low_price_products,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
+
     except Exception as e:
         logger.error(f"Error checking low price products: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to check products with low prices: {str(e)}"
-        ) from e
+        raise HTTPException(status_code=500, detail=f"Failed to check products with low prices: {str(e)}") from e

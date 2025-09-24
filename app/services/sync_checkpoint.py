@@ -41,14 +41,28 @@ class SyncCheckpointManager:
         self.checkpoint_file = self.checkpoint_dir / f"{sync_id}.json"
         self.redis_key = f"sync:checkpoint:{sync_id}"
 
+        # Configuration attributes that can be set externally
+        self.resume_from_checkpoint: bool = True
+        self.checkpoint_frequency: int = 100
+        self.force_fresh_start: bool = False
+
     async def initialize(self):
         """Inicializa la conexión con Redis si está disponible."""
+        # Verificar que el directorio de checkpoints exista
+        logger.info(f"🗂️ Ensuring checkpoint directory exists: {self.checkpoint_dir}")
+        self.checkpoint_dir.mkdir(exist_ok=True)
+
         try:
             if settings.REDIS_URL:
                 self.redis_client = await redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
-                logger.info(f"Checkpoint manager initialized with Redis for sync {self.sync_id}")
+                # Test the connection
+                await self.redis_client.ping()
+                logger.info(f"📡 Checkpoint manager initialized with Redis for sync {self.sync_id}")
+            else:
+                logger.info(f"📁 Checkpoint manager initialized with file backup only for sync {self.sync_id}")
+                self.redis_client = None
         except Exception as e:
-            logger.warning(f"Redis not available for checkpoints, using file backup: {e}")
+            logger.debug(f"Redis not available, using file-based checkpoints only: {e}")
             self.redis_client = None
 
     async def save_checkpoint(
@@ -100,12 +114,14 @@ class SyncCheckpointManager:
             with open(self.checkpoint_file, "w") as f:
                 json.dump(checkpoint_data, f, indent=2)
 
+            logger.debug(f"💾 Checkpoint file saved: {self.checkpoint_file}")
+
             # Log de progreso cada 10% o cada 1000 productos
             if processed_count % 1000 == 0 or (processed_count % max(total_count // 10, 1) == 0):
                 logger.info(
                     f"📊 Checkpoint saved - Progress: {processed_count}/{total_count} "
                     f"({checkpoint_data['progress_percentage']:.1f}%) - "
-                    f"Last CCOD: {last_processed_ccod}"
+                    f"Last CCOD: {last_processed_ccod} - File: {self.checkpoint_file}"
                 )
 
             return True
@@ -122,15 +138,18 @@ class SyncCheckpointManager:
             Datos del checkpoint o None si no existe
         """
         try:
-            # Intentar cargar desde Redis primero
+            # Intentar cargar desde Redis primero (si está disponible)
             if self.redis_client:
-                data = await self.redis_client.get(self.redis_key)
-                if data:
-                    checkpoint = json.loads(data)
-                    logger.info(
-                        f"Checkpoint loaded from Redis: {checkpoint['processed_count']}/{checkpoint['total_count']}"
-                    )
-                    return checkpoint
+                try:
+                    data = await self.redis_client.get(self.redis_key)
+                    if data:
+                        checkpoint = json.loads(data)
+                        logger.info(
+                            f"Checkpoint loaded from Redis: {checkpoint['processed_count']}/{checkpoint['total_count']}"
+                        )
+                        return checkpoint
+                except Exception as redis_error:
+                    logger.debug(f"Could not load from Redis: {redis_error}")
 
             # Si no está en Redis, cargar desde archivo
             if self.checkpoint_file.exists():
@@ -139,7 +158,7 @@ class SyncCheckpointManager:
                 logger.info(f"Checkpoint loaded from file: {checkpoint['processed_count']}/{checkpoint['total_count']}")
                 return checkpoint
 
-            logger.info(f"No checkpoint found for sync {self.sync_id}")
+            logger.debug(f"No checkpoint found for sync {self.sync_id}")
             return None
 
         except Exception as e:

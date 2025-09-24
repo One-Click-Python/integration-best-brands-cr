@@ -5,11 +5,23 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AUTOMATIC_SYNC_ENGINE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/COLLECTION_SYNC_IMPLEMENTATION.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/GRAPHQL_QUERIES_REFACTOR.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/MODULAR_CLIENT_REFACTOR.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/RMS_TO_SHOPIFY_FLOW.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/RMS_TO_SHOPIFY_SYNC.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/SHOPIFY_TO_RMS_SYNC.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/WEBHOOK_CONFIGURATION.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/WINDOWS_INSTALLATION.md" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/sync_monitor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/sync_monitor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/rms_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/change_detector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/change_detector.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/sync_checkpoint.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/sync_checkpoint.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fetch_collections.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_sync_optimization.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -27,20 +39,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.debug_order_structure.executor": "Run",
-    "Python.uvicorn.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/Users/enzo/Documents/Python/oneclick/rms-shopify-integration",
-    "settings.editor.selected.configurable": "reference.settingsdialog.IDE.editor.colors",
-    "to.speed.mode.migration.done": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.debug_order_structure.executor&quot;: &quot;Run&quot;,
+    &quot;Python.uvicorn.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/enzo/Documents/Python/oneclick/rms-shopify-integration&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;reference.settingsdialog.IDE.editor.colors&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected="Python.uvicorn">
     <configuration default="true" type="PythonConfigurationType" factoryName="Python">
       <module name="rms-shopify-integration" />
@@ -182,33 +194,13 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>1071</line>
+          <line>15</line>
           <option name="timeStamp" value="126" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>279</line>
+          <line>13</line>
           <option name="timeStamp" value="130" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>300</line>
-          <option name="timeStamp" value="131" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>324</line>
-          <option name="timeStamp" value="132" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
-          <line>459</line>
-          <option name="timeStamp" value="134" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/services/variant_mapper.py</url>
-          <line>460</line>
-          <option name="timeStamp" value="135" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

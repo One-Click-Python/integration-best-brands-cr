@@ -622,6 +622,77 @@ class RMSHandler:
                 connection_type="custom_query",
             ) from e
 
+    async def execute_paginated_query(
+        self, query: str, offset: int, limit: int, params: Optional[Dict] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Ejecuta una consulta SQL con paginación usando OFFSET/FETCH.
+
+        Args:
+            query: Consulta SQL (sin ORDER BY ni OFFSET/FETCH)
+            offset: Número de filas a saltar
+            limit: Número de filas a retornar
+            params: Parámetros opcionales
+
+        Returns:
+            List[Dict]: Resultados paginados de la consulta
+        """
+        try:
+            # Agregar paginación a la query
+            # SQL Server requiere ORDER BY para usar OFFSET/FETCH
+            paginated_query = f"{query} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+
+            async with self.conn_db.get_session() as session:
+                result = await session.execute(text(paginated_query), params or {})
+                return [row._asdict() for row in result.fetchall()]
+
+        except Exception as e:
+            logger.error(f"Error executing paginated query: {e}")
+            raise RMSConnectionException(
+                message=f"Failed to execute paginated query: {str(e)}",
+                db_host=settings.RMS_DB_HOST,
+                connection_type="paginated_query",
+            ) from e
+
+    async def count_query_results(self, base_query: str, params: Optional[Dict] = None) -> int:
+        """
+        Cuenta el número total de resultados de una query.
+
+        Args:
+            base_query: Query base (se convertirá a COUNT)
+            params: Parámetros opcionales
+
+        Returns:
+            int: Número total de registros
+        """
+        try:
+            # Convertir la query a una COUNT query
+            # Buscar el FROM y reemplazar el SELECT
+            from_index = base_query.upper().find("FROM")
+            if from_index == -1:
+                raise ValueError("Query must contain FROM clause")
+
+            # Extraer solo la parte después del FROM, ignorando ORDER BY si existe
+            from_part = base_query[from_index:]
+            order_by_index = from_part.upper().find("ORDER BY")
+            if order_by_index != -1:
+                from_part = from_part[:order_by_index]
+
+            count_query = f"SELECT COUNT(*) as total {from_part}"
+
+            async with self.conn_db.get_session() as session:
+                result = await session.execute(text(count_query), params or {})
+                row = result.fetchone()
+                return row.total if row else 0
+
+        except Exception as e:
+            logger.error(f"Error counting query results: {e}")
+            raise RMSConnectionException(
+                message=f"Failed to count query results: {str(e)}",
+                db_host=settings.RMS_DB_HOST,
+                connection_type="count_query",
+            ) from e
+
     async def get_inventory_summary(self) -> Dict[str, Any]:
         """
         Obtiene resumen de inventario.

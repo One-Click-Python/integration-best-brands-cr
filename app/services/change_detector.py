@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
 from app.db.rms_handler import RMSHandler
-from app.services.rms_to_shopify import RMSToShopifySync
+from app.services.rms_to_shopify.sync_orchestrator import RMSToShopifySyncOrchestrator as RMSToShopifySync
 from app.utils.error_handler import ErrorAggregator
 
 settings = get_settings()
@@ -47,8 +47,9 @@ class ChangeDetector:
     async def initialize(self):
         """Inicializa el detector."""
         try:
-            # Inicializar servicio de sincronización
-            self.sync_service = RMSToShopifySync()
+            # Inicializar servicio de sincronización con sync_id para rastreabilidad
+            sync_id = f"change_detector_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            self.sync_service = RMSToShopifySync(sync_id=sync_id)
             await self.sync_service.initialize()
 
             # Establecer tiempo inicial (hace 1 hora para capturar cambios recientes)
@@ -341,51 +342,45 @@ class ChangeDetector:
                 logger.warning("No hay CCODs o SKUs válidos para sincronizar")
                 return {"success": False, "reason": "no_valid_identifiers"}
 
-            sync_results = []
-            items_processed = 0
+            # IMPORTANTE: Usar sincronización por lotes con checkpoint para cambios automáticos
+            # En lugar de procesar cada CCOD individualmente, usamos el método de sincronización
+            # que soporta checkpoints y procesa en lotes eficientemente
 
-            # Sincronizar por CCODs (preferido - productos completos con variantes)
-            if ccods_to_sync:
-                logger.info(f"Sincronizando {len(ccods_to_sync)} CCODs modificados")
+            logger.info(f"Sincronizando {len(ccods_to_sync)} CCODs modificados con procesamiento por lotes")
 
-                # Procesar CCODs en lotes pequeños
-                ccod_list = list(ccods_to_sync)
-                batch_size = 5  # Lotes pequeños para evitar sobrecarga
+            # Crear nuevo servicio de sync con ID específico para este proceso automático
+            sync_id = f"auto_sync_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            auto_sync_service = RMSToShopifySync(sync_id=sync_id)
 
-                for i in range(0, len(ccod_list), batch_size):
-                    batch = ccod_list[i : i + batch_size]
+            try:
+                await auto_sync_service.initialize()
 
-                    for ccod in batch:
-                        try:
-                            result = await self.sync_service.sync_products(
-                                ccod=ccod, force_update=True, include_zero_stock=True, batch_size=10
-                            )
+                # Sincronizar usando el método optimizado con soporte de checkpoints
+                # Este método procesará todos los productos modificados en lotes
+                result = await auto_sync_service.sync_products(
+                    force_update=True,
+                    batch_size=20,
+                    include_zero_stock=True,
+                    cod_product=list(ccods_to_sync),
+                )
 
-                            sync_results.append(result)
-                            items_processed += result.get("products_processed", 0)
+                # Log de resultado
+                logger.info(
+                    f"✅ Sincronización automática completada [sync_id: {sync_id}]: "
+                    f"{result.get('products_processed', 0)} productos procesados"
+                )
 
-                            # Pausa entre sincronizaciones para rate limiting
-                            await asyncio.sleep(1)
+                return {
+                    "success": True,
+                    "sync_id": sync_id,
+                    "items_detected": items_count,
+                    "ccods_synced": len(ccods_to_sync),
+                    **result,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
 
-                        except Exception as e:
-                            logger.error(f"Error sincronizando CCOD {ccod}: {e}")
-                            self.error_aggregator.add_error(e, {"ccod": ccod})
-
-                    # Pausa entre lotes
-                    if i + batch_size < len(ccod_list):
-                        await asyncio.sleep(3)
-
-            # Log de resultado
-            logger.info(f"✅ Sincronización automática completada: {items_processed} productos procesados")
-
-            return {
-                "success": True,
-                "items_detected": items_count,
-                "ccods_synced": len(ccods_to_sync),
-                "items_processed": items_processed,
-                "sync_results": sync_results,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+            finally:
+                await auto_sync_service.close()
 
         except Exception as e:
             logger.error(f"Error en sincronización automática: {e}")
@@ -407,7 +402,7 @@ class ChangeDetector:
         try:
             logger.info("🔄 Iniciando sincronización completa forzada")
 
-            result = await self.sync_service.sync_products(force_update=True, batch_size=20, include_zero_stock=False)
+            result = await self.sync_service.sync_products(force_update=True, batch_size=20, include_zero_stock=False, use_streaming=False)
 
             self.stats["items_synced"] += result.get("products_processed", 0)
             self.stats["last_sync_time"] = datetime.now(timezone.utc).isoformat()
