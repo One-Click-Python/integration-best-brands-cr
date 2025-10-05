@@ -71,8 +71,15 @@ class ProductProcessor:
         total_products = total_products_global if total_products_global else len(rms_products)
         page_products = len(rms_products)
         
+        # Handle empty product list
+        if not rms_products or len(rms_products) == 0:
+            logger.info(f"📭 No products to process [sync_id: {self.sync_id}]")
+            return stats
+        
         progress_tracker = SyncProgressTracker(
-            total_items=total_products, operation_name="Optimized Product Sync", sync_id=self.sync_id
+            total_items=max(1, total_products),  # Ensure at least 1 to avoid division by zero
+            operation_name="Optimized Product Sync", 
+            sync_id=self.sync_id
         )
 
         products_to_process = rms_products[start_index:]
@@ -82,7 +89,7 @@ class ProductProcessor:
                 f"🚀 Processing page with {len(products_to_process)} products "
                 f"(global progress: {stats.get('total_processed', 0)}/{total_products})"
             )
-        else:
+        elif products_to_process:
             logger.info(
                 f"🚀 Starting optimized sync: {len(products_to_process)} products "
                 f"(starting from index {start_index}/{total_products})"
@@ -174,7 +181,9 @@ class ProductProcessor:
 
                 await asyncio.sleep(sleep_time)
 
-        progress_tracker.log_progress("Final Progress - ")
+        # Only log final progress if there were products to process
+        if products_to_process:
+            progress_tracker.log_progress("Final Progress - ")
 
         # Only delete checkpoint if not processing pages (let orchestrator handle it)
         if not is_page_processing and stats["total_processed"] >= total_products:

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
+from app.utils.update_checkpoint import UpdateCheckpointManager
 from app.core.logging_config import LogContext
 from app.db.rms_handler import RMSHandler
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
@@ -38,10 +39,13 @@ class RMSToShopifySyncOrchestrator:
         checkpoint_frequency: int = 100,
         resume_from_checkpoint: bool = True,
         force_fresh_start: bool = False,
+        use_update_checkpoint: bool = False,
+        checkpoint_success_threshold: float = 0.95,
     ):
         self.sync_id = sync_id or f"rms_to_shopify_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         self.error_aggregator = ErrorAggregator()
         self.checkpoint_manager = SyncCheckpointManager(self.sync_id)
+        self.update_checkpoint_manager = UpdateCheckpointManager()
         self.rms_handler = RMSHandler()
         self.shopify_client = ShopifyGraphQLClient()
         self.primary_location_id = None
@@ -52,6 +56,9 @@ class RMSToShopifySyncOrchestrator:
         self.checkpoint_frequency = checkpoint_frequency
         self.resume_from_checkpoint = resume_from_checkpoint
         self.force_fresh_start = force_fresh_start
+        self.use_update_checkpoint = use_update_checkpoint
+        self.checkpoint_success_threshold = checkpoint_success_threshold
+        self.sync_start_time = None
 
     async def initialize(self):
         """Initializes the required clients and services."""
@@ -122,13 +129,20 @@ class RMSToShopifySyncOrchestrator:
             A dictionary with the synchronization result.
         """
         batch_size = batch_size or settings.SYNC_BATCH_SIZE
+        self.sync_start_time = datetime.now(timezone.utc)
 
         with LogContext(sync_id=self.sync_id, operation="sync_products"):
             logger.info(
                 f"Starting product sync - Force: {force_update}, Batch: {batch_size}, "
                 f"Include zero stock: {include_zero_stock}, CCOD: {cod_product or 'ALL'}, "
-                f"Streaming: {use_streaming}, Page size: {page_size} products/CCODs per page"
+                f"Streaming: {use_streaming}, Page size: {page_size} products/CCODs per page, "
+                f"Use update checkpoint: {self.use_update_checkpoint}"
             )
+            
+            # Log current update checkpoint status if enabled
+            if self.use_update_checkpoint:
+                checkpoint_status = self.update_checkpoint_manager.get_checkpoint_status()
+                logger.info(f"📅 Update checkpoint status: {checkpoint_status}")
 
             try:
                 if cod_product or not use_streaming:
@@ -328,6 +342,9 @@ class RMSToShopifySyncOrchestrator:
                 f"Synced {stats['total_processed']}/{total_products} products across {current_page - 1} pages "
                 f"[sync_id: {self.sync_id}]"
             )
+            
+            # Update the update checkpoint if enabled and sync was successful
+            await self._update_checkpoint_if_successful(final_report)
         else:
             logger.warning(
                 f"⚠️ Streaming sync incomplete - "
@@ -397,10 +414,50 @@ class RMSToShopifySyncOrchestrator:
         if final_report.get("success_rate", 0) > 0:
             logger.info(f"🎉 Sync completed successfully [sync_id: {self.sync_id}] - Cleaning up checkpoint")
             await self.checkpoint_manager.delete_checkpoint()
+            
+            # Update the update checkpoint if enabled and sync was successful
+            await self._update_checkpoint_if_successful(final_report)
         else:
             logger.warning(f"⚠️ Sync completed with issues [sync_id: {self.sync_id}] - Keeping checkpoint for retry")
 
         return final_report
+    
+    async def _update_checkpoint_if_successful(self, final_report: Dict[str, Any]) -> None:
+        """
+        Update the update checkpoint if sync was successful.
+        
+        Args:
+            final_report: The final sync report containing statistics and success rate
+        """
+        if not self.use_update_checkpoint:
+            return
+        
+        try:
+            success_rate = final_report.get("success_rate", 0) / 100  # Convert percentage to decimal
+            
+            if success_rate >= self.checkpoint_success_threshold:
+                # Update checkpoint with current timestamp
+                if self.update_checkpoint_manager.save_checkpoint(self.sync_start_time):
+                    logger.info(
+                        f"✅ Update checkpoint saved successfully - "
+                        f"Success rate: {success_rate:.2%} >= {self.checkpoint_success_threshold:.2%} threshold"
+                    )
+                    final_report["update_checkpoint_saved"] = True
+                    final_report["update_checkpoint_timestamp"] = self.sync_start_time.isoformat()
+                else:
+                    logger.warning("⚠️ Failed to save update checkpoint")
+                    final_report["update_checkpoint_saved"] = False
+            else:
+                logger.info(
+                    f"ℹ️ Update checkpoint not saved - "
+                    f"Success rate: {success_rate:.2%} < {self.checkpoint_success_threshold:.2%} threshold"
+                )
+                final_report["update_checkpoint_saved"] = False
+                final_report["update_checkpoint_reason"] = "Success rate below threshold"
+        
+        except Exception as e:
+            logger.error(f"❌ Error updating checkpoint: {e}")
+            final_report["update_checkpoint_error"] = str(e)
 
 
 async def sync_rms_to_shopify(

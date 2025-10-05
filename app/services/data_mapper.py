@@ -467,6 +467,29 @@ class RMSToShopifyMapper:
         return clean_title
 
     @staticmethod
+    def _is_valid_metafield_value(value: Any) -> bool:
+        """
+        Valida si un valor es apropiado para un metafield.
+        
+        Un valor es válido si:
+        - No es None
+        - Si es string, no está vacío o solo contiene espacios
+        - Si es otro tipo, se puede convertir a string válido
+        
+        Args:
+            value: Valor a validar
+            
+        Returns:
+            bool: True si el valor es válido para un metafield
+        """
+        if value is None:
+            return False
+        
+        # Convertir a string y validar
+        str_value = str(value).strip()
+        return bool(str_value)  # True si no está vacío después del strip
+    
+    @staticmethod
     def _generate_complete_metafields(rms_item: RMSViewItem) -> List[Dict[str, Any]]:
         """
         Genera metafields completos incluyendo los específicos de categoría.
@@ -481,35 +504,35 @@ class RMSToShopifyMapper:
 
         metafields = []
 
-        # Información básica de RMS
-        if rms_item.familia:
+        # Información básica de RMS - VALIDAR QUE NO SEA SOLO ESPACIOS
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.familia):
             metafields.append(
-                {"namespace": "rms", "key": "familia", "value": str(rms_item.familia), "type": "single_line_text_field"}
+                {"namespace": "rms", "key": "familia", "value": str(rms_item.familia).strip(), "type": "single_line_text_field"}
             )
 
-        if rms_item.categoria:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.categoria):
             metafields.append(
                 {
                     "namespace": "rms",
                     "key": "categoria",
-                    "value": str(rms_item.categoria),
+                    "value": str(rms_item.categoria).strip(),
                     "type": "single_line_text_field",
                 }
             )
 
-        if rms_item.color:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.color):
             metafields.append(
-                {"namespace": "rms", "key": "color", "value": str(rms_item.color), "type": "single_line_text_field"}
+                {"namespace": "rms", "key": "color", "value": str(rms_item.color).strip(), "type": "single_line_text_field"}
             )
 
-        if rms_item.talla:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.talla):
             metafields.append(
-                {"namespace": "rms", "key": "talla", "value": str(rms_item.talla), "type": "single_line_text_field"}
+                {"namespace": "rms", "key": "talla", "value": str(rms_item.talla).strip(), "type": "single_line_text_field"}
             )
 
-        if rms_item.ccod:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.ccod):
             metafields.append(
-                {"namespace": "rms", "key": "ccod", "value": str(rms_item.ccod), "type": "single_line_text_field"}
+                {"namespace": "rms", "key": "ccod", "value": str(rms_item.ccod).strip(), "type": "single_line_text_field"}
             )
 
         if rms_item.item_id:
@@ -517,12 +540,12 @@ class RMSToShopifyMapper:
                 {"namespace": "rms", "key": "item_id", "value": str(rms_item.item_id), "type": "number_integer"}
             )
 
-        if rms_item.extended_category:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.extended_category):
             metafields.append(
                 {
                     "namespace": "rms",
                     "key": "extended_category",
-                    "value": str(rms_item.extended_category),
+                    "value": str(rms_item.extended_category).strip(),
                     "type": "single_line_text_field",
                 }
             )
@@ -531,25 +554,26 @@ class RMSToShopifyMapper:
         # APLICAR PARA TODOS LOS TIPOS DE PRODUCTOS, no solo zapatos
 
         # Color - aplicar para cualquier producto que tenga color en RMS
-        if rms_item.color:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.color):
             metafields.append(
-                {"namespace": "custom", "key": "color", "value": str(rms_item.color), "type": "single_line_text_field"}
+                {"namespace": "custom", "key": "color", "value": str(rms_item.color).strip(), "type": "single_line_text_field"}
             )
 
         # Target gender - aplicar para cualquier producto que tenga género en RMS
-        if rms_item.genero:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.genero):
             metafields.append(
                 {
                     "namespace": "custom",
                     "key": "target_gender",
-                    "value": str(rms_item.genero),
+                    "value": str(rms_item.genero).strip(),
                     "type": "single_line_text_field",
                 }
             )
 
         # Age group - determinar para cualquier producto basado en género
-        if rms_item.genero:
-            if "Niño" in rms_item.genero or "Niña" in rms_item.genero:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.genero):
+            genero_str = str(rms_item.genero).strip()
+            if "Niño" in genero_str or "Niña" in genero_str:
                 metafields.append(
                     {"namespace": "custom", "key": "age_group", "value": "Kids", "type": "single_line_text_field"}
                 )
@@ -559,7 +583,8 @@ class RMSToShopifyMapper:
                 )
 
         # Size mapping - aplicar para CUALQUIER producto que tenga talla
-        if rms_item.talla:
+        if RMSToShopifyMapper._is_valid_metafield_value(rms_item.talla):
+            talla_value = str(rms_item.talla).strip()
             # Mapear según el tipo de producto
             if rms_item.familia == "Zapatos":
                 # Para zapatos usar shoe_size
@@ -567,7 +592,7 @@ class RMSToShopifyMapper:
                     {
                         "namespace": "custom",
                         "key": "shoe_size",
-                        "value": str(rms_item.talla),
+                        "value": talla_value,
                         "type": "single_line_text_field",
                     }
                 )
@@ -577,7 +602,7 @@ class RMSToShopifyMapper:
                     {
                         "namespace": "custom",
                         "key": "clothing_size",
-                        "value": str(rms_item.talla),
+                        "value": talla_value,
                         "type": "single_line_text_field",
                     }
                 )
@@ -587,7 +612,7 @@ class RMSToShopifyMapper:
                     {
                         "namespace": "custom",
                         "key": "size",
-                        "value": str(rms_item.talla),
+                        "value": talla_value,
                         "type": "single_line_text_field",
                     }
                 )

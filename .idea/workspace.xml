@@ -6,22 +6,26 @@
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AUTOMATIC_SYNC_ENGINE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/COLLECTION_SYNC_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/GRAPHQL_QUERIES_REFACTOR.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/MODULAR_CLIENT_REFACTOR.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RMS_TO_SHOPIFY_FLOW.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/RMS_TO_SHOPIFY_SYNC.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/SHOPIFY_TO_RMS_SYNC.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/WEBHOOK_CONFIGURATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/WINDOWS_INSTALLATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/sync.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/bulk_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/collection_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/inventory_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/metafield_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/order_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/product_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/taxonomy_queries.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/webhook_queries.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/app/db/rms_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms_handler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/shopify_graphql_client_backup.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/change_detector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/change_detector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/data_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/data_mapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/data_extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/data_extractor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/product_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/product_processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/progress_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/progress_tracker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/sync_checkpoint.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/sync_checkpoint.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fetch_collections.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_sync_optimization.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/variant_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/variant_mapper.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

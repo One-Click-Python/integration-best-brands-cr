@@ -17,26 +17,35 @@ class SyncProgressTracker:
         self.last_log_time = self.start_time
         self.stats = {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
 
-    def update(self, created: int = 0, updated: int = 0, skipped: int = 0, errors: int = 0):
-        """Actualiza las estadísticas y el progreso."""
-        self.processed_items += 1
+    def update(self, created: int = 0, updated: int = 0, skipped: int = 0, errors: int = 0, processed: int = 0):
+        """Update the statistics and progress."""
+        self.processed_items += processed or (created + updated + skipped + errors)
         self.stats["created"] += created
         self.stats["updated"] += updated
         self.stats["skipped"] += skipped
         self.stats["errors"] += errors
 
     def get_progress_info(self) -> Dict[str, Any]:
-        """Obtiene información completa del progreso."""
+        """Get complete progress information."""
         current_time = time.time()
         elapsed = current_time - self.start_time
 
-        if self.processed_items == 0:
-            return {"percentage": 0.0, "eta_seconds": 0, "rate_per_minute": 0.0, "elapsed_str": "00:00:00"}
+        # Always return all expected keys to avoid KeyError
+        if self.processed_items == 0 or self.total_items == 0:
+            return {
+                "percentage": 0.0,
+                "eta_seconds": 0,
+                "rate_per_minute": 0.0,
+                "elapsed_str": "00:00:00",
+                "eta_str": "00:00:00",
+                "processed": 0,
+                "total": self.total_items,
+            }
 
-        percentage = (self.processed_items / self.total_items) * 100
+        percentage = (self.processed_items / self.total_items) * 100 if self.total_items > 0 else 0
         rate_per_minute = (self.processed_items / elapsed) * 60 if elapsed > 0 else 0
 
-        remaining_items = self.total_items - self.processed_items
+        remaining_items = max(0, self.total_items - self.processed_items)
         eta_seconds = (remaining_items / rate_per_minute) * 60 if rate_per_minute > 0 else 0
 
         return {

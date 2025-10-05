@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     SYNC_CHECKPOINT_INTERVAL: int = Field(default=100, env="SYNC_CHECKPOINT_INTERVAL")
     SYNC_PARALLEL_WORKERS: int = Field(default=3, env="SYNC_PARALLEL_WORKERS")
     SYNC_HANDLE_BATCH_SIZE: int = Field(default=25, env="SYNC_HANDLE_BATCH_SIZE")
+    
+    # === CONFIGURACIÓN DE UPDATE CHECKPOINT ===
+    USE_UPDATE_CHECKPOINT: bool = Field(default=False, env="USE_UPDATE_CHECKPOINT")
+    CHECKPOINT_SUCCESS_THRESHOLD: float = Field(default=0.95, env="CHECKPOINT_SUCCESS_THRESHOLD")
+    CHECKPOINT_DEFAULT_DAYS: int = Field(default=30, env="CHECKPOINT_DEFAULT_DAYS")
 
     # === CONFIGURACIÓN DE PRODUCTOS CON STOCK 0 ===
     SYNC_UPDATE_ZERO_STOCK_PRODUCTS: bool = Field(default=True, env="SYNC_UPDATE_ZERO_STOCK_PRODUCTS")
@@ -191,6 +196,24 @@ class Settings(BaseSettings):
         """Valida que el minuto esté en rango válido (0-59)."""
         if not 0 <= v <= 59:
             raise ValueError("FULL_SYNC_MINUTE debe estar entre 0 y 59")
+        return v
+    
+    @field_validator("CHECKPOINT_SUCCESS_THRESHOLD")
+    @classmethod
+    def validate_checkpoint_threshold(cls, v):
+        """Valida que el umbral de éxito esté en rango válido (0.0-1.0)."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("CHECKPOINT_SUCCESS_THRESHOLD debe estar entre 0.0 y 1.0")
+        return v
+    
+    @field_validator("CHECKPOINT_DEFAULT_DAYS")
+    @classmethod
+    def validate_checkpoint_days(cls, v):
+        """Valida que los días por defecto sean positivos."""
+        if v < 1:
+            raise ValueError("CHECKPOINT_DEFAULT_DAYS debe ser al menos 1")
+        if v > 365:
+            raise ValueError("CHECKPOINT_DEFAULT_DAYS no debe ser mayor a 365")
         return v
 
     @field_validator("SHOPIFY_SHOP_URL")

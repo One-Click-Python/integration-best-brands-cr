@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.db.rms_handler import RMSHandler
 from app.services.rms_to_shopify.sync_orchestrator import RMSToShopifySyncOrchestrator as RMSToShopifySync
 from app.utils.error_handler import ErrorAggregator
+from app.utils.update_checkpoint import UpdateCheckpointManager
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class ChangeDetector:
         self.rms_handler = RMSHandler()
         self.sync_service = None
         self.error_aggregator = ErrorAggregator()
-        self.last_check_time = None
+        self.update_checkpoint_manager = UpdateCheckpointManager()
+        self.last_check_time: Optional[datetime] = None
         self.running = False
         self.monitoring_task = None
         self.stats = {
@@ -47,15 +49,17 @@ class ChangeDetector:
     async def initialize(self):
         """Inicializa el detector."""
         try:
-            # Inicializar servicio de sincronización con sync_id para rastreabilidad
+            # Initialize sync service with a specific sync_id for traceability
             sync_id = f"change_detector_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-            self.sync_service = RMSToShopifySync(sync_id=sync_id)
+            self.sync_service = RMSToShopifySync(sync_id=sync_id, use_update_checkpoint=True)
             await self.sync_service.initialize()
 
-            # Establecer tiempo inicial (hace 1 hora para capturar cambios recientes)
-            self.last_check_time = datetime.now(timezone.utc) - timedelta(hours=1)
+            # Set initial check time from the checkpoint manager
+            self.last_check_time = self.update_checkpoint_manager.get_last_update_timestamp(
+                default_days_back=settings.CHECKPOINT_DEFAULT_DAYS
+            )
 
-            logger.info("🔍 Change Detector inicializado correctamente")
+            logger.info(f"🔍 Change Detector initialized. Will check for changes since: {self.last_check_time.isoformat()}")
 
         except Exception as e:
             logger.error(f"Error inicializando Change Detector: {e}")
@@ -154,21 +158,32 @@ class ChangeDetector:
 
             if changes_count > 0:
                 self.stats["changes_detected"] += changes_count
-                logger.info(f"🔔 Detectados {changes_count} items modificados en RMS")
+                logger.info(f"🔔 Detected {changes_count} items modified in RMS since {self.last_check_time.isoformat()}")
 
-                # Obtener datos completos de View_Items para los items modificados
-                view_items_data = await self._get_view_items_for_changed_items(changed_items)
+                # Trigger automatic sync for the detected CCODs
+                # This part needs to be adapted to pass CCODs or a list of items
+                sync_result = await self._trigger_automatic_sync(changed_items)
 
-                if view_items_data:
-                    # Trigger sincronización automática
-                    sync_result = await self._trigger_automatic_sync(view_items_data)
-
-                    if sync_result.get("success"):
-                        self.stats["items_synced"] += sync_result.get("items_processed", 0)
-                        self.stats["last_sync_time"] = check_start.isoformat()
-
+                # After sync, update checkpoint based on results
+                total_processed = sync_result.get("statistics", {}).get("total_processed", 0)
+                success_rate = sync_result.get("statistics", {}).get("success_rate", 0)
+                
+                # Update stats regardless of success
+                if total_processed > 0:
+                    self.stats["items_synced"] += total_processed
+                    self.stats["last_sync_time"] = check_start.isoformat()
+                
+                # Update checkpoint if:
+                # 1. We processed at least one item successfully, OR
+                # 2. There were no errors (even if 0 products - means everything is up to date)
+                if total_processed > 0 or (changes_count > 0 and sync_result and not sync_result.get("error")):
+                    if success_rate >= (settings.CHECKPOINT_SUCCESS_THRESHOLD * 100) or total_processed == 0:
+                        logger.info(f"✅ [UPDATE CHECKPOINT] Updating - Processed: {total_processed}, Success rate: {success_rate:.1f}%")
+                        self.update_checkpoint_manager.save_checkpoint(check_start)
+                    else:
+                        logger.warning(f"⚠️ [UPDATE CHECKPOINT] Not updated - Success rate {success_rate:.1f}% < {settings.CHECKPOINT_SUCCESS_THRESHOLD * 100}% threshold")
                 else:
-                    logger.warning("No se pudieron obtener datos de View_Items para items modificados")
+                    logger.info("ℹ️ [UPDATE CHECKPOINT] No changes to sync, checkpoint remains at current position")
 
             else:
                 logger.debug("✅ No hay cambios detectados")
@@ -201,22 +216,23 @@ class ChangeDetector:
             List[Dict]: Lista de items modificados con ID y LastUpdated
         """
         try:
-            # Convertir datetime a formato SQL Server
-            last_check_sql = self.last_check_time.strftime("%Y-%m-%d %H:%M:%S")
-
+            # The timestamp is now a datetime object, no string formatting needed
             query = """
             SELECT TOP 500
-                ID,
-                LastUpdated
-            FROM Item 
-            WHERE LastUpdated > :last_check
-                AND LastUpdated IS NOT NULL
-            ORDER BY LastUpdated DESC
+                i.ID,
+                i.LastUpdated,
+                i.ItemLookupCode as c_articulo,
+                v.CCOD as real_ccod
+            FROM Item i
+            LEFT JOIN View_Items v ON i.ID = v.ItemID
+            WHERE i.LastUpdated > :last_check
+                AND i.LastUpdated IS NOT NULL
+            ORDER BY i.LastUpdated DESC
             """
 
-            result = await self.rms_handler.execute_custom_query(query, {"last_check": last_check_sql})
+            result = await self.rms_handler.execute_custom_query(query, {"last_check": self.last_check_time})
 
-            logger.debug(f"Query ejecutado: {len(result)} items modificados encontrados")
+            logger.debug(f"Query executed: {len(result)} modified items found since {self.last_check_time.isoformat()}")
 
             return result
 
@@ -314,78 +330,91 @@ class ChangeDetector:
             logger.error(f"Error obteniendo datos de View_Items: {e}")
             return []
 
-    async def _trigger_automatic_sync(self, items_data: List[Dict]) -> Dict[str, Any]:
+    async def _trigger_automatic_sync(self, changed_items: List[Dict]) -> Dict[str, Any]:
         """
-        Trigger sincronización automática para items modificados.
+        Trigger automatic sync for a list of changed items.
+
+        This now receives a list of item dictionaries, extracts the CCODs,
+        and triggers a sync for those specific products.
 
         Args:
-            items_data: Datos de View_Items para sincronizar
+            changed_items: List of dictionaries, each with at least a `c_articulo`
 
         Returns:
-            Dict: Resultado de la sincronización
+            Dict: Result of the synchronization
         """
+        if not changed_items:
+            return {}
+
+        # Extract unique CCODs from the changed items
+        # Use real_ccod from View_Items if available, otherwise extract from ItemLookupCode
+        ccods_to_sync = set()
+        for item in changed_items:
+            # First try to use the real CCOD from View_Items
+            real_ccod = item.get('real_ccod')
+            if real_ccod:
+                ccods_to_sync.add(real_ccod)
+            else:
+                # Fallback to extracting from ItemLookupCode
+                c_articulo = item.get('c_articulo', '')
+                if c_articulo:
+                    # Some products have ItemLookupCode like '6PP900005' but CCOD like '6PP905'
+                    # Try to extract the base CCOD
+                    parts = c_articulo.split('-')
+                    if parts:
+                        ccods_to_sync.add(parts[0])
+        
+        ccods_to_sync = list(ccods_to_sync)
+        
+        if not ccods_to_sync:
+            logger.warning("No valid CCODs found in changed items to sync.")
+            return {"statistics": {"total_processed": 0, "success_rate": 0}}
+
+        logger.info(f"Triggering automatic sync for {len(ccods_to_sync)} CCODs: {ccods_to_sync}")
+
         try:
-            items_count = len(items_data)
-            logger.info(f"🔄 Iniciando sincronización automática para {items_count} items")
+            all_results = []
+            total_synced = 0
+            
+            for ccod in ccods_to_sync:
+                try:
+                    logger.debug(f"Syncing CCOD: {ccod}")
+                    result = await self.sync_service.sync_products(
+                        cod_product=ccod,
+                        force_update=True,  # Always force update for changed items
+                        use_streaming=False, # Sync CCOD by CCOD
+                        include_zero_stock=True,  # IMPORTANT: Include zero stock products to update inventory
+                    )
+                    all_results.append(result)
+                    
+                    # Track successful syncs
+                    if result and result.get("statistics", {}).get("total_processed", 0) > 0:
+                        total_synced += result["statistics"]["total_processed"]
+                        
+                except Exception as e:
+                    logger.error(f"Failed to sync CCOD {ccod}: {e}")
+                    continue
 
-            # Agrupar por CCOD para sincronizar productos completos
-            ccods_to_sync = set()
-            skus_to_sync = set()
+            # Aggregate results
+            if all_results:
+                total_processed = sum(r.get("statistics", {}).get("total_processed", 0) for r in all_results)
+                success_rate = sum(r.get("success_rate", 0) for r in all_results) / len(all_results)
+            else:
+                total_processed = 0
+                success_rate = 0
+            
+            final_stats = {
+                "total_processed": total_processed,
+                "success_rate": success_rate,
+            }
 
-            for item in items_data:
-                if item.get("CCOD"):
-                    ccods_to_sync.add(item["CCOD"])
-                elif item.get("C_ARTICULO"):
-                    skus_to_sync.add(item["C_ARTICULO"])
-
-            if not ccods_to_sync and not skus_to_sync:
-                logger.warning("No hay CCODs o SKUs válidos para sincronizar")
-                return {"success": False, "reason": "no_valid_identifiers"}
-
-            # IMPORTANTE: Usar sincronización por lotes con checkpoint para cambios automáticos
-            # En lugar de procesar cada CCOD individualmente, usamos el método de sincronización
-            # que soporta checkpoints y procesa en lotes eficientemente
-
-            logger.info(f"Sincronizando {len(ccods_to_sync)} CCODs modificados con procesamiento por lotes")
-
-            # Crear nuevo servicio de sync con ID específico para este proceso automático
-            sync_id = f"auto_sync_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-            auto_sync_service = RMSToShopifySync(sync_id=sync_id)
-
-            try:
-                await auto_sync_service.initialize()
-
-                # Sincronizar usando el método optimizado con soporte de checkpoints
-                # Este método procesará todos los productos modificados en lotes
-                result = await auto_sync_service.sync_products(
-                    force_update=True,
-                    batch_size=20,
-                    include_zero_stock=True,
-                    cod_product=list(ccods_to_sync),
-                )
-
-                # Log de resultado
-                logger.info(
-                    f"✅ Sincronización automática completada [sync_id: {sync_id}]: "
-                    f"{result.get('products_processed', 0)} productos procesados"
-                )
-
-                return {
-                    "success": True,
-                    "sync_id": sync_id,
-                    "items_detected": items_count,
-                    "ccods_synced": len(ccods_to_sync),
-                    **result,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-
-            finally:
-                await auto_sync_service.close()
+            logger.info(f"Automatic sync completed for {len(ccods_to_sync)} CCODs. Processed: {total_processed}")
+            return {"statistics": final_stats}
 
         except Exception as e:
-            logger.error(f"Error en sincronización automática: {e}")
-            self.error_aggregator.add_error(e, {"operation": "automatic_sync"})
-            return {"success": False, "error": str(e)}
+            logger.error(f"Error during automatic sync: {e}")
+            self.error_aggregator.add_error(e, {"operation": "_trigger_automatic_sync"})
+            return {"error": str(e)}
 
     async def manual_check_and_sync(self) -> Dict[str, Any]:
         """Ejecuta una verificación y sincronización manual."""

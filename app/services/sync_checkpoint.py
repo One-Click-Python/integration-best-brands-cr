@@ -119,7 +119,7 @@ class SyncCheckpointManager:
             # Log de progreso cada 10% o cada 1000 productos
             if processed_count % 1000 == 0 or (processed_count % max(total_count // 10, 1) == 0):
                 logger.info(
-                    f"📊 Checkpoint saved - Progress: {processed_count}/{total_count} "
+                    f"💾 [PROGRESS CHECKPOINT] Saved - Progress: {processed_count}/{total_count} "
                     f"({checkpoint_data['progress_percentage']:.1f}%) - "
                     f"Last CCOD: {last_processed_ccod} - File: {self.checkpoint_file}"
                 )
@@ -145,7 +145,7 @@ class SyncCheckpointManager:
                     if data:
                         checkpoint = json.loads(data)
                         logger.info(
-                            f"Checkpoint loaded from Redis: {checkpoint['processed_count']}/{checkpoint['total_count']}"
+                            f"📂 [PROGRESS CHECKPOINT] Loaded from Redis: {checkpoint['processed_count']}/{checkpoint['total_count']}"
                         )
                         return checkpoint
                 except Exception as redis_error:
@@ -155,10 +155,10 @@ class SyncCheckpointManager:
             if self.checkpoint_file.exists():
                 with open(self.checkpoint_file, "r") as f:
                     checkpoint = json.load(f)
-                logger.info(f"Checkpoint loaded from file: {checkpoint['processed_count']}/{checkpoint['total_count']}")
+                logger.info(f"📂 [PROGRESS CHECKPOINT] Loaded from file: {checkpoint['processed_count']}/{checkpoint['total_count']}")
                 return checkpoint
 
-            logger.debug(f"No checkpoint found for sync {self.sync_id}")
+            logger.debug(f"ℹ️ [PROGRESS CHECKPOINT] No checkpoint found for sync {self.sync_id} - Starting fresh")
             return None
 
         except Exception as e:

@@ -55,9 +55,9 @@ class VariantMapper:
         filtered_groups = {}
         for key, group_items in grouped.items():
             if len(group_items) > 1:
-                # Verificar si realmente hay variaciones de color o talla
-                colors = set(item.color for item in group_items if item.color)
-                sizes = set(item.talla for item in group_items if item.talla)
+                # Verificar si realmente hay variaciones de color o talla - VALIDAR QUE NO SEA SOLO ESPACIOS
+                colors = set(item.color.strip() for item in group_items if item.color and item.color.strip())
+                sizes = set(item.talla.strip() for item in group_items if item.talla and item.talla.strip())
 
                 if len(colors) > 1 or len(sizes) > 1:
                     filtered_groups[key] = group_items
@@ -243,15 +243,17 @@ class VariantMapper:
         """
         options = []
 
-        # Analizar variaciones de color
-        colors = sorted(set(item.color for item in items if item.color))
+        # Analizar variaciones de color - VALIDAR QUE NO SEA SOLO ESPACIOS
+        colors = sorted(
+            set(item.color.strip() for item in items if item.color and item.color.strip())
+        )
         if colors and len(colors) > 1:
             options.append(ShopifyOption(name="Color", values=colors))
         elif colors:
             # Solo un color, pero incluirlo como opción
             options.append(ShopifyOption(name="Color", values=colors))
 
-        # Analizar variaciones de talla (aplicar strip() y normalizar)
+        # Analizar variaciones de talla - VALIDAR QUE NO SEA SOLO ESPACIOS
         sizes = sorted(
             set(item.talla.strip() for item in items if item.talla and item.talla.strip()),
             key=VariantMapper._sort_size_key,
@@ -336,9 +338,17 @@ class VariantMapper:
         variant_options = []
         for option in product_options:
             if option.name == "Color":
-                variant_options.append(item.color or "Default")
+                # Validar que el color no sea solo espacios
+                if item.color and item.color.strip():
+                    variant_options.append(item.color.strip())
+                else:
+                    variant_options.append("Default")
             elif option.name == "Size":
-                variant_options.append(item.talla.strip() if item.talla else "Default")
+                # Validar que la talla no sea solo espacios
+                if item.talla and item.talla.strip():
+                    variant_options.append(item.talla.strip())
+                else:
+                    variant_options.append("Default")
             elif option.name == "Style":
                 variant_options.append("Default")
             else:
