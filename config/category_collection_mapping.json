@@ -1,0 +1,27 @@
+{
+  "Calzado de Temporada": [
+    "Tenis",
+    "Sandalias",
+    "Flats",
+    "Cuñas"
+  ],
+  "Ropa Formal Femenina": [
+    "MUJER-VEST-CERR-TA16",
+    "MUJER-CERR-PLATA"
+  ],
+  "Ropa Casual Infantil": [
+    "NIÑA-CASU-CERR",
+    "NIÑO-CASU-CERR"
+  ],
+  "Accesorios": [
+    "Accesorios",
+    "Bolsos",
+    "ACCESORIOS CALZADO"
+  ],
+  "Calzado Especial": [
+    "Botas",
+    "Botines",
+    "Tacones",
+    "Vestir"
+  ]
+}

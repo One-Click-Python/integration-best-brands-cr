@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
 from app.utils.distributed_lock import collection_lock
 from app.utils.id_utils import is_valid_graphql_id, normalize_collection_id
+from app.utils.mapping_loader import find_collection_for_category
 
 logger = logging.getLogger(__name__)
 
@@ -193,29 +194,31 @@ class CollectionManager:
             ID de la colección o None si no se pudo crear/encontrar
         """
         try:
-            # Determinar el nombre de la colección basado en prioridad
             collection_name = None
-            collection_type = None
+            collection_type = "mapped"
 
-            # Prioridad 1: Categoría específica
-            if categoria and categoria.strip():
-                collection_name = categoria.strip()
+            # 1. Buscar en el mapeo JSON primero
+            if categoria:
+                mapped_collection = find_collection_for_category(categoria.strip())
+                if mapped_collection:
+                    collection_name = mapped_collection
+                    logger.debug(f"Categoría '{categoria}' mapeada a la colección '{collection_name}' desde JSON.")
+
+            # 2. Fallback a la lógica original si no hay mapeo
+            if not collection_name:
                 collection_type = "categoria"
-
-            # Prioridad 2: Familia si no hay categoría
-            elif familia and familia.strip():
-                collection_name = familia.strip()
-                collection_type = "familia"
-
-            # Prioridad 3: Categoría extendida si no hay categoría ni familia
-            elif extended_category and extended_category.strip():
-                # Tomar solo el último nivel de la categoría extendida
-                parts = extended_category.split(">")
-                collection_name = parts[-1].strip() if parts else extended_category.strip()
-                collection_type = "extended"
+                if categoria and categoria.strip():
+                    collection_name = categoria.strip()
+                elif familia and familia.strip():
+                    collection_name = familia.strip()
+                    collection_type = "familia"
+                elif extended_category and extended_category.strip():
+                    parts = extended_category.split(">")
+                    collection_name = parts[-1].strip() if parts else extended_category.strip()
+                    collection_type = "extended"
 
             if not collection_name:
-                logger.warning("No se pudo determinar nombre de colección - sin categoría/familia")
+                logger.warning("No se pudo determinar nombre de colección - sin categoría/familia/mapeo")
                 return None
 
             # Generar handle consistente basado en el nombre de la colección
