@@ -1,0 +1,337 @@
+{
+  "description": "Estructura completa de collections para Shopify con reglas de automated collections",
+  "version": "1.0",
+  "main_collections": {
+    "mujer": {
+      "title": "Mujer",
+      "handle": "mujer",
+      "description": "Toda la colección de calzado y accesorios para mujer",
+      "collection_type": "smart",
+      "rules": [
+        {
+          "column": "type",
+          "relation": "equals",
+          "condition": "Mujer"
+        }
+      ],
+      "disjunctive": false,
+      "sort_order": "best-selling",
+      "published": true
+    },
+    "hombre": {
+      "title": "Hombre",
+      "handle": "hombre",
+      "description": "Toda la colección de calzado para hombre",
+      "collection_type": "smart",
+      "rules": [
+        {
+          "column": "type",
+          "relation": "equals",
+          "condition": "Hombre"
+        }
+      ],
+      "disjunctive": false,
+      "sort_order": "best-selling",
+      "published": true
+    },
+    "infantil": {
+      "title": "Infantil",
+      "handle": "infantil",
+      "description": "Colección de calzado y ropa infantil",
+      "collection_type": "smart",
+      "rules": [
+        {
+          "column": "type",
+          "relation": "equals",
+          "condition": "Infantil"
+        }
+      ],
+      "disjunctive": false,
+      "sort_order": "best-selling",
+      "published": true,
+      "has_subcategories": false
+    },
+    "bolsos": {
+      "title": "Bolsos",
+      "handle": "bolsos",
+      "description": "Colección de bolsos y carteras",
+      "collection_type": "smart",
+      "rules": [
+        {
+          "column": "type",
+          "relation": "equals",
+          "condition": "Bolsos"
+        }
+      ],
+      "disjunctive": false,
+      "sort_order": "best-selling",
+      "published": true,
+      "has_subcategories": false
+    }
+  },
+  "subcategory_collections": {
+    "mujer": {
+      "flats": {
+        "title": "Mujer - Flats",
+        "handle": "mujer-flats",
+        "description": "Zapatos planos y confortables para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Flats"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "sandalias_flat": {
+        "title": "Mujer - Sandalias Flat",
+        "handle": "mujer-sandalias-flat",
+        "description": "Sandalias planas para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Sandalias Flat"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "sandalias_tacon": {
+        "title": "Mujer - Sandalias Tacón",
+        "handle": "mujer-sandalias-tacon",
+        "description": "Sandalias con tacón para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Sandalias Tacón"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "tenis": {
+        "title": "Mujer - Tenis",
+        "handle": "mujer-tenis",
+        "description": "Tenis deportivos y casuales para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Tenis"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "cunas": {
+        "title": "Mujer - Cuñas",
+        "handle": "mujer-cunas",
+        "description": "Zapatos con cuña para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Cuñas"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "plataformas": {
+        "title": "Mujer - Plataformas",
+        "handle": "mujer-plataformas",
+        "description": "Zapatos con plataforma para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Plataformas"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true,
+        "status": "pending_implementation"
+      },
+      "tacones": {
+        "title": "Mujer - Tacones",
+        "handle": "mujer-tacones",
+        "description": "Zapatos de tacón para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Tacones"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "botas": {
+        "title": "Mujer - Botas",
+        "handle": "mujer-botas",
+        "description": "Botas para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Botas"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "botines": {
+        "title": "Mujer - Botines",
+        "handle": "mujer-botines",
+        "description": "Botines para mujer",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Mujer"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Botines"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      }
+    },
+    "hombre": {
+      "tenis": {
+        "title": "Hombre - Tenis",
+        "handle": "hombre-tenis",
+        "description": "Tenis deportivos y casuales para hombre",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Hombre"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Tenis"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "casual": {
+        "title": "Hombre - Casual",
+        "handle": "hombre-casual",
+        "description": "Zapatos casuales para hombre",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Hombre"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Casual"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      },
+      "formal": {
+        "title": "Hombre - Formal",
+        "handle": "hombre-formal",
+        "description": "Zapatos formales para hombre",
+        "collection_type": "smart",
+        "rules": [
+          {
+            "column": "type",
+            "relation": "equals",
+            "condition": "Hombre"
+          },
+          {
+            "column": "tag",
+            "relation": "equals",
+            "condition": "Formal"
+          }
+        ],
+        "disjunctive": false,
+        "sort_order": "best-selling",
+        "published": true
+      }
+    }
+  },
+  "notes": {
+    "collection_types": "smart = automated with rules, manual = manually curated",
+    "disjunctive": "false = AND logic, true = OR logic between rules",
+    "sort_order": "Options: alpha-asc, alpha-desc, best-selling, created, created-desc, manual, price-asc, price-desc",
+    "plataformas": "Pendiente definir criterio de detección en RMS"
+  }
+}

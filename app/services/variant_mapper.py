@@ -100,6 +100,7 @@ class VariantMapper:
         shopify_client,
         location_id: Optional[str] = None,
         preserve_shopify_status: bool = True,
+        include_category_tags: bool = False,
     ) -> ShopifyProductInput:
         """
         Mapea un grupo de items RMS a un producto Shopify con múltiples variantes.
@@ -109,6 +110,7 @@ class VariantMapper:
             shopify_client: Cliente de Shopify para resolución de categorías
             location_id: ID de ubicación para inventario
             preserve_shopify_status: Si True, preserva el status existente del producto en Shopify
+            include_category_tags: Si True, incluye tags de categoría y género para collections
 
         Returns:
             ShopifyProductInput: Producto con variantes múltiples
@@ -151,7 +153,11 @@ class VariantMapper:
         VariantMapper._calculate_product_base_price(items)
 
         # Resolver categoría de taxonomía
-        from app.services.data_mapper import RMSToShopifyMapper
+        from app.services.data_mapper import (
+            RMSToShopifyMapper,
+            get_product_type_from_data,
+            map_category_to_tags,
+        )
 
         category_id = await RMSToShopifyMapper.resolve_category_id(
             base_item.categoria, shopify_client, base_item.familia
@@ -160,17 +166,38 @@ class VariantMapper:
         # Generar metafields usando el item base
         metafields = RMSToShopifyMapper._generate_complete_metafields(base_item)
 
-        # Generar tags
-        tags = VariantMapper._generate_tags(base_item)
+        # NUEVA LÓGICA: Determinar product_type basado en género + familia + categoría
+        # Solo si include_category_tags está habilitado
+        if include_category_tags:
+            product_type = get_product_type_from_data(
+                rms_familia=base_item.familia, rms_categoria=base_item.categoria, rms_gender=base_item.genero
+            )
+        else:
+            # Usar product_type del mapeo tradicional cuando categorías están deshabilitadas
+            product_type = RMSToShopifyMapper._get_product_type(base_item)
+
+        # NUEVA LÓGICA: Generar tags incluyendo categorías solo si está habilitado
+        collection_tags = map_category_to_tags(
+            rms_familia=base_item.familia,
+            rms_categoria=base_item.categoria,
+            rms_gender=base_item.genero,
+            include_category_tags=include_category_tags
+        )
+
+        # Generar tags adicionales (promoción, CCOD, etc.)
+        additional_tags = VariantMapper._generate_tags(base_item)
+
+        # Combinar todos los tags (evitando duplicados)
+        all_tags = list(set(collection_tags + additional_tags))
 
         return ShopifyProductInput(
             title=base_title,
             handle=handle,
             status=product_status,
-            productType=RMSToShopifyMapper._get_product_type(base_item),
+            productType=product_type,  # Usar nuevo product_type basado en género
             vendor=base_item.familia or "",
             category=category_id,
-            tags=tags,
+            tags=all_tags,  # Tags combinados para automated collections
             options=[opt.name for opt in options] if options else None,
             variants=variants,
             description=VariantMapper._generate_description(base_item),
@@ -454,6 +481,7 @@ async def create_products_with_variants(
     shopify_client,
     location_id: Optional[str] = None,
     preserve_shopify_status: bool = True,
+    include_category_tags: bool = False,
 ) -> List[ShopifyProductInput]:
     """
     Genera productos con variantes inteligentes a partir de items RMS.
@@ -463,6 +491,7 @@ async def create_products_with_variants(
         shopify_client: Cliente de Shopify
         location_id: ID de ubicación para inventario
         preserve_shopify_status: Si True, preserva el status existente del producto en Shopify
+        include_category_tags: Si True, incluye tags de categoría y género para collections
 
     Returns:
         List: Lista de productos Shopify con variantes
@@ -474,7 +503,7 @@ async def create_products_with_variants(
     for _, items in grouped_items.items():
         # Crear producto con variantes
         product = await VariantMapper.map_product_group_with_variants(
-            items, shopify_client, location_id, preserve_shopify_status
+            items, shopify_client, location_id, preserve_shopify_status, include_category_tags
         )
         products.append(product)
 

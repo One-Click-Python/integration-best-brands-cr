@@ -5,10 +5,13 @@ from typing import Any, List, Optional
 
 from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
+from app.core.config import get_settings
 from app.db.rms_handler import RMSHandler
 from app.services.variant_mapper import create_products_with_variants
 from app.utils.error_handler import SyncException
 from app.utils.update_checkpoint import UpdateCheckpointManager
+
+settings = get_settings()
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +65,9 @@ class RMSExtractor:
         count_query = f"SELECT COUNT(DISTINCT CCOD) as total {base_query}"
 
         try:
-            async with self.rms_handler.conn_db.get_session() as session:
-                from sqlalchemy import text
-
-                result = await session.execute(text(count_query))
-                row = result.fetchone()
-                return row.total if row else 0
+            # Use the query_executor to run the count query
+            result = await self.rms_handler.execute_custom_query(count_query)
+            return result[0].get("total", 0) if result else 0
         except Exception as e:
             logger.error(f"Error counting RMS products: {e}")
             return 0
@@ -125,12 +125,10 @@ class RMSExtractor:
             ORDER BY CCOD
             OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY
             """
-            
-            # Get the CCODs for this page
-            async with self.rms_handler.conn_db.get_session() as session:
-                from sqlalchemy import text
-                result = await session.execute(text(ccod_query))
-                page_ccods = [row.CCOD for row in result.fetchall()]
+
+            # Get the CCODs for this page using the query executor
+            ccod_results = await self.rms_handler.execute_custom_query(ccod_query)
+            page_ccods = [row.get("CCOD") for row in ccod_results]
             
             if not page_ccods:
                 logger.info(f"📊 No CCODs found for page (offset: {offset}, limit: {limit})")
@@ -193,7 +191,8 @@ class RMSExtractor:
                     continue
 
             shopify_products = await create_products_with_variants(
-                rms_items, self.shopify_client, self.primary_location_id
+                rms_items, self.shopify_client, self.primary_location_id,
+                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
             )
 
             logger.info(f"🎯 Generated {len(shopify_products)} products from {len(rms_items)} items (page)")
@@ -307,7 +306,8 @@ class RMSExtractor:
 
             logger.info("🔄 Grouping items by CCOD and creating products with variants...")
             shopify_products = await create_products_with_variants(
-                rms_items, self.shopify_client, self.primary_location_id
+                rms_items, self.shopify_client, self.primary_location_id,
+                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
             )
 
             logger.info(f"🎯 Generated {len(shopify_products)} products with multiple variants")
@@ -406,7 +406,8 @@ class RMSExtractor:
         
         # Convert to Shopify products
         shopify_products = await create_products_with_variants(
-            rms_items, self.shopify_client, self.primary_location_id
+            rms_items, self.shopify_client, self.primary_location_id,
+            include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
         )
         
         logger.info(f"🎯 Generated {len(shopify_products)} products from {len(rms_items)} items")

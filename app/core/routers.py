@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 # Importar routers de la API
+from app.api.v1.endpoints.collections import router as collections_router
 from app.api.v1.endpoints.sync import router as sync_router
 from app.api.v1.endpoints.sync_monitor import router as sync_monitor_router
 from app.api.v1.endpoints.webhooks import router as webhooks_router
@@ -52,6 +53,7 @@ def create_root_endpoints(app: FastAPI) -> None:
                 "sync": "/api/v1/sync",
                 "sync_monitor": "/api/v1/sync/monitor",
                 "webhooks": "/api/v1/webhooks",
+                "collections": "/api/v1/collections",
             },
         }
 
@@ -317,6 +319,18 @@ def configure_api_v1_routers(app: FastAPI) -> None:
     )
     logger.info("✅ Router de webhooks configurado")
 
+    # Router de collections
+    app.include_router(
+        collections_router,
+        prefix="/api/v1",
+        tags=["Collections"],
+        responses={
+            404: {"description": "Collection endpoint not found"},
+            500: {"description": "Collection operation error"},
+        },
+    )
+    logger.info("✅ Router de collections configurado")
+
 
 def configure_optional_routers(app: FastAPI) -> None:
     """
@@ -425,6 +439,7 @@ def get_router_info() -> Dict[str, Any]:
             "sync": "/api/v1/sync",
             "sync_monitor": "/api/v1/sync/monitor",
             "webhooks": "/api/v1/webhooks",
+            "collections": "/api/v1/collections",
             "metrics": "/api/v1/metrics" if settings.METRICS_ENABLED else None,
             "admin": "/api/v1/admin" if settings.DEBUG else None,
             "logs": "/api/v1/logs" if settings.DEBUG else None,

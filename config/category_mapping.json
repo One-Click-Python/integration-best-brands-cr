@@ -1,0 +1,142 @@
+{
+  "description": "Mapeo de categorías RMS a tags de Shopify para automated collections",
+  "version": "1.0",
+  "mappings": {
+    "Tenis": {
+      "tag": "Tenis",
+      "display_name": "Tenis",
+      "applies_to": ["Mujer", "Hombre"]
+    },
+    "Flats": {
+      "tag": "Flats",
+      "display_name": "Flats",
+      "applies_to": ["Mujer"]
+    },
+    "Sandalias": {
+      "tag": "Sandalias Flat",
+      "display_name": "Sandalias Flat",
+      "applies_to": ["Mujer"],
+      "notes": "Por defecto Flat, detectar tacón por altura > 3cm para 'Sandalias Tacón'"
+    },
+    "Cuñas": {
+      "tag": "Cuñas",
+      "display_name": "Cuñas",
+      "applies_to": ["Mujer"]
+    },
+    "Tacones": {
+      "tag": "Tacones",
+      "display_name": "Tacones",
+      "applies_to": ["Mujer"]
+    },
+    "Botas": {
+      "tag": "Botas",
+      "display_name": "Botas",
+      "applies_to": ["Mujer", "Hombre"]
+    },
+    "Botines": {
+      "tag": "Botines",
+      "display_name": "Botines",
+      "applies_to": ["Mujer"]
+    },
+    "Casual": {
+      "tag": "Casual",
+      "display_name": "Casual",
+      "applies_to": ["Hombre"]
+    },
+    "Vestir": {
+      "tag": "Formal",
+      "display_name": "Formal",
+      "applies_to": ["Hombre"],
+      "notes": "Vestir en RMS = Formal en Shopify"
+    },
+    "Bolsos": {
+      "tag": "Bolsos",
+      "display_name": "Bolsos",
+      "applies_to": ["Bolsos"],
+      "special": "product_type"
+    },
+    "ACCESORIOS CALZADO": {
+      "tag": "Accesorios",
+      "display_name": "Accesorios",
+      "applies_to": ["Mujer", "Hombre"]
+    },
+    "Accesorios": {
+      "tag": "Accesorios",
+      "display_name": "Accesorios",
+      "applies_to": ["Mujer", "Hombre"]
+    },
+    "NIÑA-CASU-CERR": {
+      "tag": "Infantil",
+      "display_name": "Infantil",
+      "applies_to": ["Infantil"],
+      "notes": "Categoría de ropa infantil"
+    },
+    "NIÑO-CASU-CERR": {
+      "tag": "Infantil",
+      "display_name": "Infantil",
+      "applies_to": ["Infantil"],
+      "notes": "Categoría de ropa infantil"
+    },
+    "MUJER-VEST-CERR-TA16": {
+      "tag": "Tacones",
+      "display_name": "Tacones",
+      "applies_to": ["Mujer"],
+      "notes": "Vestido cerrado con tacón - mapear a Tacones"
+    },
+    "MUJER-CERR-PLATA": {
+      "tag": "Tacones",
+      "display_name": "Tacones",
+      "applies_to": ["Mujer"],
+      "notes": "Calzado formal mujer - mapear a Tacones"
+    },
+    "MUJER-SAND-PLATA": {
+      "tag": "Sandalias Tacón",
+      "display_name": "Sandalias Tacón",
+      "applies_to": ["Mujer"],
+      "notes": "Sandalias con plataforma - mapear a Sandalias Tacón"
+    },
+    "Ropa": {
+      "tag": "Ropa",
+      "display_name": "Ropa",
+      "applies_to": ["Mujer", "Hombre", "Infantil"],
+      "notes": "Categoría genérica de ropa"
+    },
+    "Mixto": {
+      "tag": "Mixto",
+      "display_name": "Mixto",
+      "applies_to": ["Mujer", "Hombre"],
+      "notes": "Productos unisex o mixtos"
+    },
+    "Transito": {
+      "tag": "Transito",
+      "display_name": "Transito",
+      "applies_to": ["Mujer", "Hombre"],
+      "notes": "Productos en tránsito o temporales"
+    },
+    "Miscelaneos": {
+      "tag": "Otros",
+      "display_name": "Otros",
+      "applies_to": ["Mujer", "Hombre"],
+      "notes": "Productos misceláneos"
+    },
+    "n/d": {
+      "tag": "Sin Categoría",
+      "display_name": "Sin Categoría",
+      "applies_to": ["Mujer", "Hombre"],
+      "notes": "Productos sin categoría definida"
+    }
+  },
+  "special_rules": {
+    "sandalias_con_tacon": {
+      "description": "Detectar sandalias con tacón por altura",
+      "criteria": "Categoría='Sandalias' AND altura_tacon > 3cm",
+      "result_tag": "Sandalias Tacón"
+    },
+    "plataformas": {
+      "description": "Plataformas - pendiente definir criterio",
+      "criteria": "TBD - no existe en RMS",
+      "result_tag": "Plataformas",
+      "status": "pending_client_decision"
+    }
+  }
+}

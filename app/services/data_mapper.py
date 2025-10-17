@@ -839,3 +839,167 @@ class DataComparator:
             changes["changes"].append("status")
 
         return changes
+
+
+# ====================================================================================
+# NEW: Gender + Category Mapping Functions
+# ====================================================================================
+
+import json
+from pathlib import Path
+
+# Configuration file paths
+_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+_GENDER_MAPPING_FILE = _CONFIG_DIR / "gender_mapping.json"
+_CATEGORY_MAPPING_FILE = _CONFIG_DIR / "category_mapping.json"
+
+# Cache for loaded configurations
+_gender_mapping_cache: Optional[Dict[str, str]] = None
+_category_mapping_cache: Optional[Dict[str, Any]] = None
+
+
+def _load_gender_mapping() -> Dict[str, str]:
+    """Load gender mapping configuration."""
+    global _gender_mapping_cache
+
+    if _gender_mapping_cache is not None:
+        return _gender_mapping_cache
+
+    try:
+        with open(_GENDER_MAPPING_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            mappings: Dict[str, str] = data.get("mappings", {})
+            _gender_mapping_cache = mappings if mappings else {}
+            logger.info(f"Gender mapping loaded: {len(_gender_mapping_cache)} entries")
+    except Exception as e:
+        logger.error(f"Error loading gender mapping: {e}")
+        _gender_mapping_cache = {}
+
+    # Always return dict (never None)
+    return _gender_mapping_cache if _gender_mapping_cache is not None else {}
+
+
+def _load_category_mapping() -> Dict[str, Any]:
+    """Load category mapping configuration."""
+    global _category_mapping_cache
+
+    if _category_mapping_cache is not None:
+        return _category_mapping_cache
+
+    try:
+        with open(_CATEGORY_MAPPING_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            mappings: Dict[str, Any] = data.get("mappings", {})
+            _category_mapping_cache = mappings if mappings else {}
+            logger.info(f"Category mapping loaded: {len(_category_mapping_cache)} entries")
+    except Exception as e:
+        logger.error(f"Error loading category mapping: {e}")
+        _category_mapping_cache = {}
+
+    # Always return dict (never None)
+    return _category_mapping_cache if _category_mapping_cache is not None else {}
+
+
+def map_gender_to_product_type(rms_gender: Optional[str]) -> str:
+    """
+    Map RMS gender to Shopify product_type for collections.
+
+    Args:
+        rms_gender: Gender from RMS (Mujer, Hombre, Niño, Niña, Unisex)
+
+    Returns:
+        Shopify product_type (Mujer, Hombre, Infantil, Bolsos)
+    """
+    if not rms_gender:
+        logger.warning("No gender provided, defaulting to 'Mujer'")
+        return "Mujer"
+
+    gender_mapping = _load_gender_mapping()
+    product_type = gender_mapping.get(rms_gender, "Mujer")
+
+    logger.debug(f"Mapped gender '{rms_gender}' to product_type '{product_type}'")
+    return product_type
+
+
+def map_category_to_tags(
+    rms_familia: Optional[str],
+    rms_categoria: Optional[str],
+    rms_gender: Optional[str] = None,
+    include_category_tags: bool = False
+) -> List[str]:
+    """
+    Map RMS category to Shopify tags for automated collections.
+
+    Args:
+        rms_familia: Product family from RMS
+        rms_categoria: Product category from RMS
+        rms_gender: Product gender from RMS (optional)
+        include_category_tags: If True, include category and gender tags for collections
+
+    Returns:
+        List of tags to apply to the product (empty if include_category_tags=False)
+    """
+    # Return empty list if category tags are disabled
+    if not include_category_tags:
+        return []
+
+    tags = []
+    category_mapping = _load_category_mapping()
+
+    # Special case: Bolsos
+    if rms_familia == "Accesorios" and rms_categoria == "Bolsos":
+        tags.append("Bolsos")
+        return tags
+
+    # Map category to tag
+    if rms_categoria:
+        category_config = category_mapping.get(rms_categoria)
+
+        if category_config:
+            if isinstance(category_config, dict):
+                tag = category_config.get("tag", rms_categoria)
+            else:
+                tag = category_config
+
+            tags.append(tag)
+            logger.debug(f"Mapped category '{rms_categoria}' to tag '{tag}'")
+        else:
+            # No mapping found, use original category
+            logger.warning(f"No mapping for category '{rms_categoria}', using as-is")
+            tags.append(rms_categoria)
+
+    # Add gender tag
+    if rms_gender:
+        product_type = map_gender_to_product_type(rms_gender)
+        if product_type not in tags:  # Avoid duplicates
+            tags.append(product_type)
+
+    return tags
+
+
+def get_product_type_from_data(
+    rms_familia: Optional[str],
+    rms_categoria: Optional[str],
+    rms_gender: Optional[str]
+) -> str:
+    """
+    Determine product_type based on familia, categoria, and gender.
+
+    Special cases:
+    - Bolsos → "Bolsos" product_type
+    - Otherwise use gender mapping
+
+    Args:
+        rms_familia: Product family from RMS
+        rms_categoria: Product category from RMS
+        rms_gender: Product gender from RMS
+
+    Returns:
+        Product type string
+    """
+    # Special case: Bolsos get their own product_type
+    if rms_familia == "Accesorios" and rms_categoria == "Bolsos":
+        return "Bolsos"
+
+    # Use gender for product_type
+    return map_gender_to_product_type(rms_gender)

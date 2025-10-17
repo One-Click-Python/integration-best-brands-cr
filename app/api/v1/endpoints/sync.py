@@ -61,6 +61,10 @@ class SyncRequest(BaseModel):
     ccod: Optional[str] = Field(
         default=None, max_length=20, description="Sincronizar solo un producto específico por CCOD"
     )
+    include_category_tags: Optional[bool] = Field(
+        default=None,
+        description="Si True, incluye tags de categoría y género para collections. Si None, usa configuración global SYNC_INCLUDE_CATEGORY_TAGS"
+    )
 
     # Checkpoint parameters
     resume_from_checkpoint: bool = Field(

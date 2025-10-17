@@ -1,0 +1,15 @@
+{
+  "description": "Mapeo de géneros RMS a product_type de Shopify para collections",
+  "version": "1.0",
+  "mappings": {
+    "Mujer": "Mujer",
+    "Hombre": "Hombre",
+    "Niño": "Infantil",
+    "Niña": "Infantil",
+    "Unisex": "Mujer"
+  },
+  "notes": {
+    "Unisex": "Asignado a Mujer por decisión de negocio - puede modificarse",
+    "Infantil": "Agrupa tanto Niño como Niña en una sola categoría"
+  }
+}

@@ -6,26 +6,11 @@
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/bulk_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/collection_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/inventory_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/metafield_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/order_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/product_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/taxonomy_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/queries_backup/webhook_queries.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/rms_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms_handler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/shopify_graphql_client_backup.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/change_detector.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/change_detector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/routers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/routers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/data_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/data_mapper.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/data_extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/data_extractor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/product_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/product_processor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/progress_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/progress_tracker.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/sync_checkpoint.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/sync_checkpoint.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/services/variant_mapper.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/variant_mapper.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dump.rdb" beforeDir="false" afterPath="$PROJECT_DIR$/dump.rdb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -162,11 +147,6 @@
           <option name="timeStamp" value="74" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
-          <line>154</line>
-          <option name="timeStamp" value="81" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>
           <line>182</line>
           <option name="timeStamp" value="82" />
@@ -192,11 +172,6 @@
           <option name="timeStamp" value="86" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
-          <line>146</line>
-          <option name="timeStamp" value="125" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
           <line>15</line>
           <option name="timeStamp" value="126" />
@@ -205,6 +180,11 @@
           <url>file://$PROJECT_DIR$/app/services/rms_to_shopify.py</url>
           <line>13</line>
           <option name="timeStamp" value="130" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/db/shopify_clients/base_client.py</url>
+          <line>149</line>
+          <option name="timeStamp" value="131" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     SYNC_UPDATE_ZERO_STOCK_PRODUCTS: bool = Field(default=True, env="SYNC_UPDATE_ZERO_STOCK_PRODUCTS")
     SYNC_CREATE_ZERO_STOCK_PRODUCTS: bool = Field(default=False, env="SYNC_CREATE_ZERO_STOCK_PRODUCTS")
 
+    # === CONFIGURACIÓN DE CATEGORÍAS Y COLLECTIONS ===
+    SYNC_INCLUDE_CATEGORY_TAGS: bool = Field(
+        default=False,
+        env="SYNC_INCLUDE_CATEGORY_TAGS",
+        description="Si True, agrega tags de categoría mapeados y tags de género para collections automáticas"
+    )
+    SYNC_ENABLE_COLLECTIONS: bool = Field(
+        default=False,
+        env="SYNC_ENABLE_COLLECTIONS",
+        description="Si True, habilita la sincronización de collections basadas en género y categoría"
+    )
+
     # === CONFIGURACIÓN DE SINCRONIZACIÓN COMPLETA PROGRAMADA ===
     ENABLE_FULL_SYNC_SCHEDULE: bool = Field(default=False, env="ENABLE_FULL_SYNC_SCHEDULE")
     # Hora del día (0-23)
