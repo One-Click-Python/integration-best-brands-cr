@@ -276,20 +276,58 @@ class QueryExecutor(BaseRepository):
     @log_operation()
     async def find_item_by_sku(self, sku: str) -> Optional[Dict[str, Any]]:
         """
-        Find an item in the Item table by SKU (ItemLookupCode).
-        
+        Find an item in View_Items by SKU (C_ARTICULO field).
+
         This is a utility method that was in the original RMSHandler
         but didn't fit cleanly into ProductRepository.
         """
         try:
+            logger.info(f"Searching for item with SKU: '{sku}' (length: {len(sku)})")
+
             query = """
-            SELECT * FROM Item 
-            WHERE ItemLookupCode = :sku
+            SELECT
+                vi.ItemID as item_id,
+                vi.Description,
+                vi.C_ARTICULO as sku,
+                vi.CCOD as ccod,
+                vi.Quantity,
+                vi.Price,
+                i.Cost
+            FROM View_Items vi
+            INNER JOIN Item i ON vi.ItemID = i.ID
+            WHERE vi.C_ARTICULO = :sku
             """
             results = await self.execute_custom_query(query, {"sku": sku})
-            return results[0] if results else None
+
+            if results:
+                result_item = results[0]
+                logger.info(
+                    f"Found item for SKU '{sku}': ItemID={result_item.get('item_id')}, "
+                    f"Cost={result_item.get('cost')} (type: {type(result_item.get('cost')).__name__})"
+                )
+                logger.debug(f"Full item data: {result_item}")
+                return result_item
+            else:
+                logger.warning(f"No item found for SKU '{sku}' in View_Items table")
+
+                # Debug: intentar búsqueda parcial para ver si hay items similares
+                debug_query = """
+                SELECT TOP 5
+                    ItemID as item_id,
+                    C_ARTICULO as sku,
+                    Description
+                FROM View_Items
+                WHERE C_ARTICULO LIKE :sku_pattern
+                """
+                debug_results = await self.execute_custom_query(debug_query, {"sku_pattern": f"%{sku}%"})
+                if debug_results:
+                    logger.info(f"Similar SKUs found: {[r['sku'] for r in debug_results]}")
+                else:
+                    logger.warning("No similar SKUs found either")
+
+                return None
         except Exception as e:
-            logger.error(f"Error finding item by SKU {sku}: {e}")
+            logger.error(f"Error finding item by SKU {sku}: {e}", exc_info=True)
             return None
 
     @with_retry(max_attempts=3, delay=1.0)

@@ -463,3 +463,214 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
         except Exception as e:
             logger.error(f"Error finding best taxonomy match: {e}")
             raise ShopifyAPIException(f"Failed to find taxonomy match: {str(e)}") from e
+
+    async def get_draft_products(
+        self, limit: int = 250, cursor: Optional[str] = None, ccod_filter: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch DRAFT products with optional CCOD filtering.
+
+        Args:
+            limit: Number of products to fetch (max 250)
+            cursor: Pagination cursor
+            ccod_filter: Optional CCOD to filter by (e.g., "24RX04")
+
+        Returns:
+            Dict containing products and pagination info
+        """
+        try:
+            from app.db.queries.products import DRAFT_PRODUCTS_QUERY
+
+            # Build query string
+            query_parts = ["status:DRAFT"]
+            if ccod_filter:
+                # Search by tag or handle containing CCOD
+                query_parts.append(f"(tag:ccod_{ccod_filter} OR handle:*{ccod_filter}*)")
+
+            query_string = " AND ".join(query_parts)
+
+            variables = {"first": min(limit, 250), "query": query_string}
+            if cursor:
+                variables["after"] = cursor
+
+            result = await self._execute_query(DRAFT_PRODUCTS_QUERY, variables)
+            products_data = result.get("products", {})
+
+            products_count = len(products_data.get("edges", []))
+            logger.info(f"Fetched {products_count} DRAFT products (CCOD filter: {ccod_filter or 'None'})")
+
+            return products_data
+
+        except Exception as e:
+            logger.error(f"Error fetching DRAFT products: {e}")
+            raise ShopifyAPIException(f"Failed to fetch DRAFT products: {str(e)}") from e
+
+    async def update_product_tags(self, product_id: str, tags: List[str]) -> Dict[str, Any]:
+        """
+        Update product tags (replaces all existing tags).
+
+        Args:
+            product_id: Product ID to update
+            tags: New list of tags (replaces existing)
+
+        Returns:
+            Updated product data
+        """
+        try:
+            from app.db.queries.products import UPDATE_PRODUCT_TAGS_MUTATION
+
+            variables = {"id": product_id, "tags": tags}
+
+            result = await self._execute_query(UPDATE_PRODUCT_TAGS_MUTATION, variables)
+
+            product_result = result.get("productUpdate", {})
+            self._handle_graphql_errors(product_result, "Product tag update")
+
+            product = product_result.get("product")
+            if product:
+                logger.info(
+                    f"✅ Tags updated for product: {product.get('title', 'Unknown')} "
+                    f"(ID: {product_id}) - New tags: {tags}"
+                )
+                return product
+
+            raise ShopifyAPIException("Product tag update failed: No product returned")
+
+        except Exception as e:
+            logger.error(f"Error updating tags for product {product_id}: {e}")
+            raise ShopifyAPIException(f"Failed to update product tags: {str(e)}") from e
+
+    async def get_all_draft_products(self, ccod_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch all DRAFT products using pagination.
+
+        Args:
+            ccod_filter: Optional CCOD to filter by
+
+        Returns:
+            List of all DRAFT products
+        """
+        try:
+            all_products = []
+            cursor = None
+            page_count = 0
+
+            while True:
+                page_count += 1
+                logger.info(
+                    f"Fetching page {page_count} of DRAFT products "
+                    f"(CCOD: {ccod_filter or 'All'}, cursor: {cursor[:50] if cursor else 'None'}...)"
+                )
+
+                result = await self.get_draft_products(limit=250, cursor=cursor, ccod_filter=ccod_filter)
+                edges = result.get("edges", [])
+                products = [edge["node"] for edge in edges]
+
+                logger.info(f"Page {page_count}: Retrieved {len(products)} DRAFT products")
+
+                if products:
+                    all_products.extend(products)
+
+                # Check if there are more pages
+                page_info = result.get("pageInfo", {})
+                if not page_info.get("hasNextPage", False):
+                    break
+
+                cursor = page_info.get("endCursor")
+                if not cursor:
+                    break
+
+            logger.info(f"✅ Fetched all DRAFT products: {len(all_products)} total")
+            return all_products
+
+        except Exception as e:
+            logger.error(f"Error fetching all DRAFT products: {e}")
+            raise ShopifyAPIException(f"Failed to fetch all DRAFT products: {str(e)}") from e
+
+    async def get_active_products(
+        self, limit: int = 250, cursor: Optional[str] = None, ccod_filter: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch ACTIVE products with optional CCOD filtering.
+
+        Args:
+            limit: Number of products to fetch (max 250)
+            cursor: Pagination cursor
+            ccod_filter: Optional CCOD to filter by (e.g., "24RX04")
+
+        Returns:
+            Dict containing products and pagination info
+        """
+        try:
+            from app.db.queries.products import DRAFT_PRODUCTS_QUERY  # Reuse same query structure
+
+            # Build query string
+            query_parts = ["status:ACTIVE"]
+            if ccod_filter:
+                # Search by tag or handle containing CCOD
+                query_parts.append(f"(tag:ccod_{ccod_filter} OR handle:*{ccod_filter}*)")
+
+            query_string = " AND ".join(query_parts)
+
+            variables = {"first": min(limit, 250), "query": query_string}
+            if cursor:
+                variables["after"] = cursor
+
+            result = await self._execute_query(DRAFT_PRODUCTS_QUERY, variables)
+            products_data = result.get("products", {})
+
+            products_count = len(products_data.get("edges", []))
+            logger.info(f"Fetched {products_count} ACTIVE products (CCOD filter: {ccod_filter or 'None'})")
+
+            return products_data
+
+        except Exception as e:
+            logger.error(f"Error fetching ACTIVE products: {e}")
+            raise ShopifyAPIException(f"Failed to fetch ACTIVE products: {str(e)}") from e
+
+    async def get_all_active_products(self, ccod_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch all ACTIVE products using pagination.
+
+        Args:
+            ccod_filter: Optional CCOD to filter by
+
+        Returns:
+            List of all ACTIVE products
+        """
+        try:
+            all_products = []
+            cursor = None
+            page_count = 0
+
+            while True:
+                page_count += 1
+                logger.info(
+                    f"Fetching page {page_count} of ACTIVE products "
+                    f"(CCOD: {ccod_filter or 'All'}, cursor: {cursor[:50] if cursor else 'None'}...)"
+                )
+
+                result = await self.get_active_products(limit=250, cursor=cursor, ccod_filter=ccod_filter)
+                edges = result.get("edges", [])
+                products = [edge["node"] for edge in edges]
+
+                logger.info(f"Page {page_count}: Retrieved {len(products)} ACTIVE products")
+
+                if products:
+                    all_products.extend(products)
+
+                # Check if there are more pages
+                page_info = result.get("pageInfo", {})
+                if not page_info.get("hasNextPage", False):
+                    break
+
+                cursor = page_info.get("endCursor")
+                if not cursor:
+                    break
+
+            logger.info(f"✅ Fetched all ACTIVE products: {len(all_products)} total")
+            return all_products
+
+        except Exception as e:
+            logger.error(f"Error fetching all ACTIVE products: {e}")
+            raise ShopifyAPIException(f"Failed to fetch all ACTIVE products: {str(e)}") from e

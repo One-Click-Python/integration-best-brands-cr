@@ -105,6 +105,17 @@ class ShopifyOrderClient:
                     currencyCode
                   }
                 }
+                shippingLine {
+                  title
+                  code
+                  carrierIdentifier
+                  currentDiscountedPriceSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
                 customer {
                   id
                   email
@@ -199,7 +210,7 @@ class ShopifyOrderClient:
                     }
                   }
                 }
-                transactions {
+                transactions(first: 50) {
                   id
                   kind
                   status

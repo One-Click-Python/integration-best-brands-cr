@@ -7,6 +7,7 @@ desde Shopify hacia Microsoft Retail Management System.
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
@@ -237,12 +238,20 @@ class ShopifyToRMSSync:
                 )
 
         # Validar que tenga líneas de pedido
-        line_items = order.get("lineItems", [])
+        # Manejar formato GraphQL de line items (edges/node structure)
+        line_items_raw = order.get("lineItems", {})
+        if isinstance(line_items_raw, dict) and "edges" in line_items_raw:
+            # GraphQL format: lineItems.edges[].node
+            line_items = [edge["node"] for edge in line_items_raw["edges"]]
+        else:
+            # Formato simple (lista directa)
+            line_items = line_items_raw if isinstance(line_items_raw, list) else []
+
         if not line_items or len(line_items) == 0:
             raise ValidationException(
                 message="Order must have at least one line item",
                 field="lineItems",
-                invalid_value=line_items,
+                invalid_value=line_items_raw,
             )
 
         # Validar que cada línea tenga SKU para mapear a RMS
@@ -265,13 +274,84 @@ class ShopifyToRMSSync:
 
         if financial_status not in valid_financial_statuses:
             raise ValidationException(
-                message=f"Order financial status '{financial_status}' not valid for sync. Must be one of: {valid_financial_statuses}",
+                message=(
+                    f"Order financial status '{financial_status}' not valid for sync. "
+                    f"Must be one of: {valid_financial_statuses}"
+                ),
                 field="displayFinancialStatus",
                 invalid_value=financial_status,
             )
 
         logger.info(f"Order {order['id']} validation passed - {len(line_items)} items, total: {total_price}")
         return order
+
+    def _calculate_deposit(self, shopify_order: dict[str, Any]) -> Decimal:
+        """
+        Calcula el depósito/pago recibido de una orden de Shopify.
+
+        Lógica:
+        - PAID: deposit = total
+        - PARTIALLY_PAID: sumar transacciones SALE/CAPTURE exitosas
+        - PARTIALLY_REFUNDED: sumar transacciones SALE/CAPTURE, restar REFUND
+        - AUTHORIZED/PENDING: deposit = 0.00
+
+        Args:
+            shopify_order: Orden de Shopify con transactions
+
+        Returns:
+            Decimal: Monto del depósito calculado
+        """
+        from decimal import Decimal
+
+        financial_status = shopify_order.get("displayFinancialStatus", "").upper()
+
+        # Si está completamente pagada, el depósito es el total
+        if financial_status == "PAID":
+            total_amount = shopify_order.get("totalPriceSet", {}).get("shopMoney", {}).get("amount", "0.00")
+            deposit = Decimal(total_amount)
+            logger.debug(f"Order fully PAID - deposit = total: {deposit}")
+            return deposit
+
+        # Si está parcialmente pagada o reembolsada, calcular desde transacciones
+        elif financial_status in ["PARTIALLY_PAID", "PARTIALLY_REFUNDED"]:
+            deposit = Decimal("0.00")
+            transactions = shopify_order.get("transactions", [])
+
+            for transaction in transactions:
+                # Solo contar transacciones exitosas
+                if transaction.get("status") != "SUCCESS":
+                    continue
+
+                # Solo contar transacciones no de prueba
+                if transaction.get("test", False):
+                    continue
+
+                amount_str = (
+                    transaction.get("amountSet", {})
+                    .get("shopMoney", {})
+                    .get("amount", "0.00")
+                )
+                amount = Decimal(amount_str) if amount_str else Decimal("0.00")
+
+                # Sumar SALE y CAPTURE
+                if transaction.get("kind") in ["SALE", "CAPTURE"]:
+                    deposit += amount
+                    logger.debug(
+                        f"Added {transaction.get('kind')} transaction: {amount} - running total: {deposit}"
+                    )
+
+                # Restar REFUND
+                elif transaction.get("kind") == "REFUND":
+                    deposit -= amount
+                    logger.debug(f"Subtracted REFUND transaction: {amount} - running total: {deposit}")
+
+            logger.info(f"Order {financial_status} - calculated deposit from transactions: {deposit}")
+            return deposit
+
+        # PENDING, AUTHORIZED, VOIDED, EXPIRED - sin captura de pago
+        else:
+            logger.debug(f"Order status {financial_status} - deposit = 0.00")
+            return Decimal("0.00")
 
     async def _convert_to_rms_format(self, shopify_order: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -291,6 +371,23 @@ class ShopifyToRMSSync:
         tax_amount = Decimal(shopify_order.get("totalTaxSet", {}).get("shopMoney", {}).get("amount", "0"))
         order_date = datetime.fromisoformat(shopify_order["createdAt"].replace("Z", "+00:00"))
 
+        # Extraer ID numérico de Shopify (gid://shopify/Order/123456 -> 123456)
+        shopify_id_numeric = shopify_order["id"].split("/")[-1]
+
+        # Extraer costo de envío de shippingLine
+        shipping_charge = Decimal("0.00")
+        shipping_line = shopify_order.get("shippingLine")
+        if shipping_line:
+            shipping_money = (
+                shipping_line.get("currentDiscountedPriceSet", {})
+                .get("shopMoney", {})
+                .get("amount", "0.00")
+            )
+            shipping_charge = Decimal(shipping_money) if shipping_money else Decimal("0.00")
+
+        # Calcular depósito basado en transacciones y estado financiero
+        deposit_amount = self._calculate_deposit(shopify_order)
+
         # Mapear datos de cabecera del pedido (tabla ORDER)
         order_data = {
             "store_id": 40,  # Tienda virtual
@@ -298,11 +395,16 @@ class ShopifyToRMSSync:
             "type": 1,  # Venta normal
             "total": total_amount,
             "tax": tax_amount,
-            "deposit": Decimal("0.00"),
-            "shopify_order_id": shopify_order["id"],
-            "shopify_order_number": shopify_order["name"].replace("#", ""),
-            "customer_email": shopify_order.get("email"),
+            "deposit": deposit_amount,  # Calculado según estado financiero
+            "reference_number": f"SHOPIFY-{shopify_id_numeric}",  # Vinculación con Shopify
+            "channel_type": 2,  # Canal Shopify
+            "closed": 0,  # Orden abierta
+            "shipping_charge_on_order": shipping_charge,
             "comment": f"Shopify Order {shopify_order['name']} - {shopify_order.get('displayFinancialStatus', '')}",
+            "shipping_notes": "",
+            "sales_rep_id": 0,
+            "shipping_service_id": 0,
+            "shipping_tracking_number": "",
         }
 
         # Procesar cliente (crear si no existe)
@@ -325,11 +427,19 @@ class ShopifyToRMSSync:
 
         for item in line_items:
             # Verificar SKU (priorizar variant.sku sobre item.sku)
-            item_sku = item.get("variant", {}).get("sku") or item.get("sku")
+            # Usar 'or {}' para manejar caso cuando variant es None
+            variant_sku = (item.get("variant") or {}).get("sku")
+            item_level_sku = item.get("sku")
+            item_sku = variant_sku or item_level_sku
+
+            logger.info(
+                f"Processing line item '{item.get('title', 'Unknown')}': "
+                f"variant_sku='{variant_sku}', item_sku='{item_level_sku}', final_sku='{item_sku}'"
+            )
 
             # Para testing: usar variant ID como fallback si no hay SKU
             if not item_sku or item_sku.strip() == "":
-                variant_id = item.get("variant", {}).get("id", "")
+                variant_id = (item.get("variant") or {}).get("id", "")
                 if variant_id:
                     # Extraer ID numerico del GID
                     variant_id_num = variant_id.split("/")[-1] if "/" in variant_id else variant_id
@@ -337,37 +447,62 @@ class ShopifyToRMSSync:
                     logger.info(f"Using variant ID as SKU fallback: {item_sku} for item {item.get('title', 'Unknown')}")
                 else:
                     logger.warning(
-                        f"Skipping line item without SKU or variant ID in order {shopify_order['id']}: {item.get('title', 'Unknown item')}"
+                        f"Skipping line item without SKU or variant ID in order {shopify_order['id']}: "
+                        f"{item.get('title', 'Unknown item')}"
                     )
                     continue
 
-            # Resolver SKU a ItemID de RMS
-            item_id = await self._resolve_sku_to_item_id(item_sku)
-            if not item_id:
-                logger.error(f"Could not find RMS ItemID for SKU: {item_sku} in order {shopify_order['id']}")
+            # Resolver SKU a ItemID de RMS y obtener datos del item (incluyendo Cost)
+            logger.info(f"Looking up RMS item for SKU: '{item_sku}'")
+            rms_item = await self.rms_handler.find_item_by_sku(item_sku)
+            if not rms_item:
+                logger.error(
+                    f"Could not find RMS Item for SKU: '{item_sku}' in order {shopify_order['id']}. "
+                    f"Item title: '{item.get('title', 'Unknown')}'"
+                )
                 continue
+
+            item_id = rms_item["item_id"]
+            # Obtener costo del item desde RMS, usar 0.0 si no existe
+            raw_cost = rms_item.get("cost")
+            logger.info(
+                f"Item {item_id} - raw cost from RMS: {raw_cost} (type: {type(raw_cost).__name__})"
+            )
+            item_cost = Decimal(str(raw_cost or 0.0))
+            logger.info(f"Item {item_id} - final cost: {item_cost} (type: {type(item_cost).__name__})")
 
             # Obtener precios (usar precio con descuento si existe)
             discounted_price_set = item.get("discountedUnitPriceSet", item.get("originalUnitPriceSet"))
             unit_price = Decimal(discounted_price_set["shopMoney"]["amount"])
             original_price = Decimal(item["originalUnitPriceSet"]["shopMoney"]["amount"])
 
+            # Determinar si el item es gravable (taxable)
+            is_taxable = 1 if item.get("taxable", True) else 0
+
             line_item_data = {
                 "item_id": item_id,
                 "price": unit_price,
                 "full_price": original_price,
+                "cost": item_cost,  # Costo desde RMS (requerido por OrderEntry)
                 "quantity_on_order": float(item["quantity"]),
                 "quantity_rtd": 0.0,  # No despachado aún
                 "description": item["title"][:255],  # Límite de campo
-                "shopify_variant_id": item.get("variant", {}).get("id"),
-                "shopify_product_id": item.get("variant", {}).get("product", {}).get("id"),
+                "taxable": is_taxable,  # Indicador de gravabilidad
+                "sales_rep_id": 0,  # Default
+                "discount_reason_code_id": 0,  # Default
+                "return_reason_code_id": 0,  # Default
+                "is_add_money": False,  # Default
+                "voucher_id": 0,  # Default
             }
 
             line_items_data.append(line_item_data)
 
         if not line_items_data:
             raise ValidationException(
-                message=f"No valid line items found for order {shopify_order['id']} - all items missing SKU or ItemID mapping",
+                message=(
+                    f"No valid line items found for order {shopify_order['id']} - "
+                    "all items missing SKU or ItemID mapping"
+                ),
                 field="lineItems",
                 invalid_value=shopify_order.get("lineItems", []),
             )
@@ -426,7 +561,8 @@ class ShopifyToRMSSync:
             if not email:
                 if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
                     logger.info(
-                        f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for customer without email"
+                        f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} "
+                        "for customer without email"
                     )
                     return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
                 else:
@@ -527,6 +663,69 @@ class ShopifyToRMSSync:
             "Phone": address.get("phone"),
         }
 
+    def _validate_rms_order_data(self, order_data: dict[str, Any]) -> None:
+        """
+        Valida que order_data tenga todos los campos críticos para RMS.
+
+        Args:
+            order_data: Diccionario con datos de la orden
+
+        Raises:
+            ValidationException: Si falta algún campo crítico o el formato es incorrecto
+        """
+        # Campos requeridos para RMS Order
+        required_fields = [
+            "store_id",
+            "time",
+            "type",
+            "total",
+            "tax",
+            "deposit",
+            "reference_number",
+            "channel_type",
+            "closed",
+        ]
+
+        # Verificar que existan todos los campos requeridos
+        for field in required_fields:
+            if field not in order_data:
+                raise ValidationException(
+                    message=f"Missing required RMS field: {field}",
+                    field=field,
+                    invalid_value=None,
+                )
+
+        # Validar formato de ReferenceNumber para Shopify
+        reference_number = order_data.get("reference_number", "")
+        if not reference_number.startswith("SHOPIFY-"):
+            raise ValidationException(
+                message="ReferenceNumber must start with SHOPIFY- for Shopify orders",
+                field="reference_number",
+                invalid_value=reference_number,
+            )
+
+        # Validar que ChannelType sea 2 (Shopify)
+        channel_type = order_data.get("channel_type")
+        if channel_type != 2:
+            logger.warning(
+                f"ChannelType is {channel_type}, expected 2 for Shopify orders. "
+                "This may cause issues with order lookup."
+            )
+
+        # Validar valores numéricos positivos
+        numeric_fields = ["total", "tax", "deposit", "shipping_charge_on_order"]
+        for field in numeric_fields:
+            if field in order_data:
+                value = order_data[field]
+                if value is not None and value < 0:
+                    raise ValidationException(
+                        message=f"{field} cannot be negative",
+                        field=field,
+                        invalid_value=value,
+                    )
+
+        logger.debug(f"RMS order data validation passed for reference: {reference_number}")
+
     async def _create_rms_order(self, rms_order_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Crea una nueva orden en RMS.
@@ -540,18 +739,23 @@ class ShopifyToRMSSync:
         try:
             from app.api.v1.schemas.rms_schemas import RMSOrder, RMSOrderEntry
 
+            # Validar datos de la orden antes de crear
+            self._validate_rms_order_data(rms_order_data["order"])
+
             # Crear la orden principal (tabla ORDER)
             order_model = RMSOrder(**rms_order_data["order"])
-            order_id = await self.rms_handler.create_order(order_model.model_dump())
+            order_id = await self.rms_handler.create_order(order_model)
 
-            logger.info(f"Created RMS order {order_id} for Shopify order {rms_order_data['order']['shopify_order_id']}")
+            logger.info(
+                f"Created RMS order {order_id} for Shopify order {rms_order_data['order']['reference_number']}"
+            )
 
             # Crear las líneas de la orden (tabla ORDERENTRY)
             created_entries = []
             for line_item in rms_order_data["line_items"]:
                 line_item["order_id"] = order_id
                 entry_model = RMSOrderEntry(**line_item)
-                entry_id = await self.rms_handler.create_order_entry(entry_model.model_dump())
+                entry_id = await self.rms_handler.create_order_entry(entry_model)
                 created_entries.append({"id": entry_id, **line_item})
 
                 logger.debug(f"Created order entry {entry_id} for item {line_item['item_id']}")
@@ -559,8 +763,9 @@ class ShopifyToRMSSync:
             # Validar inventario y actualizar existencias
             await self._validate_and_update_inventory(created_entries)
 
+            # TODO: Implementar create_order_history en RMSHandler
             # Crear registro de historial
-            await self._create_order_history(order_id, "ORDER_CREATED", "Order created from Shopify")
+            # await self._create_order_history(order_id, "ORDER_CREATED", "Order created from Shopify")
 
             logger.info(f"Successfully created RMS order {order_id} with {len(created_entries)} line items")
 
@@ -600,8 +805,9 @@ class ShopifyToRMSSync:
             # Sincronizar líneas de la orden (agregar/actualizar/eliminar según sea necesario)
             await self._sync_order_entries(order_id, rms_order_data["line_items"])
 
+            # TODO: Implementar create_order_history en RMSHandler
             # Crear registro de historial
-            await self._create_order_history(order_id, "ORDER_UPDATED", "Order updated from Shopify")
+            # await self._create_order_history(order_id, "ORDER_UPDATED", "Order updated from Shopify")
 
             logger.info(f"Successfully updated RMS order {order_id}")
 
@@ -710,8 +916,9 @@ class ShopifyToRMSSync:
             }
 
             history_model = RMSOrderHistory(**history_data)
-            await self.rms_handler.create_order_history(history_model.model_dump())
-            logger.debug(f"Created order history: {action} for order {order_id}")
+            # TODO: Implementar create_order_history en RMSHandler
+            # await self.rms_handler.create_order_history(history_model.model_dump())
+            logger.debug(f"Order history would be created: {action} for order {order_id}")
 
         except Exception as e:
             logger.error(f"Error creating order history: {e}")

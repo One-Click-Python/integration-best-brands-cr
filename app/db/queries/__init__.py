@@ -51,6 +51,9 @@ __all__ = [
     "CREATE_VARIANTS_BULK_MUTATION",  # noqa: F405
     "UPDATE_VARIANTS_BULK_MUTATION",  # noqa: F405
     "DELETE_VARIANTS_BULK_MUTATION",  # noqa: F405
+    # Tag cleanup operations
+    "DRAFT_PRODUCTS_QUERY",  # noqa: F405
+    "UPDATE_PRODUCT_TAGS_MUTATION",  # noqa: F405
     # Collection queries
     "COLLECTIONS_QUERY",  # noqa: F405
     "COLLECTIONS_SIMPLE_QUERY",  # noqa: F405

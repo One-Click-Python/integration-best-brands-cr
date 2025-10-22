@@ -145,6 +145,12 @@ class RMSOrder(BaseModel):
     )
     channel_type: int = Field(default=1, description="Tipo de canal (1=tienda, 2=Shopify, 3=web, etc.)")
 
+    # Estado y envío
+    closed: int = Field(default=0, description="Estado de la orden (0=abierta, 1=cerrada)")
+    shipping_charge_on_order: Decimal = Field(
+        default=Decimal("0.00"), decimal_places=2, description="Cargo de envío en la orden"
+    )
+
     # Comentarios
     comment: Optional[str] = Field(None, max_length=500, description="Comentarios del usuario")
     shipping_notes: Optional[str] = Field(None, max_length=500, description="Notas de envío")
@@ -174,6 +180,7 @@ class RMSOrderEntry(BaseModel):
     discount_reason_code_id: Optional[int] = Field(None, description="Código de razón de descuento")
     return_reason_code_id: Optional[int] = Field(None, description="Código de razón de devolución")
     description: Optional[str] = Field(None, max_length=255, description="Descripción del producto")
+    taxable: int = Field(default=1, description="Indica si el producto es gravable (1=sí, 0=no)")
 
     # Campos especiales
     is_add_money: bool = Field(default=False, description="Indica si es un cargo adicional")

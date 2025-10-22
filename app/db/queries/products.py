@@ -486,3 +486,44 @@ mutation DeleteVariantsBulk($productId: ID!, $variantsIds: [ID!]!) {
   }
 }
 """
+
+# Tag cleanup queries
+DRAFT_PRODUCTS_QUERY = """
+query GetDraftProducts($first: Int!, $after: String, $query: String) {
+  products(first: $first, after: $after, query: $query) {
+    edges {
+      node {
+        id
+        title
+        handle
+        status
+        tags
+        createdAt
+        updatedAt
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+"""
+
+UPDATE_PRODUCT_TAGS_MUTATION = """
+mutation UpdateProductTags($id: ID!, $tags: [String!]!) {
+  productUpdate(input: {id: $id, tags: $tags}) {
+    product {
+      id
+      title
+      handle
+      status
+      tags
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+"""

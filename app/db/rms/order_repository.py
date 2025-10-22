@@ -57,13 +57,15 @@ class OrderRepository(BaseRepository):
                 INSERT INTO [Order] (
                     StoreID, Time, Type, CustomerID, Deposit, Tax, Total,
                     SalesRepID, ShippingServiceID, ShippingTrackingNumber,
-                    Comment, ShippingNotes
-                ) 
+                    Comment, ShippingNotes,
+                    ReferenceNumber, ChannelType, Closed, ShippingChargeOnOrder
+                )
                 OUTPUT INSERTED.ID
                 VALUES (
                     :store_id, :time, :type, :customer_id, :deposit, :tax, :total,
                     :sales_rep_id, :shipping_service_id, :shipping_tracking_number,
-                    :comment, :shipping_notes
+                    :comment, :shipping_notes,
+                    :reference_number, :channel_type, :closed, :shipping_charge_on_order
                 )
                 """
 
@@ -80,6 +82,12 @@ class OrderRepository(BaseRepository):
                     "shipping_tracking_number": order.shipping_tracking_number,
                     "comment": order.comment,
                     "shipping_notes": order.shipping_notes,
+                    "reference_number": order.reference_number,
+                    "channel_type": order.channel_type,
+                    "closed": order.closed,
+                    "shipping_charge_on_order": (
+                        float(order.shipping_charge_on_order) if order.shipping_charge_on_order else 0.0
+                    ),
                 }
 
                 result = await session.execute(text(query), params)
@@ -117,14 +125,14 @@ class OrderRepository(BaseRepository):
                     OrderID, ItemID, Price, FullPrice, Cost,
                     QuantityOnOrder, QuantityRTD, SalesRepID,
                     DiscountReasonCodeID, ReturnReasonCodeID,
-                    Description, IsAddMoney, VoucherID
-                ) 
+                    Description, Taxable, IsAddMoney, VoucherID
+                )
                 OUTPUT INSERTED.ID
                 VALUES (
                     :order_id, :item_id, :price, :full_price, :cost,
                     :quantity_on_order, :quantity_rtd, :sales_rep_id,
                     :discount_reason_code_id, :return_reason_code_id,
-                    :description, :is_add_money, :voucher_id
+                    :description, :taxable, :is_add_money, :voucher_id
                 )
                 """
 
@@ -133,13 +141,14 @@ class OrderRepository(BaseRepository):
                     "item_id": entry.item_id,
                     "price": float(entry.price),
                     "full_price": float(entry.full_price),
-                    "cost": float(entry.cost) if entry.cost else None,
+                    "cost": float(entry.cost) if entry.cost is not None else 0.0,
                     "quantity_on_order": entry.quantity_on_order,
                     "quantity_rtd": entry.quantity_rtd,
                     "sales_rep_id": entry.sales_rep_id,
                     "discount_reason_code_id": entry.discount_reason_code_id,
                     "return_reason_code_id": entry.return_reason_code_id,
                     "description": entry.description,
+                    "taxable": entry.taxable,
                     "is_add_money": entry.is_add_money,
                     "voucher_id": entry.voucher_id,
                 }

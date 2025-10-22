@@ -63,7 +63,8 @@ class SyncRequest(BaseModel):
     )
     include_category_tags: Optional[bool] = Field(
         default=None,
-        description="Si True, incluye tags de categoría y género para collections. Si None, usa configuración global SYNC_INCLUDE_CATEGORY_TAGS"
+        description="Si True, incluye tags de categoría y género para collections. Si None, \
+            usa configuración global SYNC_INCLUDE_CATEGORY_TAGS",
     )
 
     # Checkpoint parameters
@@ -698,7 +699,7 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
     async with _sync_locks["rms_to_shopify"]:
         try:
             logger.info(f"🔒 Starting background RMS sync with LOCK: {sync_id}")
-            logger.info(f"🌟 [BACKGROUND TASK] Starting with parameters:")
+            logger.info("🌟 [BACKGROUND TASK] Starting with parameters:")
             logger.info(f"   - force_update: {sync_request.force_update}")
             logger.info(f"   - batch_size: {sync_request.batch_size}")
             logger.info(f"   - include_zero_stock: {sync_request.include_zero_stock}")
@@ -717,12 +718,18 @@ async def _execute_rms_to_shopify_sync(sync_request: SyncRequest, sync_id: str):
             )
 
             logger.info(f"✅ Background RMS sync completed with LOCK: {sync_id}")
-            logger.info(f"🎆 [BACKGROUND TASK COMPLETE] Final statistics:")
-            logger.info(f"   - Total products synced: {result.get('total_products_synced', 0)}/{result.get('total_products_expected', 0)}")
+            logger.info("🎆 [BACKGROUND TASK COMPLETE] Final statistics:")
+            logger.info(
+                f"   - Total products synced: {result.get('total_products_synced', 0)}/\
+                {result.get('total_products_expected', 0)}"
+            )
             logger.info(f"   - Pages processed: {result.get('pages_processed', 0)}/{result.get('total_pages', 0)}")
             logger.info(f"   - Success rate: {result.get('success_rate', 0):.1f}%")
-            stats = result.get('statistics', {})
-            logger.info(f"   - Created: {stats.get('created', 0)}, Updated: {stats.get('updated', 0)}, Errors: {stats.get('errors', 0)}")
+            stats = result.get("statistics", {})
+            logger.info(
+                f"   - Created: {stats.get('created', 0)}, Updated: {stats.get('updated', 0)}, \
+                Errors: {stats.get('errors', 0)}"
+            )
             log_sync_operation(
                 operation="complete",
                 service="rms_to_shopify",
@@ -794,15 +801,24 @@ async def _execute_single_order_sync(order_id: str, force_sync: bool, validate_b
     Ejecuta sincronización de una orden específica en segundo plano.
 
     Args:
-        order_id: ID de la orden
+        order_id: ID de la orden (numérico o GID completo)
         force_sync: Forzar sincronización
         validate_before_insert: Validar antes de insertar
         sync_id: ID de la sincronización
     """
     try:
-        logger.info(f"Starting background single order sync: {sync_id} for order {order_id}")
+        from app.utils.id_utils import rest_to_graphql_id
 
-        result = await _sync_single_order(order_id, force_sync, validate_before_insert)
+        # Convertir ID numérico a formato GID si es necesario
+        if order_id.isdigit():
+            graphql_order_id = rest_to_graphql_id(order_id, "Order")
+            logger.info(f"[Background] Converted numeric order ID {order_id} to GraphQL format: {graphql_order_id}")
+        else:
+            graphql_order_id = order_id
+
+        logger.info(f"Starting background single order sync: {sync_id} for order {graphql_order_id}")
+
+        result = await _sync_single_order(graphql_order_id, force_sync, validate_before_insert)
 
         if result["success"]:
             logger.info(f"✅ Background single order sync completed: {sync_id}")
@@ -833,7 +849,7 @@ async def _sync_single_order(order_id: str, force_sync: bool, validate_before_in
     Sincroniza una orden específica de Shopify hacia RMS.
 
     Args:
-        order_id: ID de la orden a sincronizar
+        order_id: ID de la orden a sincronizar (numérico o GID completo)
         force_sync: Forzar sincronización
         validate_before_insert: Validar antes de insertar
 
@@ -846,14 +862,24 @@ async def _sync_single_order(order_id: str, force_sync: bool, validate_before_in
 
     try:
         from app.services.shopify_to_rms import ShopifyToRMSSync
+        from app.utils.id_utils import rest_to_graphql_id
 
         logger.info(f"Sincronizando orden individual: {order_id}")
+
+        # Convertir ID numérico a formato GID si es necesario
+        if order_id.isdigit():
+            graphql_order_id = rest_to_graphql_id(order_id, "Order")
+            logger.info(f"Converted numeric order ID {order_id} to GraphQL format: {graphql_order_id}")
+        else:
+            graphql_order_id = order_id
 
         # Inicializar servicio de sincronización
         sync_service = ShopifyToRMSSync()
 
         # Usar el método sync_orders existente con una sola orden
-        result = await sync_service.sync_orders(order_ids=[order_id], skip_validation=not validate_before_insert)
+        result = await sync_service.sync_orders(
+            order_ids=[graphql_order_id], skip_validation=not validate_before_insert
+        )
 
         duration = time.time() - start_time
 
