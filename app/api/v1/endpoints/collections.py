@@ -8,7 +8,6 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.core.config import settings
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
 from app.services.gender_category_service import GenderCategoryService
 
@@ -21,9 +20,7 @@ router = APIRouter(prefix="/collections", tags=["Collections"])
 async def sync_collections(
     dry_run: bool = Query(False, description="Si True, no crea las collections, solo muestra qué se haría"),
     sync_main: bool = Query(True, description="Sincronizar collections principales (Mujer, Hombre, etc.)"),
-    sync_subcategories: bool = Query(
-        True, description="Sincronizar subcategorías (Mujer-Flats, Hombre-Tenis, etc.)"
-    ),
+    sync_subcategories: bool = Query(True, description="Sincronizar subcategorías (Mujer-Flats, Hombre-Tenis, etc.)"),
 ) -> Dict[str, Any]:
     """
     Sincroniza las collections de Shopify basadas en la configuración de género + categoría.
@@ -61,16 +58,14 @@ async def sync_collections(
         elif sync_subcategories:
             result = await collection_manager.sync_subcategory_collections(dry_run=dry_run)
         else:
-            raise HTTPException(
-                status_code=400, detail="Debe habilitar al menos sync_main o sync_subcategories"
-            )
+            raise HTTPException(status_code=400, detail="Debe habilitar al menos sync_main o sync_subcategories")
 
         logger.info(f"✅ Sincronización completada: {result}")
         return result
 
     except Exception as e:
         logger.error(f"❌ Error en sincronización de collections: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al sincronizar collections: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar collections: {str(e)}") from e
 
 
 @router.get("/status")
@@ -104,7 +99,7 @@ async def get_collections_status() -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"❌ Error al obtener estado de collections: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al obtener estado: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener estado: {str(e)}") from e
 
 
 @router.post("/validate")
@@ -142,7 +137,7 @@ async def validate_configuration() -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"❌ Error al validar configuración: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error en validación: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en validación: {str(e)}") from e
 
 
 @router.get("/mapping")
@@ -179,7 +174,7 @@ async def get_mapping_configuration() -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"❌ Error al obtener configuración de mapeos: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al obtener mapeos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener mapeos: {str(e)}") from e
 
 
 @router.delete("/collection/{handle}")
@@ -214,4 +209,4 @@ async def delete_collection(handle: str) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"❌ Error al eliminar collection: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al eliminar collection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al eliminar collection: {str(e)}") from e

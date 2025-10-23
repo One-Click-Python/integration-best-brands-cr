@@ -10,34 +10,39 @@ from pathlib import Path
 # Add project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from app.db.rms_handler import RMSHandler
 from sqlalchemy import text
+
+from app.db.rms.query_executor import QueryExecutor
+
 
 async def search_ccod(ccod: str):
     """Busca un CCOD específico en RMS con diferentes variaciones."""
 
-    rms_handler = RMSHandler()
-    await rms_handler.initialize()
+    query_executor = QueryExecutor()
+    await query_executor.initialize()
 
     try:
         # Búsqueda directa por CCOD
         print(f"🔍 Buscando CCOD: {ccod}")
-        print("="*50)
+        print("=" * 50)
 
-        async with rms_handler.conn_db.get_session() as session:
+        async with query_executor.get_session() as session:
             # Buscar con diferentes variaciones
             queries = [
                 # Búsqueda exacta
-                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD = '{ccod}' ORDER BY C_ARTICULO",
-
+                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD = '{
+                    ccod
+                }' ORDER BY C_ARTICULO",
                 # Búsqueda con LIKE
-                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD LIKE '%{ccod}%' ORDER BY C_ARTICULO",
-
+                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE\
+                    CCOD LIKE '%{ccod}%' ORDER BY C_ARTICULO",
                 # Búsqueda sin filtros de precio
-                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD = '{ccod}' ORDER BY C_ARTICULO",
-
+                f"SELECT CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD = '{
+                    ccod
+                }' ORDER BY C_ARTICULO",
                 # Búsqueda en toda la tabla similar
-                f"SELECT TOP 10 CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM View_Items WHERE CCOD LIKE '{ccod[:3]}%' ORDER BY C_ARTICULO"
+                f"SELECT TOP 10 CCOD, C_ARTICULO, Description, color, talla, Quantity, Price FROM\
+                    View_Items WHERE CCOD LIKE '{ccod[:3]}%' ORDER BY C_ARTICULO",
             ]
 
             for i, query in enumerate(queries, 1):
@@ -52,7 +57,11 @@ async def search_ccod(ccod: str):
                         print(f"✅ Encontrados {len(rows)} resultados:")
                         for row in rows:
                             ccod_val, sku, desc, color, size, qty, price = row
-                            print(f"   CCOD: {ccod_val}, SKU: {sku}, Color: {color}, Talla: {size}, Qty: {qty}, Precio: {price}")
+                            print(
+                                f"   CCOD: {ccod_val}, SKU: {sku}, Color: {color}, Talla: {size}, Qty: {qty}, Precio: {
+                                    price
+                                }"
+                            )
                             print(f"   Desc: {desc}")
                     else:
                         print("❌ Sin resultados")
@@ -61,7 +70,8 @@ async def search_ccod(ccod: str):
                     print(f"❌ Error en consulta: {e}")
 
     finally:
-        await rms_handler.close()
+        await query_executor.close()
+
 
 async def main():
     ccod = "24X104"
@@ -69,6 +79,7 @@ async def main():
         ccod = sys.argv[1]
 
     await search_ccod(ccod)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

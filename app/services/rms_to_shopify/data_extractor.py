@@ -6,7 +6,8 @@ from typing import Any, List, Optional
 from app.api.v1.schemas.rms_schemas import RMSViewItem
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
 from app.core.config import get_settings
-from app.db.rms_handler import RMSHandler
+from app.db.rms.product_repository import ProductRepository
+from app.db.rms.query_executor import QueryExecutor
 from app.services.variant_mapper import create_products_with_variants
 from app.utils.error_handler import SyncException
 from app.utils.update_checkpoint import UpdateCheckpointManager
@@ -17,10 +18,26 @@ logger = logging.getLogger(__name__)
 
 
 class RMSExtractor:
-    """Extracts data from RMS."""
+    """Extracts data from RMS using SOLID repositories."""
 
-    def __init__(self, rms_handler: RMSHandler, shopify_client: Any, primary_location_id: str):
-        self.rms_handler = rms_handler
+    def __init__(
+        self,
+        query_executor: QueryExecutor,
+        product_repository: ProductRepository,
+        shopify_client: Any,
+        primary_location_id: str,
+    ):
+        """
+        Initialize RMS data extractor with SOLID repositories.
+
+        Args:
+            query_executor: Repository for custom SQL queries
+            product_repository: Repository for product operations
+            shopify_client: Shopify GraphQL client
+            primary_location_id: Primary Shopify location ID
+        """
+        self.query_executor = query_executor
+        self.product_repository = product_repository
         self.shopify_client = shopify_client
         self.primary_location_id = primary_location_id
         self.checkpoint_manager = UpdateCheckpointManager()
@@ -66,7 +83,7 @@ class RMSExtractor:
 
         try:
             # Use the query_executor to run the count query
-            result = await self.rms_handler.execute_custom_query(count_query)
+            result = await self.query_executor.execute_custom_query(count_query)
             return result[0].get("total", 0) if result else 0
         except Exception as e:
             logger.error(f"Error counting RMS products: {e}")
@@ -107,18 +124,18 @@ class RMSExtractor:
                 AND Description IS NOT NULL
                 AND Price > 0
             """
-            
+
             # Add stock filter if not including zero stock products
             if not include_zero_stock:
                 ccod_query += " AND Quantity > 0"
-            
+
             if ccod:
                 ccod_query += f" AND CCOD = '{ccod}'"
-            
+
             if filter_categories:
                 categories_str = "', '".join(filter_categories)
                 ccod_query += f" AND Categoria IN ('{categories_str}')"
-            
+
             ccod_query += f"""
             )
             SELECT CCOD FROM DistinctCCODs
@@ -127,15 +144,15 @@ class RMSExtractor:
             """
 
             # Get the CCODs for this page using the query executor
-            ccod_results = await self.rms_handler.execute_custom_query(ccod_query)
+            ccod_results = await self.query_executor.execute_custom_query(ccod_query)
             page_ccods = [row.get("CCOD") for row in ccod_results]
-            
+
             if not page_ccods:
                 logger.info(f"📊 No CCODs found for page (offset: {offset}, limit: {limit})")
                 return []
-            
+
             logger.info(f"📊 Found {len(page_ccods)} CCODs for this page")
-            
+
             # Now get all items for these CCODs
             ccods_str = "', '".join(page_ccods)
             items_query = f"""
@@ -154,8 +171,8 @@ class RMSExtractor:
             WHERE CCOD IN ('{ccods_str}')
             ORDER BY CCOD, talla
             """
-            
-            items_data = await self.rms_handler.execute_custom_query(items_query)
+
+            items_data = await self.query_executor.execute_custom_query(items_query)
             logger.info(f"📊 Extracted {len(items_data)} items for {len(page_ccods)} products (CCODs) from RMS")
 
             if not items_data:
@@ -191,8 +208,10 @@ class RMSExtractor:
                     continue
 
             shopify_products = await create_products_with_variants(
-                rms_items, self.shopify_client, self.primary_location_id,
-                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
+                rms_items,
+                self.shopify_client,
+                self.primary_location_id,
+                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS,
             )
 
             logger.info(f"🎯 Generated {len(shopify_products)} products from {len(rms_items)} items (page)")
@@ -256,7 +275,7 @@ class RMSExtractor:
             query += " ORDER BY CCOD, talla"
 
             logger.info("📋 Executing query to extract items from RMS...")
-            items_data = await self.rms_handler.execute_custom_query(query)
+            items_data = await self.query_executor.execute_custom_query(query)
             logger.info(f"📊 Extracted {len(items_data)} items from RMS")
 
             ccods_extracted = set(item.get("CCOD") for item in items_data if item.get("CCOD"))
@@ -306,8 +325,10 @@ class RMSExtractor:
 
             logger.info("🔄 Grouping items by CCOD and creating products with variants...")
             shopify_products = await create_products_with_variants(
-                rms_items, self.shopify_client, self.primary_location_id,
-                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
+                rms_items,
+                self.shopify_client,
+                self.primary_location_id,
+                include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS,
             )
 
             logger.info(f"🎯 Generated {len(shopify_products)} products with multiple variants")
@@ -318,7 +339,7 @@ class RMSExtractor:
         except Exception as e:
             logger.error(f"❌ Error extracting RMS products with variants: {e}")
             raise SyncException(f"Failed to extract RMS products: {e}") from e
-    
+
     async def count_rms_products_since_checkpoint(
         self,
         use_checkpoint: bool = True,
@@ -328,30 +349,28 @@ class RMSExtractor:
     ) -> tuple[int, Optional[datetime]]:
         """
         Count products modified since checkpoint timestamp.
-        
+
         Args:
             use_checkpoint: Whether to use checkpoint system
             default_days_back: Days to look back if no checkpoint exists
             filter_categories: Categories to filter by
             include_zero_stock: Whether to include zero stock products
-            
+
         Returns:
             Tuple of (count, timestamp_used)
         """
         since_timestamp = None
-        
+
         if use_checkpoint:
             since_timestamp = self.checkpoint_manager.get_last_update_timestamp(default_days_back)
             logger.info(f"🕐 Using checkpoint timestamp: {since_timestamp}")
-        
-        count = await self.rms_handler.count_view_items_since(
-            since_timestamp=since_timestamp,
-            category_filter=filter_categories,
-            include_zero_stock=include_zero_stock
+
+        count = await self.product_repository.count_view_items_since(
+            since_timestamp=since_timestamp, category_filter=filter_categories, include_zero_stock=include_zero_stock
         )
-        
+
         return count, since_timestamp
-    
+
     async def extract_rms_products_since_checkpoint(
         self,
         use_checkpoint: bool = True,
@@ -363,7 +382,7 @@ class RMSExtractor:
     ) -> tuple[List[ShopifyProductInput], Optional[datetime]]:
         """
         Extract products modified since checkpoint timestamp.
-        
+
         Args:
             use_checkpoint: Whether to use checkpoint system
             default_days_back: Days to look back if no checkpoint exists
@@ -371,48 +390,50 @@ class RMSExtractor:
             include_zero_stock: Whether to include zero stock products
             limit: Limit for pagination
             offset: Offset for pagination
-            
+
         Returns:
             Tuple of (products, timestamp_used)
         """
         since_timestamp = None
-        
+
         if use_checkpoint:
             since_timestamp = self.checkpoint_manager.get_last_update_timestamp(default_days_back)
             logger.info(f"🕐 Using checkpoint timestamp: {since_timestamp}")
-            
+
             # Get count first for logging
-            count = await self.rms_handler.count_view_items_since(
+            count = await self.product_repository.count_view_items_since(
                 since_timestamp=since_timestamp,
                 category_filter=filter_categories,
-                include_zero_stock=include_zero_stock
+                include_zero_stock=include_zero_stock,
             )
             logger.info(f"📊 Found {count} products modified since {since_timestamp}")
-        
+
         # Get products using the new method
-        rms_items = await self.rms_handler.get_view_items_since(
+        rms_items = await self.product_repository.get_view_items_since(
             since_timestamp=since_timestamp,
             category_filter=filter_categories,
             limit=limit,
             offset=offset,
-            include_zero_stock=include_zero_stock
+            include_zero_stock=include_zero_stock,
         )
-        
+
         if not rms_items:
             logger.info("📭 No products found for the specified criteria")
             return [], since_timestamp
-        
+
         logger.info(f"📦 Retrieved {len(rms_items)} items from RMS")
-        
+
         # Convert to Shopify products
         shopify_products = await create_products_with_variants(
-            rms_items, self.shopify_client, self.primary_location_id,
-            include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS
+            rms_items,
+            self.shopify_client,
+            self.primary_location_id,
+            include_category_tags=settings.SYNC_INCLUDE_CATEGORY_TAGS,
         )
-        
+
         logger.info(f"🎯 Generated {len(shopify_products)} products from {len(rms_items)} items")
         return shopify_products, since_timestamp
-    
+
     async def extract_rms_products_paginated_with_checkpoint(
         self,
         offset: int,
@@ -424,9 +445,9 @@ class RMSExtractor:
     ) -> tuple[List[ShopifyProductInput], Optional[datetime]]:
         """
         Extract paginated products modified since checkpoint.
-        
+
         This method combines pagination with checkpoint-based filtering.
-        
+
         Args:
             offset: Offset for pagination
             limit: Limit for pagination
@@ -434,7 +455,7 @@ class RMSExtractor:
             default_days_back: Days to look back if no checkpoint exists
             filter_categories: Categories to filter by
             include_zero_stock: Whether to include zero stock products
-            
+
         Returns:
             Tuple of (products, timestamp_used)
         """
@@ -444,5 +465,5 @@ class RMSExtractor:
             filter_categories=filter_categories,
             include_zero_stock=include_zero_stock,
             limit=limit,
-            offset=offset
+            offset=offset,
         )

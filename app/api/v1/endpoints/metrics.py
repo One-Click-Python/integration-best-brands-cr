@@ -214,7 +214,7 @@ async def get_detailed_health() -> Dict[str, Any]:
         Dict: Estado detallado de todos los componentes
     """
     try:
-        from app.db.rms_handler import RMSHandler
+        from app.db.rms.query_executor import QueryExecutor
         from app.db.shopify_graphql_client import ShopifyGraphQLClient
 
         health_status = {
@@ -242,17 +242,16 @@ async def get_detailed_health() -> Dict[str, Any]:
                 "error": str(e),
             }
 
-        # Test RMS connection
+        # Test RMS connection using SOLID repository
         try:
-            rms_handler = RMSHandler()
-            await rms_handler.initialize()
-            rms_healthy = await rms_handler.test_connection()  # type: ignore
-            await rms_handler.close()
+            query_executor = QueryExecutor()
+            await query_executor.initialize()  # initialize() verifies DB connection
+            await query_executor.close()
 
             health_status["components"]["rms"] = {
-                "status": "healthy" if rms_healthy else "unhealthy",
+                "status": "healthy",
                 "last_check": datetime.now(timezone.utc).isoformat(),
-                "details": "Connection test successful" if rms_healthy else "Connection test failed",
+                "details": "Connection test successful",
             }
         except Exception as e:
             health_status["components"]["rms"] = {

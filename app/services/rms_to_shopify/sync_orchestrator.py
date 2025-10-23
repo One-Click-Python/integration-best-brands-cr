@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
-from app.utils.update_checkpoint import UpdateCheckpointManager
 from app.core.logging_config import LogContext
-from app.db.rms_handler import RMSHandler
+from app.db.rms.product_repository import ProductRepository
+from app.db.rms.query_executor import QueryExecutor
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
 from app.services.rms_to_shopify.data_extractor import RMSExtractor
 from app.services.rms_to_shopify.product_processor import ProductProcessor
@@ -15,6 +15,7 @@ from app.services.rms_to_shopify.report_generator import ReportGenerator
 from app.services.rms_to_shopify.shopify_updater import ShopifyUpdater
 from app.services.sync_checkpoint import SyncCheckpointManager
 from app.utils.error_handler import ErrorAggregator, SyncException
+from app.utils.update_checkpoint import UpdateCheckpointManager
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -46,7 +47,9 @@ class RMSToShopifySyncOrchestrator:
         self.error_aggregator = ErrorAggregator()
         self.checkpoint_manager = SyncCheckpointManager(self.sync_id)
         self.update_checkpoint_manager = UpdateCheckpointManager()
-        self.rms_handler = RMSHandler()
+        # SOLID repositories instead of monolithic handler
+        self.query_executor = QueryExecutor()
+        self.product_repository = ProductRepository()
         self.shopify_client = ShopifyGraphQLClient()
         self.primary_location_id = None
         self.shopify_updater: Optional[ShopifyUpdater] = None
@@ -63,14 +66,18 @@ class RMSToShopifySyncOrchestrator:
     async def initialize(self):
         """Initializes the required clients and services."""
         try:
-            await self.rms_handler.initialize()
+            # Initialize SOLID repositories
+            await self.query_executor.initialize()
+            await self.product_repository.initialize()
             await self.shopify_client.initialize()
             self.primary_location_id = await self.shopify_client.get_primary_location_id()
             if not self.primary_location_id:
                 logger.warning("No primary location found - inventory updates may fail")
 
             self.shopify_updater = ShopifyUpdater(self.shopify_client, self.primary_location_id)
-            self.rms_extractor = RMSExtractor(self.rms_handler, self.shopify_client, self.primary_location_id)
+            self.rms_extractor = RMSExtractor(
+                self.query_executor, self.product_repository, self.shopify_client, self.primary_location_id
+            )
             self.product_processor = ProductProcessor(
                 self.sync_id,
                 self.shopify_updater,
@@ -93,8 +100,11 @@ class RMSToShopifySyncOrchestrator:
     async def close(self):
         """Closes the connections and cleans up resources."""
         try:
-            if self.rms_handler:
-                await self.rms_handler.close()
+            # Close SOLID repositories
+            if self.query_executor:
+                await self.query_executor.close()
+            if self.product_repository:
+                await self.product_repository.close()
             if self.shopify_client:
                 await self.shopify_client.close()
             if self.checkpoint_manager:
@@ -138,7 +148,7 @@ class RMSToShopifySyncOrchestrator:
                 f"Streaming: {use_streaming}, Page size: {page_size} products/CCODs per page, "
                 f"Use update checkpoint: {self.use_update_checkpoint}"
             )
-            
+
             # Log current update checkpoint status if enabled
             if self.use_update_checkpoint:
                 checkpoint_status = self.update_checkpoint_manager.get_checkpoint_status()
@@ -222,6 +232,7 @@ class RMSToShopifySyncOrchestrator:
 
         # Calculate total pages correctly using ceiling division
         import math
+
         total_pages = math.ceil(total_products / page_size)
 
         logger.info(
@@ -233,7 +244,11 @@ class RMSToShopifySyncOrchestrator:
         """
         )
 
-        logger.info(f"📚 Total pages to process: {total_pages} (page_size: {page_size} products/CCODs per page) [sync_id: {self.sync_id}]")
+        logger.info(
+            f"📚 Total pages to process: {total_pages} (page_size: {page_size} products/CCODs per page) [sync_id: {
+                self.sync_id
+            }]"
+        )
 
         while current_page <= total_pages:  # Fixed condition: iterate through all pages
             logger.info(f"--- LOOP START: current_page = {current_page} ---")
@@ -266,13 +281,23 @@ class RMSToShopifySyncOrchestrator:
                     start_index=0,
                     initial_stats={},
                     total_products_global=total_products,
-                    is_page_processing=True
+                    is_page_processing=True,
                 )
-                logger.info(f"<<< COMPLETED STEP 2: Product Processing. Page stats: Created={page_stats.get('created', 0)}, Updated={page_stats.get('updated', 0)}, Errors={page_stats.get('errors', 0)}")
+                logger.info(
+                    f"<<< COMPLETED STEP 2: Product Processing. Page stats: Created={
+                        page_stats.get('created', 0)
+                    }, Updated={page_stats.get('updated', 0)}, Errors={page_stats.get('errors', 0)}"
+                )
             except Exception as e:
                 logger.error(f"❌ Error in STEP 2 (Product Processing): {e}", exc_info=True)
                 # Continue with empty stats rather than failing completely
-                page_stats = {"total_processed": 0, "created": 0, "updated": 0, "errors": len(page_products), "skipped": 0}
+                page_stats = {
+                    "total_processed": 0,
+                    "created": 0,
+                    "updated": 0,
+                    "errors": len(page_products),
+                    "skipped": 0,
+                }
                 logger.warning(f"⚠️ Continuing despite error, marked {len(page_products)} products as errors")
 
             # Update cumulative stats
@@ -289,9 +314,9 @@ class RMSToShopifySyncOrchestrator:
             # --- STEP 3: Checkpoint Saving ---
             logger.info(">>> STARTING STEP 3: Checkpoint Saving...")
             await self.checkpoint_manager.save_checkpoint(
-                last_processed_ccod=page_products[-1].tags[0].replace("ccod_", "")
-                if page_products[-1].tags
-                else "unknown",
+                last_processed_ccod=(
+                    page_products[-1].tags[0].replace("ccod_", "") if page_products[-1].tags else "unknown"
+                ),
                 processed_count=stats["total_processed"],
                 total_count=total_products,
                 stats=stats,
@@ -307,23 +332,23 @@ class RMSToShopifySyncOrchestrator:
                 await asyncio.sleep(2)
 
             logger.info(f"--- LOOP END: current_page is now {current_page} ---")
-            
+
             # Log clear pagination progress
             if current_page <= total_pages:
                 logger.info(
-                    f"\n{'='*60}\n"
+                    f"\n{'=' * 60}\n"
                     f"📊 PAGE {current_page - 1}/{total_pages} COMPLETED\n"
                     f"✅ Products synced so far: {stats['total_processed']}/{total_products}\n"
                     f"➡️  Continuing to page {current_page}...\n"
-                    f"{'='*60}\n"
+                    f"{'=' * 60}\n"
                 )
             else:
                 logger.info(
-                    f"\n{'='*60}\n"
+                    f"\n{'=' * 60}\n"
                     f"🎉 ALL PAGES PROCESSED!\n"
                     f"✅ Total products synced: {stats['total_processed']}/{total_products}\n"
                     f"📄 Pages processed: {current_page - 1}/{total_pages}\n"
-                    f"{'='*60}\n"
+                    f"{'=' * 60}\n"
                 )
 
         final_report = self.report_generator.generate_sync_report(stats)
@@ -342,7 +367,7 @@ class RMSToShopifySyncOrchestrator:
                 f"Synced {stats['total_processed']}/{total_products} products across {current_page - 1} pages "
                 f"[sync_id: {self.sync_id}]"
             )
-            
+
             # Update the update checkpoint if enabled and sync was successful
             await self._update_checkpoint_if_successful(final_report)
         else:
@@ -404,9 +429,13 @@ class RMSToShopifySyncOrchestrator:
                 logger.info(f"🚀 Starting fresh sync [sync_id: {self.sync_id}] - no valid checkpoint found")
 
         sync_stats = await self.product_processor.process_products_in_batches_optimized(
-            rms_products, force_update, batch_size, start_index, initial_stats,
+            rms_products,
+            force_update,
+            batch_size,
+            start_index,
+            initial_stats,
             total_products_global=None,  # Not using pagination, so no global total
-            is_page_processing=False  # Traditional processing, not page-based
+            is_page_processing=False,  # Traditional processing, not page-based
         )
 
         final_report = self.report_generator.generate_sync_report(sync_stats)
@@ -414,27 +443,27 @@ class RMSToShopifySyncOrchestrator:
         if final_report.get("success_rate", 0) > 0:
             logger.info(f"🎉 Sync completed successfully [sync_id: {self.sync_id}] - Cleaning up checkpoint")
             await self.checkpoint_manager.delete_checkpoint()
-            
+
             # Update the update checkpoint if enabled and sync was successful
             await self._update_checkpoint_if_successful(final_report)
         else:
             logger.warning(f"⚠️ Sync completed with issues [sync_id: {self.sync_id}] - Keeping checkpoint for retry")
 
         return final_report
-    
+
     async def _update_checkpoint_if_successful(self, final_report: Dict[str, Any]) -> None:
         """
         Update the update checkpoint if sync was successful.
-        
+
         Args:
             final_report: The final sync report containing statistics and success rate
         """
         if not self.use_update_checkpoint:
             return
-        
+
         try:
             success_rate = final_report.get("success_rate", 0) / 100  # Convert percentage to decimal
-            
+
             if success_rate >= self.checkpoint_success_threshold:
                 # Update checkpoint with current timestamp
                 if self.update_checkpoint_manager.save_checkpoint(self.sync_start_time):
@@ -454,7 +483,7 @@ class RMSToShopifySyncOrchestrator:
                 )
                 final_report["update_checkpoint_saved"] = False
                 final_report["update_checkpoint_reason"] = "Success rate below threshold"
-        
+
         except Exception as e:
             logger.error(f"❌ Error updating checkpoint: {e}")
             final_report["update_checkpoint_error"] = str(e)

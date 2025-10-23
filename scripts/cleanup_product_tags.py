@@ -177,8 +177,7 @@ async def cleanup_product_tags(
     try:
         # Fetch products based on status
         logger.info(
-            f"Fetching {status_upper} products "
-            f"(CCOD filter: {ccod_filter or 'None'}, limit: {limit or 'None'})..."
+            f"Fetching {status_upper} products " f"(CCOD filter: {ccod_filter or 'None'}, limit: {limit or 'None'})..."
         )
 
         if limit:

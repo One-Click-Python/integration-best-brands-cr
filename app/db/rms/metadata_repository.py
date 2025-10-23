@@ -7,8 +7,8 @@ caching. Extracted from legacy RMSHandler following Single Responsibility.
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
@@ -52,7 +52,7 @@ class MetadataRepository(BaseRepository):
     def _get_cached(self, key: str) -> Optional[Any]:
         """Get value from cache if not expired."""
         if key in self._cache and key in self._cache_timestamps:
-            if datetime.utcnow() - self._cache_timestamps[key] < self._cache_ttl:
+            if datetime.now(UTC) - self._cache_timestamps[key] < self._cache_ttl:
                 logger.debug(f"Cache hit for metadata key: {key}")
                 return self._cache[key]
         return None
@@ -60,7 +60,7 @@ class MetadataRepository(BaseRepository):
     def _set_cached(self, key: str, value: Any) -> None:
         """Store value in cache with timestamp."""
         self._cache[key] = value
-        self._cache_timestamps[key] = datetime.utcnow()
+        self._cache_timestamps[key] = datetime.now(UTC)
         logger.debug(f"Cached metadata key: {key}")
 
     def clear_cache(self) -> None:
@@ -89,7 +89,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 categories = [row[0] for row in result.fetchall()]
-                
+
                 self._set_cached(cache_key, categories)
                 logger.info(f"Retrieved {len(categories)} unique categories")
                 return categories
@@ -116,7 +116,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 families = [row[0] for row in result.fetchall()]
-                
+
                 self._set_cached(cache_key, families)
                 logger.info(f"Retrieved {len(families)} unique families")
                 return families
@@ -143,7 +143,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 genders = [row[0] for row in result.fetchall()]
-                
+
                 self._set_cached(cache_key, genders)
                 logger.info(f"Retrieved {len(genders)} unique genders")
                 return genders
@@ -171,7 +171,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 colors = [row[0] for row in result.fetchall()]
-                
+
                 self._set_cached(cache_key, colors)
                 logger.info(f"Retrieved {len(colors)} unique colors")
                 return colors
@@ -198,7 +198,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 sizes = [row[0] for row in result.fetchall()]
-                
+
                 self._set_cached(cache_key, sizes)
                 logger.info(f"Retrieved {len(sizes)} unique sizes")
                 return sizes
@@ -237,7 +237,7 @@ class MetadataRepository(BaseRepository):
                 """
                 result = await session.execute(text(query))
                 row = result.fetchone()
-                
+
                 if row:
                     stats = row._asdict()
                     logger.info(f"Metadata stats: {stats}")
@@ -246,3 +246,4 @@ class MetadataRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Error getting metadata stats: {e}")
             return {}
+

@@ -48,9 +48,7 @@ class OrderRepository(BaseRepository):
     async def create_order(self, order: RMSOrder) -> int:
         """Create a new order in RMS and return its ID."""
         if not self.is_initialized():
-            raise RMSConnectionException(
-                message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST
-            )
+            raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
         try:
             async with self.get_session() as session:
                 query = """
@@ -115,21 +113,19 @@ class OrderRepository(BaseRepository):
     async def create_order_entry(self, entry: RMSOrderEntry) -> int:
         """Create a new order entry (line item) in RMS and return its ID."""
         if not self.is_initialized():
-            raise RMSConnectionException(
-                message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST
-            )
+            raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
         try:
             async with self.get_session() as session:
                 query = """
                 INSERT INTO OrderEntry (
-                    OrderID, ItemID, Price, FullPrice, Cost,
+                    OrderID, ItemID, StoreId, Price, FullPrice, Cost,
                     QuantityOnOrder, QuantityRTD, SalesRepID,
                     DiscountReasonCodeID, ReturnReasonCodeID,
                     Description, Taxable, IsAddMoney, VoucherID
                 )
                 OUTPUT INSERTED.ID
                 VALUES (
-                    :order_id, :item_id, :price, :full_price, :cost,
+                    :order_id, :item_id, :store_id, :price, :full_price, :cost,
                     :quantity_on_order, :quantity_rtd, :sales_rep_id,
                     :discount_reason_code_id, :return_reason_code_id,
                     :description, :taxable, :is_add_money, :voucher_id
@@ -139,9 +135,10 @@ class OrderRepository(BaseRepository):
                 params = {
                     "order_id": entry.order_id,
                     "item_id": entry.item_id,
+                    "store_id": entry.store_id,
                     "price": float(entry.price),
                     "full_price": float(entry.full_price),
-                    "cost": float(entry.cost) if entry.cost is not None else 0.0,
+                    "cost": float(entry.cost),
                     "quantity_on_order": entry.quantity_on_order,
                     "quantity_rtd": entry.quantity_rtd,
                     "sales_rep_id": entry.sales_rep_id,
@@ -186,15 +183,11 @@ class OrderRepository(BaseRepository):
                 WHERE ReferenceNumber = :reference_number 
                   AND ChannelType = 2
                 """
-                result = await session.execute(
-                    text(query), {"reference_number": reference_number}
-                )
+                result = await session.execute(text(query), {"reference_number": reference_number})
                 row = result.fetchone()
                 return row._asdict() if row else None
         except Exception as e:
-            logger.error(
-                f"Error finding order by Shopify ID {shopify_order_id}: {e}"
-            )
+            logger.error(f"Error finding order by Shopify ID {shopify_order_id}: {e}")
             return None
 
     @with_retry(max_attempts=3, delay=1.0)

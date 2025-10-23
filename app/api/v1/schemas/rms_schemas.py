@@ -126,16 +126,16 @@ class RMSOrder(BaseModel):
     id: Optional[int] = Field(None, description="ID único de la orden (identity)")
     store_id: int = Field(default=40, description="ID de la tienda (40 para tienda virtual)")
     time: datetime = Field(default_factory=datetime.now, description="Fecha y hora de creación")
-    type: int = Field(default=1, description="Tipo de orden (1=venta, 2=devolución, etc.)")
+    type: int = Field(default=2, description="Tipo de orden (2=Shopify, requerido para facturación electrónica)")
     customer_id: Optional[int] = Field(None, description="ID del cliente")
 
     # Valores financieros
-    deposit: Decimal = Field(default=Decimal("0.00"), decimal_places=2, description="Depósito inicial")
+    deposit: Decimal = Field(default=Decimal("0.00"), decimal_places=2, description="Depósito inicial (0 para Shopify)")
     tax: Decimal = Field(default=Decimal("0.00"), decimal_places=2, description="Impuestos totales")
     total: Decimal = Field(..., decimal_places=2, description="Total de la orden")
 
     # Personal y envío
-    sales_rep_id: Optional[int] = Field(None, description="ID del vendedor")
+    sales_rep_id: int = Field(default=1000, description="ID del vendedor (1000 para órdenes Shopify)")
     shipping_service_id: Optional[int] = Field(None, description="ID del servicio de envío")
     shipping_tracking_number: Optional[str] = Field(None, max_length=100, description="Número de seguimiento")
 
@@ -165,11 +165,12 @@ class RMSOrderEntry(BaseModel):
     id: Optional[int] = Field(None, description="ID único de la línea (identity)")
     order_id: int = Field(..., description="ID de la orden padre")
     item_id: int = Field(..., description="ID del producto (ItemID de View_Items)")
+    store_id: int = Field(default=40, description="ID de la tienda (40 para tienda virtual)")
 
     # Precios y costos
     price: Decimal = Field(..., decimal_places=2, description="Precio unitario con descuentos aplicados")
     full_price: Decimal = Field(..., decimal_places=2, description="Precio base sin descuentos")
-    cost: Optional[Decimal] = Field(None, decimal_places=2, description="Costo del producto")
+    cost: Decimal = Field(..., decimal_places=2, description="Costo del producto (requerido para facturación)")
 
     # Cantidades
     quantity_on_order: float = Field(..., gt=0, description="Cantidad pedida")

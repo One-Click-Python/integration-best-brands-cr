@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.config import get_settings
-from app.db.rms_handler import RMSHandler
+from app.db.rms.query_executor import QueryExecutor
 from app.services.rms_to_shopify.sync_orchestrator import RMSToShopifySyncOrchestrator as RMSToShopifySync
 from app.utils.error_handler import ErrorAggregator
 from app.utils.update_checkpoint import UpdateCheckpointManager
@@ -30,7 +30,8 @@ class ChangeDetector:
 
     def __init__(self):
         """Inicializa el detector de cambios."""
-        self.rms_handler = RMSHandler()
+        # SOLID repository instead of monolithic handler
+        self.query_executor = QueryExecutor()
         self.sync_service = None
         self.error_aggregator = ErrorAggregator()
         self.update_checkpoint_manager = UpdateCheckpointManager()
@@ -49,6 +50,9 @@ class ChangeDetector:
     async def initialize(self):
         """Inicializa el detector."""
         try:
+            # Initialize SOLID repository
+            await self.query_executor.initialize()
+
             # Initialize sync service with a specific sync_id for traceability
             sync_id = f"change_detector_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
             self.sync_service = RMSToShopifySync(sync_id=sync_id, use_update_checkpoint=True)
@@ -59,7 +63,9 @@ class ChangeDetector:
                 default_days_back=settings.CHECKPOINT_DEFAULT_DAYS
             )
 
-            logger.info(f"🔍 Change Detector initialized. Will check for changes since: {self.last_check_time.isoformat()}")
+            logger.info(
+                f"🔍 Change Detector initialized. Will check for changes since: {self.last_check_time.isoformat()}"
+            )
 
         except Exception as e:
             logger.error(f"Error inicializando Change Detector: {e}")
@@ -69,6 +75,8 @@ class ChangeDetector:
         """Cierra el detector."""
         try:
             await self.stop_monitoring()
+            if self.query_executor:
+                await self.query_executor.close()
             if self.sync_service:
                 await self.sync_service.close()  # type: ignore
             logger.info("🔍 Change Detector cerrado")
@@ -158,7 +166,9 @@ class ChangeDetector:
 
             if changes_count > 0:
                 self.stats["changes_detected"] += changes_count
-                logger.info(f"🔔 Detected {changes_count} items modified in RMS since {self.last_check_time.isoformat()}")
+                logger.info(
+                    f"🔔 Detected {changes_count} items modified in RMS since {self.last_check_time.isoformat()}"
+                )
 
                 # Trigger automatic sync for the detected CCODs
                 # This part needs to be adapted to pass CCODs or a list of items
@@ -167,21 +177,28 @@ class ChangeDetector:
                 # After sync, update checkpoint based on results
                 total_processed = sync_result.get("statistics", {}).get("total_processed", 0)
                 success_rate = sync_result.get("statistics", {}).get("success_rate", 0)
-                
+
                 # Update stats regardless of success
                 if total_processed > 0:
                     self.stats["items_synced"] += total_processed
                     self.stats["last_sync_time"] = check_start.isoformat()
-                
+
                 # Update checkpoint if:
                 # 1. We processed at least one item successfully, OR
                 # 2. There were no errors (even if 0 products - means everything is up to date)
                 if total_processed > 0 or (changes_count > 0 and sync_result and not sync_result.get("error")):
                     if success_rate >= (settings.CHECKPOINT_SUCCESS_THRESHOLD * 100) or total_processed == 0:
-                        logger.info(f"✅ [UPDATE CHECKPOINT] Updating - Processed: {total_processed}, Success rate: {success_rate:.1f}%")
+                        logger.info(
+                            f"✅ [UPDATE CHECKPOINT] Updating - Processed: {total_processed}, Success rate: {
+                                success_rate:.1f}%"
+                        )
                         self.update_checkpoint_manager.save_checkpoint(check_start)
                     else:
-                        logger.warning(f"⚠️ [UPDATE CHECKPOINT] Not updated - Success rate {success_rate:.1f}% < {settings.CHECKPOINT_SUCCESS_THRESHOLD * 100}% threshold")
+                        logger.warning(
+                            f"⚠️ [UPDATE CHECKPOINT] Not updated - Success rate {success_rate:.1f}% < {
+                                settings.CHECKPOINT_SUCCESS_THRESHOLD * 100
+                            }% threshold"
+                        )
                 else:
                     logger.info("ℹ️ [UPDATE CHECKPOINT] No changes to sync, checkpoint remains at current position")
 
@@ -230,7 +247,7 @@ class ChangeDetector:
             ORDER BY i.LastUpdated DESC
             """
 
-            result = await self.rms_handler.execute_custom_query(query, {"last_check": self.last_check_time})
+            result = await self.query_executor.execute_custom_query(query, {"last_check": self.last_check_time})
 
             logger.debug(f"Query executed: {len(result)} modified items found since {self.last_check_time.isoformat()}")
 
@@ -287,7 +304,7 @@ class ChangeDetector:
                 ORDER BY ItemID
                 """
 
-                result = await self.rms_handler.execute_custom_query(query, {"item_id": item_ids[0]})
+                result = await self.query_executor.execute_custom_query(query, {"item_id": item_ids[0]})
             else:
                 # Para múltiples IDs, construir query dinámica
                 placeholders = ",".join([f":item_{i}" for i in range(len(item_ids))])
@@ -320,7 +337,7 @@ class ChangeDetector:
                 ORDER BY ItemID
                 """
 
-                result = await self.rms_handler.execute_custom_query(query, params)
+                result = await self.query_executor.execute_custom_query(query, params)
 
             logger.debug(f"Obtenidos {len(result)} productos válidos de View_Items")
 
@@ -351,21 +368,21 @@ class ChangeDetector:
         ccods_to_sync = set()
         for item in changed_items:
             # First try to use the real CCOD from View_Items
-            real_ccod = item.get('real_ccod')
+            real_ccod = item.get("real_ccod")
             if real_ccod:
                 ccods_to_sync.add(real_ccod)
             else:
                 # Fallback to extracting from ItemLookupCode
-                c_articulo = item.get('c_articulo', '')
+                c_articulo = item.get("c_articulo", "")
                 if c_articulo:
                     # Some products have ItemLookupCode like '6PP900005' but CCOD like '6PP905'
                     # Try to extract the base CCOD
-                    parts = c_articulo.split('-')
+                    parts = c_articulo.split("-")
                     if parts:
                         ccods_to_sync.add(parts[0])
-        
+
         ccods_to_sync = list(ccods_to_sync)
-        
+
         if not ccods_to_sync:
             logger.warning("No valid CCODs found in changed items to sync.")
             return {"statistics": {"total_processed": 0, "success_rate": 0}}
@@ -375,22 +392,22 @@ class ChangeDetector:
         try:
             all_results = []
             total_synced = 0
-            
+
             for ccod in ccods_to_sync:
                 try:
                     logger.debug(f"Syncing CCOD: {ccod}")
                     result = await self.sync_service.sync_products(
                         cod_product=ccod,
                         force_update=True,  # Always force update for changed items
-                        use_streaming=False, # Sync CCOD by CCOD
+                        use_streaming=False,  # Sync CCOD by CCOD
                         include_zero_stock=True,  # IMPORTANT: Include zero stock products to update inventory
                     )
                     all_results.append(result)
-                    
+
                     # Track successful syncs
                     if result and result.get("statistics", {}).get("total_processed", 0) > 0:
                         total_synced += result["statistics"]["total_processed"]
-                        
+
                 except Exception as e:
                     logger.error(f"Failed to sync CCOD {ccod}: {e}")
                     continue
@@ -402,7 +419,7 @@ class ChangeDetector:
             else:
                 total_processed = 0
                 success_rate = 0
-            
+
             final_stats = {
                 "total_processed": total_processed,
                 "success_rate": success_rate,
@@ -431,7 +448,9 @@ class ChangeDetector:
         try:
             logger.info("🔄 Iniciando sincronización completa forzada")
 
-            result = await self.sync_service.sync_products(force_update=True, batch_size=20, include_zero_stock=False, use_streaming=False)
+            result = await self.sync_service.sync_products(
+                force_update=True, batch_size=20, include_zero_stock=False, use_streaming=False
+            )
 
             self.stats["items_synced"] += result.get("products_processed", 0)
             self.stats["last_sync_time"] = datetime.now(timezone.utc).isoformat()
