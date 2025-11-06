@@ -38,7 +38,7 @@ class DataPreparator:
             vendor = shopify_input.title.split("-")[0].strip()
             if vendor:
                 logger.info(f"🏷️ Extracted vendor from title: '{vendor}'")
-        
+
         # Crear producto base con opciones pero sin variantes específicas
         product_data = {
             "title": shopify_input.title,
@@ -166,6 +166,7 @@ class DataPreparator:
     def prepare_product_update_data(
         self,
         shopify_input: ShopifyProductInput,
+        existing_tags: Optional[List[str]] = None,
         preserve_media: bool = True,
         preserve_publishing: bool = True,
         fields_to_update: Optional[List[str]] = None,
@@ -175,6 +176,7 @@ class DataPreparator:
 
         Args:
             shopify_input: Input del producto con nuevos datos
+            existing_tags: Tags actuales del producto en Shopify (para limpieza de RMS-Sync)
             preserve_media: Si True, no sobrescribe imágenes/media existentes
             preserve_publishing: Si True, no sobrescribe configuración de publishing
             fields_to_update: Lista específica de campos a actualizar (None = usar defaults seguros)
@@ -185,10 +187,10 @@ class DataPreparator:
         update_data = {}
 
         # Campos seguros para actualizar siempre (datos que vienen de RMS)
+        # NOTA: productType NO se incluye - se preserva el valor actual de Shopify
         safe_fields = [
             "title",  # Título del producto
             "status",  # Solo si preserve_shopify_status es False
-            "productType",  # Tipo de producto
             "vendor",  # Proveedor/marca
             "category",  # Categoría de taxonomía
         ]
@@ -210,9 +212,6 @@ class DataPreparator:
                     shopify_input.status.value if hasattr(shopify_input.status, "value") else shopify_input.status
                 )
 
-            elif field == "productType" and shopify_input.productType:
-                update_data["productType"] = shopify_input.productType
-
             elif field == "vendor":
                 # Split title by "-" and use first part as vendor if vendor not provided
                 if shopify_input.vendor:
@@ -228,12 +227,36 @@ class DataPreparator:
             elif field == "category" and shopify_input.category:
                 update_data["category"] = shopify_input.category
 
-            # Campos con lógica especial de preservación
-            elif field == "tags" and shopify_input.tags and not preserve_publishing:
-                # Solo actualizar tags si explícitamente se permite sobrescribir publishing
-                update_data["tags"] = shopify_input.tags
+        # TAGS: Siempre actualizar con limpieza automática de RMS-Sync antiguos
+        if shopify_input.tags and existing_tags is not None:
+            from app.services.data_mapper import RMSToShopifyMapper
 
-            elif field == "descriptionHtml" and shopify_input.description and not preserve_media:
+            # Encontrar el nuevo tag RMS-Sync en los tags del shopify_input
+            new_sync_tag = None
+            for tag in shopify_input.tags:
+                if tag.startswith("RMS-SYNC-"):
+                    new_sync_tag = tag
+                    break
+
+            if new_sync_tag:
+                # Limpiar tags antiguos y mantener solo el nuevo
+                cleaned_tags = RMSToShopifyMapper.clean_rms_sync_tags(existing_tags, new_sync_tag)
+
+                # Agregar tags no-RMS-Sync de shopify_input (como ccod_)
+                for tag in shopify_input.tags:
+                    if not tag.startswith("RMS-SYNC-") and tag not in cleaned_tags:
+                        cleaned_tags.append(tag)
+
+                update_data["tags"] = cleaned_tags
+                logger.info(f"🏷️ Tags actualizados: {len(existing_tags)} → {len(cleaned_tags)} (RMS-Sync limpio)")
+            else:
+                # Si no hay tag RMS-Sync, usar tags del shopify_input tal cual
+                update_data["tags"] = shopify_input.tags
+                logger.warning("⚠️ No se encontró tag RMS-SYNC en shopify_input, usando tags tal cual")
+
+        # Campos con lógica especial de preservación
+        if "descriptionHtml" in fields_to_process:
+            if shopify_input.description and not preserve_media:
                 # Solo actualizar descripción si se permite sobrescribir contenido
                 update_data["descriptionHtml"] = shopify_input.description
 

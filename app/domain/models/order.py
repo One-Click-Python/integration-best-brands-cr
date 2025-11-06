@@ -49,7 +49,7 @@ class OrderDomain:
     comment: str
     store_id: int = 40
     time: datetime = field(default_factory=lambda: datetime.now(UTC))
-    type: int = 2
+    type: int = 2  # Tipo 2 para órdenes de Shopify
     deposit: Money = field(default_factory=lambda: Money.zero())
     channel_type: int = 2
     sales_rep_id: int = 1000
@@ -152,9 +152,9 @@ class OrderDomain:
             "time": self.time,
             "type": self.type,
             "customer_id": self.customer_id,
-            "deposit": float(self.deposit.amount),
-            "tax": float(self.tax.amount),
-            "total": float(self.total.amount),
+            "deposit": self.deposit.amount,
+            "tax": self.tax.amount,
+            "total": self.total.amount,
             "sales_rep_id": self.sales_rep_id,
             "shipping_service_id": self.shipping_service_id,
             "shipping_tracking_number": self.shipping_tracking_number,
@@ -163,7 +163,7 @@ class OrderDomain:
             "reference_number": self.reference_number,
             "channel_type": self.channel_type,
             "closed": self.closed,
-            "shipping_charge_on_order": float(self.shipping_charge_on_order.amount),
+            "shipping_charge_on_order": self.shipping_charge_on_order.amount,
         }
 
     @classmethod

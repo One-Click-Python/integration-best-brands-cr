@@ -51,9 +51,9 @@ class CustomerDataFetcher:
                 return self._create_guest_customer_info(shopify_order)
 
             # Caso 2: Cliente registrado
-            first_name = customer.get("firstName", "").strip()
-            last_name = customer.get("lastName", "").strip()
-            email = customer.get("email", "").strip()
+            first_name = (customer.get("firstName") or "").strip()
+            last_name = (customer.get("lastName") or "").strip()
+            email = (customer.get("email") or "").strip()
 
             # Construir nombre completo
             if first_name or last_name:
@@ -92,7 +92,7 @@ class CustomerDataFetcher:
             Dict con información de cliente invitado
         """
         # Intentar obtener email de la orden (puede existir sin customer)
-        order_email = shopify_order.get("email", "").strip()
+        order_email = (shopify_order.get("email") or "").strip()
 
         # Intentar obtener nombre de billing o shipping address
         guest_name = self._extract_name_from_addresses(shopify_order)
@@ -118,29 +118,32 @@ class CustomerDataFetcher:
         # Intentar desde billing address
         billing_address = shopify_order.get("billingAddress")
         if billing_address:
-            first_name = billing_address.get("firstName", "").strip()
-            last_name = billing_address.get("lastName", "").strip()
+            first_name = (billing_address.get("firstName") or "").strip()
+            last_name = (billing_address.get("lastName") or "").strip()
             if first_name or last_name:
                 return f"{first_name} {last_name}".strip()
 
         # Intentar desde shipping address
         shipping_address = shopify_order.get("shippingAddress")
         if shipping_address:
-            first_name = shipping_address.get("firstName", "").strip()
-            last_name = shipping_address.get("lastName", "").strip()
+            first_name = (shipping_address.get("firstName") or "").strip()
+            last_name = (shipping_address.get("lastName") or "").strip()
             if first_name or last_name:
                 return f"{first_name} {last_name}".strip()
 
         # Default para invitados sin nombre
         return "Cliente Invitado"
 
-    def format_comment_for_rms(self, customer_info: dict[str, Any], order_name: str | None = None) -> str:
+    def format_comment_for_rms(
+        self, customer_info: dict[str, Any], order_name: str | None = None, payment_status: str | None = None
+    ) -> str:
         """
         Formatea un comentario para RMS incluyendo información del cliente.
 
         Args:
             customer_info: Información del cliente obtenida de fetch_customer_info
             order_name: Nombre/número de la orden de Shopify (opcional)
+            payment_status: Estado de pago de la orden (ej: PARTIALLY_PAID, PAID, PENDING)
 
         Returns:
             str: Comentario formateado para campo Comment de RMS
@@ -148,14 +151,17 @@ class CustomerDataFetcher:
         Example:
             >>> fetcher = CustomerDataFetcher()
             >>> info = {"name": "Juan Pérez", "email": "juan@example.com"}
-            >>> comment = fetcher.format_comment_for_rms(info, "#1234")
+            >>> comment = fetcher.format_comment_for_rms(info, "ABCD123", "PARTIALLY_PAID")
             >>> print(comment)
-            "Orden Shopify #1234 - Cliente: Juan Pérez (juan@example.com)"
+            "Order reference: ABCD123, Customer: Juan Pérez, email: juan@example.com, Pago: PARTIALLY_PAID"
         """
         name = customer_info.get("name", "Cliente Desconocido")
         email = customer_info.get("email", "sin-email")
 
         if order_name:
-            return f"Orden Shopify {order_name} - Cliente: {name} ({email})"
+            # Formato: Order reference: YFHLSHWPO, Customer: Name, email: x@y.com, Pago: PAID
+            payment_str = f", Pago: {payment_status}" if payment_status else ""
+            return f"Order reference: {order_name}, Customer: {name}, email: {email}{payment_str}"
         else:
-            return f"Cliente: {name} ({email})"
+            # Sin order_name, solo datos del cliente
+            return f"Customer: {name}, email: {email}"

@@ -33,13 +33,13 @@ class CustomerResolver:
         try:
             # Guest order without customer
             if not customer_data:
-                return self._handle_guest_order()
+                return await self._handle_guest_order()
 
             email = customer_data.get("email")
 
             # Customer without email
             if not email:
-                return self._handle_customer_without_email()
+                return await self._handle_customer_without_email()
 
             # Find existing customer by email
             existing = await self.customer_repo.find_customer_by_email(email)
@@ -53,11 +53,26 @@ class CustomerResolver:
         except Exception as e:
             logger.error(f"Error resolving customer: {e}")
             if settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
-                return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS or None
+                # Try to use configured ID or auto-create guest customer
+                if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
+                    return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
+                try:
+                    return await self.customer_repo.find_or_create_guest_customer()
+                except Exception as fallback_error:
+                    logger.error(f"Failed to create guest customer fallback: {fallback_error}")
+                    return None
             raise
 
-    def _handle_guest_order(self) -> int | None:
-        """Handle guest orders based on configuration."""
+    async def _handle_guest_order(self) -> int:
+        """
+        Handle guest orders based on configuration.
+
+        Returns:
+            int: Customer ID for guest order (never None)
+
+        Raises:
+            ValidationException: If orders without customer are not allowed
+        """
         if not settings.ALLOW_ORDERS_WITHOUT_CUSTOMER:
             raise ValidationException(
                 message="Orders without customer are not allowed",
@@ -65,15 +80,30 @@ class CustomerResolver:
                 invalid_value=None,
             )
 
+        # Priority 1: Use manually configured customer ID if set
         if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
-            logger.info(f"Using default customer ID {settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for guest")
+            logger.info(
+                f"Using configured default customer ID "
+                f"{settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS} for guest order"
+            )
             return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
 
-        logger.warning("No customer data, creating order with customer_id=NULL")
-        return None
+        # Priority 2: Auto-create or find guest customer in RMS
+        logger.info("Auto-creating/finding guest customer in RMS")
+        guest_customer_id = await self.customer_repo.find_or_create_guest_customer()
+        logger.info(f"Using guest customer ID {guest_customer_id} for order")
+        return guest_customer_id
 
-    def _handle_customer_without_email(self) -> int | None:
-        """Handle customers without email based on configuration."""
+    async def _handle_customer_without_email(self) -> int:
+        """
+        Handle customers without email based on configuration.
+
+        Returns:
+            int: Customer ID for customer without email (never None)
+
+        Raises:
+            ValidationException: If customer email is required
+        """
         if settings.REQUIRE_CUSTOMER_EMAIL:
             raise ValidationException(
                 message="Customer email is required",
@@ -81,12 +111,16 @@ class CustomerResolver:
                 invalid_value=None,
             )
 
+        # Priority 1: Use manually configured customer ID if set
         if settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS:
             logger.info("Using default customer ID for customer without email")
             return settings.DEFAULT_CUSTOMER_ID_FOR_GUEST_ORDERS
 
-        logger.warning("Customer has no email, using customer_id=NULL")
-        return None
+        # Priority 2: Auto-create or find guest customer
+        logger.info("Customer has no email - using guest customer")
+        guest_customer_id = await self.customer_repo.find_or_create_guest_customer()
+        logger.info(f"Using guest customer ID {guest_customer_id} for customer without email")
+        return guest_customer_id
 
     async def _create_customer(self, customer_data: dict[str, Any], billing_address: dict[str, Any] | None) -> int:
         """Create new customer in RMS."""

@@ -12,12 +12,14 @@ This orchestrator follows:
 import logging
 from typing import Any
 
+from app.core.config import get_settings
 from app.services.orders.converters import OrderConverter
 from app.services.orders.managers import InventoryManager, OrderCreator
 from app.services.orders.resolvers import CustomerResolver
 from app.services.orders.validators import OrderValidator
 from app.utils.error_handler import SyncException
 
+settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
@@ -97,6 +99,13 @@ class ShopifyToRMSOrderOrchestrator:
             customer_id = await self.customer_resolver.resolve(customer_data, billing_address)
             order_domain.customer_id = customer_id
 
+            # Regenerate comment with payment status
+            customer_info = self.converter.customer_fetcher.fetch_customer_info(validated_order)
+            payment_status = validated_order.get("displayFinancialStatus", "PENDING")
+            order_domain.comment = self.converter.customer_fetcher.format_comment_for_rms(
+                customer_info, order_name=validated_order.get("name"), payment_status=payment_status
+            )
+
             # Step 4: Create order in RMS
             logger.debug(f"Creating order {order_id} in RMS")
             rms_order_id = await self.order_creator.create(order_domain)
@@ -173,6 +182,13 @@ class ShopifyToRMSOrderOrchestrator:
             customer_id = await self.customer_resolver.resolve(customer_data, billing_address)
             order_domain.customer_id = customer_id
 
+            # Regenerate comment with payment status
+            customer_info = self.converter.customer_fetcher.fetch_customer_info(validated_order)
+            payment_status = validated_order.get("displayFinancialStatus", "PENDING")
+            order_domain.comment = self.converter.customer_fetcher.format_comment_for_rms(
+                customer_info, order_name=validated_order.get("name"), payment_status=payment_status
+            )
+
             # Step 4: Get existing entries for inventory adjustment
             logger.debug("Getting existing entries for inventory adjustment")
             existing_entries_raw = await self.order_creator.order_repo.get_order_entries(existing_order_id)
@@ -235,7 +251,7 @@ def create_orchestrator(
         ShopifyToRMSOrderOrchestrator: Fully configured orchestrator
     """
     # Create service instances with SOLID repositories
-    validator = OrderValidator()
+    validator = OrderValidator(allowed_financial_statuses=settings.ALLOWED_ORDER_FINANCIAL_STATUSES)
     converter = OrderConverter(query_executor=query_executor)
     customer_resolver = CustomerResolver(customer_repo=customer_repo)
     order_creator = OrderCreator(order_repo=order_repo)

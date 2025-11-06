@@ -147,10 +147,16 @@ class MultipleVariantsCreator:
 
             # B. ACTUALIZAR PRODUCTO básico (solo campos seguros de RMS)
             logger.info(f"🔄 STEP B: Updating base product - {shopify_input.title}")
+
+            # Obtener tags existentes del producto para limpieza de RMS-Sync antiguos
+            existing_tags = existing_product.get("tags", [])
+            logger.debug(f"🏷️ Tags existentes en Shopify: {existing_tags}")
+
             product_update_data = self.data_preparator.prepare_product_update_data(
-                shopify_input, 
-                preserve_media=True,      # Preservar imágenes y contenido
-                preserve_publishing=True  # Preservar configuración de publishing
+                shopify_input,
+                existing_tags=existing_tags,  # Pasar tags existentes para limpieza
+                preserve_media=True,  # Preservar imágenes y contenido
+                preserve_publishing=True,  # Preservar configuración de publishing
             )
             updated_product = await self.shopify_client.update_product(product_id, product_update_data)
             logger.info(f"✅ STEP B: Updated basic product info: {updated_product.get('title')}")

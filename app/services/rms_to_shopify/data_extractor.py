@@ -219,7 +219,11 @@ class RMSExtractor:
 
         except Exception as e:
             logger.error(f"Error extracting paginated RMS products: {e}")
-            raise SyncException(f"Failed to extract paginated RMS products: {e}") from e
+            raise SyncException(
+                message=f"Failed to extract paginated RMS products: {e}",
+                service="rms_extractor",
+                operation="extract_paginated",
+            ) from e
 
     async def extract_rms_products_with_variants(
         self,
@@ -338,7 +342,11 @@ class RMSExtractor:
 
         except Exception as e:
             logger.error(f"❌ Error extracting RMS products with variants: {e}")
-            raise SyncException(f"Failed to extract RMS products: {e}") from e
+            raise SyncException(
+                message=f"Failed to extract RMS products: {e}",
+                service="rms_extractor",
+                operation="extract_with_variants",
+            ) from e
 
     async def count_rms_products_since_checkpoint(
         self,

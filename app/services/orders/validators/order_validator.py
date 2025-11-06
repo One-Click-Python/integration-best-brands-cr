@@ -25,8 +25,17 @@ class OrderValidator:
     - Business rule validation
     """
 
-    # Valid financial statuses for syncing to RMS
-    VALID_FINANCIAL_STATUSES = ["PAID", "PARTIALLY_PAID", "AUTHORIZED"]
+    def __init__(self, allowed_financial_statuses: list[str] | None = None):
+        """
+        Initialize validator with configurable financial statuses.
+
+        Args:
+            allowed_financial_statuses: List of allowed financial statuses for sync.
+                                       Defaults to PAID, PARTIALLY_PAID, AUTHORIZED, PENDING
+        """
+        self.allowed_financial_statuses = allowed_financial_statuses or [
+            "PAID", "PARTIALLY_PAID", "AUTHORIZED", "PENDING"
+        ]
 
     def validate(self, order: dict[str, Any]) -> dict[str, Any]:
         """
@@ -159,11 +168,11 @@ class OrderValidator:
         """
         financial_status = order.get("displayFinancialStatus", "").upper()
 
-        if financial_status not in self.VALID_FINANCIAL_STATUSES:
+        if financial_status not in self.allowed_financial_statuses:
             raise ValidationException(
                 message=(
                     f"Order financial status '{financial_status}' not valid for sync. "
-                    f"Must be one of: {self.VALID_FINANCIAL_STATUSES}"
+                    f"Must be one of: {self.allowed_financial_statuses}"
                 ),
                 field="displayFinancialStatus",
                 invalid_value=financial_status,

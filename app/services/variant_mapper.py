@@ -5,6 +5,7 @@ Mapeador inteligente de variantes por color y talla.
 
 import logging
 from collections import defaultdict
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -153,11 +154,7 @@ class VariantMapper:
         VariantMapper._calculate_product_base_price(items)
 
         # Resolver categoría de taxonomía
-        from app.services.data_mapper import (
-            RMSToShopifyMapper,
-            get_product_type_from_data,
-            map_category_to_tags,
-        )
+        from app.services.data_mapper import RMSToShopifyMapper
 
         category_id = await RMSToShopifyMapper.resolve_category_id(
             base_item.categoria, shopify_client, base_item.familia
@@ -166,29 +163,12 @@ class VariantMapper:
         # Generar metafields usando el item base
         metafields = RMSToShopifyMapper._generate_complete_metafields(base_item)
 
-        # NUEVA LÓGICA: Determinar product_type basado en género + familia + categoría
-        # Solo si include_category_tags está habilitado
-        if include_category_tags:
-            product_type = get_product_type_from_data(
-                rms_familia=base_item.familia, rms_categoria=base_item.categoria, rms_gender=base_item.genero
-            )
-        else:
-            # Usar product_type del mapeo tradicional cuando categorías están deshabilitadas
-            product_type = RMSToShopifyMapper._get_product_type(base_item)
+        # product_type siempre vacío (se configura manualmente en Shopify)
+        product_type = RMSToShopifyMapper._get_product_type(base_item)
 
-        # NUEVA LÓGICA: Generar tags incluyendo categorías solo si está habilitado
-        collection_tags = map_category_to_tags(
-            rms_familia=base_item.familia,
-            rms_categoria=base_item.categoria,
-            rms_gender=base_item.genero,
-            include_category_tags=include_category_tags
-        )
-
-        # Generar tags adicionales (promoción, CCOD, etc.)
-        additional_tags = VariantMapper._generate_tags(base_item)
-
-        # Combinar todos los tags (evitando duplicados)
-        all_tags = list(set(collection_tags + additional_tags))
+        # Generar SOLO tags básicos: ccod_ y RMS-SYNC-YY-MM-DD
+        # NO se agregan tags de categoría o género por defecto
+        all_tags = VariantMapper._generate_tags(base_item)
 
         return ShopifyProductInput(
             title=base_title,
@@ -271,9 +251,7 @@ class VariantMapper:
         options = []
 
         # Analizar variaciones de color - VALIDAR QUE NO SEA SOLO ESPACIOS
-        colors = sorted(
-            set(item.color.strip() for item in items if item.color and item.color.strip())
-        )
+        colors = sorted(set(item.color.strip() for item in items if item.color and item.color.strip()))
         if colors and len(colors) > 1:
             options.append(ShopifyOption(name="Color", values=colors))
         elif colors:
@@ -441,29 +419,19 @@ class VariantMapper:
     @staticmethod
     def _generate_tags(item: RMSViewItem) -> List[str]:
         """
-        Genera tags para el producto.
+        Genera tags mínimos esenciales para el producto.
+        Solo: CCOD y fecha de sincronización.
         """
         tags = []
 
-        # CCOD como tag principal (normalizado)
+        # Tag 1: CCOD del producto
         if item.ccod:
             normalized_ccod = item.ccod.strip().upper()
             tags.append(f"ccod_{normalized_ccod}")
 
-        if item.familia:
-            tags.append(item.familia)
-        if item.categoria:
-            tags.append(item.categoria)
-        if item.genero:
-            tags.append(item.genero)
-        if item.extended_category:
-            tags.append(item.extended_category)
-
-        # Tag de promoción
-        if item.is_on_sale:
-            tags.append("En-Oferta")
-
-        tags.append("RMS-Sync")
+        # Tag 2: RMS-SYNC con fecha (formato YY-MM-DD)
+        sync_date = datetime.now(UTC).strftime("%y-%m-%d")
+        tags.append(f"RMS-SYNC-{sync_date}")
 
         return tags
 

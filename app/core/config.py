@@ -39,13 +39,13 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default="your-secret-key-change-in-production", env="SECRET_KEY")
 
     # === CONFIGURACIÓN DE RMS (SQL SERVER) ===
-    RMS_DB_HOST: str = Field(default="190.106.75.222.1438", env="RMS_DB_HOST")
-    RMS_DB_PORT: int = Field(default=1433, env="RMS_DB_PORT")
+    RMS_DB_HOST: str = Field(default="190.106.75.222", env="RMS_DB_HOST")
+    RMS_DB_PORT: int = Field(default=1438, env="RMS_DB_PORT")
     RMS_DB_NAME: str = Field(default="BB57_TempSF", env="RMS_DB_NAME")
     RMS_DB_USER: str = Field(default="Shop1fy5428", env="RMS_DB_USER")
     RMS_DB_PASSWORD: str = Field(default="sh0pqfy10736!", env="RMS_DB_PASSWORD")
     RMS_DB_DRIVER: str = Field(default="ODBC Driver 17 for SQL Server", env="RMS_DB_DRIVER")
-    RMS_CONNECTION_TIMEOUT: int = Field(default=30, env="RMS_CONNECTION_TIMEOUT")
+    RMS_CONNECTION_TIMEOUT: int = Field(default=60, env="RMS_CONNECTION_TIMEOUT")
     RMS_MAX_POOL_SIZE: int = Field(default=10, env="RMS_MAX_POOL_SIZE")
     # Configuraciones específicas para RMS
     RMS_VIEW_ITEMS_TABLE: str = Field(default="View_Items", env="RMS_VIEW_ITEMS_TABLE")
@@ -115,6 +115,18 @@ class Settings(BaseSettings):
     )
     REQUIRE_CUSTOMER_EMAIL: bool = Field(default=False, env="REQUIRE_CUSTOMER_EMAIL")
     GUEST_CUSTOMER_NAME: str = Field(default="Cliente Invitado", env="GUEST_CUSTOMER_NAME")
+    GUEST_CUSTOMER_ACCOUNT_NUMBER: str = Field(
+        default="SHOPIFY-GUEST",
+        env="GUEST_CUSTOMER_ACCOUNT_NUMBER",
+        description="Account number for auto-created guest customer in RMS"
+    )
+
+    # === CONFIGURACIÓN DE ESTADOS FINANCIEROS DE PEDIDOS ===
+    ALLOWED_ORDER_FINANCIAL_STATUSES: list[str] = Field(
+        default=["PAID", "PARTIALLY_PAID", "AUTHORIZED", "PENDING"],
+        env="ALLOWED_ORDER_FINANCIAL_STATUSES",
+        description="Lista de estados financieros permitidos para sincronizar pedidos de Shopify a RMS"
+    )
 
     # === CONFIGURACIÓN DE RATE LIMITING ===
     ENABLE_RATE_LIMITING: bool = Field(default=True, env="ENABLE_RATE_LIMITING")
@@ -226,6 +238,42 @@ class Settings(BaseSettings):
             raise ValueError("CHECKPOINT_DEFAULT_DAYS debe ser al menos 1")
         if v > 365:
             raise ValueError("CHECKPOINT_DEFAULT_DAYS no debe ser mayor a 365")
+        return v
+
+    @field_validator("ALLOWED_ORDER_FINANCIAL_STATUSES", mode="before")
+    @classmethod
+    def parse_allowed_financial_statuses(cls, v):
+        """
+        Parsea ALLOWED_ORDER_FINANCIAL_STATUSES como lista separada por comas.
+
+        Estados financieros válidos de Shopify:
+        - PENDING: Pendiente de pago
+        - AUTHORIZED: Autorizado pero no capturado
+        - PARTIALLY_PAID: Pagado parcialmente
+        - PAID: Pagado completamente
+        - PARTIALLY_REFUNDED: Reembolsado parcialmente
+        - REFUNDED: Reembolsado completamente
+        - VOIDED: Anulado
+        """
+        if isinstance(v, str):
+            if not v.strip():
+                # Si está vacío, usar valor por defecto
+                return ["PAID", "PARTIALLY_PAID", "AUTHORIZED", "PENDING"]
+            statuses = [status.strip().upper() for status in v.split(",") if status.strip()]
+
+            # Validar que los estados sean válidos
+            valid_statuses = {
+                "PENDING", "AUTHORIZED", "PARTIALLY_PAID", "PAID",
+                "PARTIALLY_REFUNDED", "REFUNDED", "VOIDED"
+            }
+            invalid = [s for s in statuses if s not in valid_statuses]
+            if invalid:
+                raise ValueError(
+                    f"Estados financieros inválidos: {invalid}. "
+                    f"Estados válidos: {sorted(valid_statuses)}"
+                )
+
+            return statuses
         return v
 
     @field_validator("SHOPIFY_SHOP_URL")

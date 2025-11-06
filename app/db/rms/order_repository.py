@@ -22,6 +22,45 @@ settings = get_settings()
 class OrderRepository(BaseRepository):
     """Repository for order and order-entry operations in RMS."""
 
+    # Mapping from Python snake_case to RMS PascalCase column names
+    ORDER_COLUMN_MAP = {
+        "store_id": "StoreID",
+        "time": "Time",
+        "type": "Type",
+        "customer_id": "CustomerID",
+        "deposit": "Deposit",
+        "tax": "Tax",
+        "total": "Total",
+        "sales_rep_id": "SalesRepID",
+        "shipping_service_id": "ShippingServiceID",
+        "shipping_tracking_number": "ShippingTrackingNumber",
+        "comment": "Comment",
+        "shipping_notes": "ShippingNotes",
+        "reference_number": "ReferenceNumber",
+        "channel_type": "ChannelType",
+        "closed": "Closed",
+        "shipping_charge_on_order": "ShippingChargeOnOrder",
+    }
+
+    # Mapping for OrderEntry columns
+    ORDER_ENTRY_COLUMN_MAP = {
+        "order_id": "OrderID",
+        "item_id": "ItemID",
+        "store_id": "StoreID",
+        "price": "Price",
+        "full_price": "FullPrice",
+        "cost": "Cost",
+        "quantity_on_order": "QuantityOnOrder",
+        "quantity_rtd": "QuantityRTD",
+        "sales_rep_id": "SalesRepID",
+        "discount_reason_code_id": "DiscountReasonCodeID",
+        "return_reason_code_id": "ReturnReasonCodeID",
+        "description": "Description",
+        "taxable": "Taxable",
+        "is_add_money": "IsAddMoney",
+        "voucher_id": "VoucherID",
+    }
+
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation("verify_table_access_orders")
     async def _verify_table_access(self) -> None:
@@ -88,6 +127,13 @@ class OrderRepository(BaseRepository):
                     ),
                 }
 
+                # 🔍 Logging de depuración - valores antes del INSERT
+                logger.info(
+                    f"🔍 SQL params for INSERT: "
+                    f"total={params['total']}, tax={params['tax']}, "
+                    f"deposit={params['deposit']}, shipping={params['shipping_charge_on_order']}"
+                )
+
                 result = await session.execute(text(query), params)
                 order_id = result.scalar()
                 if not order_id:
@@ -96,6 +142,26 @@ class OrderRepository(BaseRepository):
                         db_host=settings.RMS_DB_HOST,
                         connection_type="order_creation",
                     )
+
+                # 🔍 Verificar valores inmediatamente después del INSERT
+                verify_query = "SELECT Total, Tax, Deposit FROM [Order] WHERE ID = :order_id"
+                verify_result = await session.execute(text(verify_query), {"order_id": order_id})
+                verify_data = verify_result.fetchone()
+
+                if verify_data:
+                    logger.info(
+                        f"✅ Order {order_id} verification - "
+                        f"Expected: Total={params['total']}, Tax={params['tax']} | "
+                        f"Actual DB: Total={verify_data.Total}, Tax={verify_data.Tax}"
+                    )
+
+                    # Alertar si hay discrepancia
+                    if abs(float(verify_data.Total) - params['total']) > 0.01:
+                        logger.error(
+                            f"❌ Order.Total mismatch! Expected {params['total']}, got {verify_data.Total}"
+                        )
+                    if abs(float(verify_data.Tax) - params['tax']) > 0.01:
+                        logger.error(f"❌ Order.Tax mismatch! Expected {params['tax']}, got {verify_data.Tax}")
 
                 await session.commit()
                 logger.info(f"Created order in RMS with ID: {order_id}")
@@ -201,7 +267,9 @@ class OrderRepository(BaseRepository):
 
                 for key, value in order_data.items():
                     if key != "id":
-                        set_clauses.append(f"{key} = :{key}")
+                        # Map snake_case to PascalCase for RMS
+                        db_column = self.ORDER_COLUMN_MAP.get(key, key)
+                        set_clauses.append(f"{db_column} = :{key}")
                         params[key] = value
 
                 if not set_clauses:
@@ -209,7 +277,7 @@ class OrderRepository(BaseRepository):
                     return {"id": order_id}
 
                 query = f"""
-                UPDATE [Order] 
+                UPDATE [Order]
                 SET {', '.join(set_clauses)}
                 WHERE ID = :order_id
                 """
@@ -250,12 +318,14 @@ class OrderRepository(BaseRepository):
 
                 for key, value in entry_data.items():
                     if key != "id":
-                        set_clauses.append(f"{key} = :{key}")
+                        # Map snake_case to PascalCase for RMS
+                        db_column = self.ORDER_ENTRY_COLUMN_MAP.get(key, key)
+                        set_clauses.append(f"{db_column} = :{key}")
                         params[key] = value
 
                 if set_clauses:
                     query = f"""
-                    UPDATE OrderEntry 
+                    UPDATE OrderEntry
                     SET {', '.join(set_clauses)}
                     WHERE ID = :entry_id
                     """

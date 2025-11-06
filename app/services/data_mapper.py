@@ -5,8 +5,11 @@ Este módulo contiene las funciones de mapeo para convertir datos entre
 los formatos de RMS y Shopify GraphQL API.
 """
 
+import json
 import logging
 import re
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.api.v1.schemas.rms_schemas import RMSViewItem
@@ -370,21 +373,26 @@ class RMSToShopifyMapper:
     @staticmethod
     def _get_product_type(rms_item: RMSViewItem) -> str:
         """
-        Determina el product type basado en familia y categoría.
+        Retorna cadena vacía para product type.
+
+        Los productos nuevos se crean sin product_type definido,
+        permitiendo que sea configurado manualmente en Shopify.
+        Para productos existentes, el product_type NO se actualiza
+        (se preserva el valor actual de Shopify).
 
         Args:
             rms_item: Item RMS
 
         Returns:
-            str: Product type para Shopify
+            str: Cadena vacía (product type no se define automáticamente)
         """
-        mapping = RMSToShopifyMapper.get_mapping_for_item(rms_item.familia, rms_item.categoria)
-        return mapping.get("product_type", rms_item.categoria or "")
+        return ""
 
     @staticmethod
     def _generate_tags(rms_item: RMSViewItem) -> List[str]:
         """
-        Genera tags para el producto.
+        Genera tags mínimos esenciales para el producto.
+        Solo: CCOD y fecha de sincronización.
 
         Args:
             rms_item: Item RMS
@@ -394,34 +402,46 @@ class RMSToShopifyMapper:
         """
         tags = []
 
-        # Tags de clasificación
-        if rms_item.familia:
-            tags.append(rms_item.familia)
+        # Tag 1: CCOD del producto
+        if rms_item.ccod:
+            normalized_ccod = rms_item.ccod.strip().upper()
+            tags.append(f"ccod_{normalized_ccod}")
 
-        if rms_item.categoria:
-            tags.append(rms_item.categoria)
-
-        if rms_item.genero:
-            tags.append(rms_item.genero)
-
-        if rms_item.extended_category:
-            tags.append(rms_item.extended_category)
-
-        # Tags de atributos
-        if rms_item.color:
-            tags.append(f"Color-{rms_item.color}")
-
-        if rms_item.talla:
-            tags.append(f"Talla-{rms_item.talla}")
-
-        # Tag de promoción
-        if rms_item.is_on_sale:
-            tags.append("En-Oferta")
-
-        # Tag de origen
-        tags.append("RMS-Sync")
+        # Tag 2: RMS-SYNC con fecha (formato YY-MM-DD)
+        sync_date = datetime.now(UTC).strftime("%y-%m-%d")
+        tags.append(f"RMS-SYNC-{sync_date}")
 
         return tags
+
+    @staticmethod
+    def clean_rms_sync_tags(existing_tags: list[str], new_sync_tag: str) -> list[str]:
+        """
+        Limpia tags RMS-Sync antiguos y mantiene solo el más reciente.
+
+        Elimina todos los tags que empiecen con "RMS-SYNC-" y agrega el nuevo tag.
+        Preserva todos los demás tags (ccod_, categoría, género, etc.).
+
+        Args:
+            existing_tags: Lista de tags actuales del producto en Shopify
+            new_sync_tag: Nuevo tag de sincronización a agregar (formato: RMS-SYNC-YY-MM-DD)
+
+        Returns:
+            list[str]: Lista de tags limpia con solo el nuevo tag RMS-Sync
+
+        Example:
+            >>> existing = ["ccod_24X104", "RMS-SYNC-25-01-20", "RMS-SYNC-25-01-21", "Mujer"]
+            >>> new_tag = "RMS-SYNC-25-01-23"
+            >>> clean_rms_sync_tags(existing, new_tag)
+            ["ccod_24X104", "Mujer", "RMS-SYNC-25-01-23"]
+        """
+        # Filtrar tags antiguos de RMS-Sync
+        cleaned_tags = [tag for tag in existing_tags if not tag.startswith("RMS-SYNC-")]
+
+        # Agregar el nuevo tag de sincronización
+        cleaned_tags.append(new_sync_tag)
+
+        logger.debug(f"🏷️ Cleaned RMS-Sync tags: {len(existing_tags)} → {len(cleaned_tags)} tags")
+        return cleaned_tags
 
     @staticmethod
     def _generate_options(rms_item: RMSViewItem) -> List[ShopifyOption]:
@@ -470,25 +490,25 @@ class RMSToShopifyMapper:
     def _is_valid_metafield_value(value: Any) -> bool:
         """
         Valida si un valor es apropiado para un metafield.
-        
+
         Un valor es válido si:
         - No es None
         - Si es string, no está vacío o solo contiene espacios
         - Si es otro tipo, se puede convertir a string válido
-        
+
         Args:
             value: Valor a validar
-            
+
         Returns:
             bool: True si el valor es válido para un metafield
         """
         if value is None:
             return False
-        
+
         # Convertir a string y validar
         str_value = str(value).strip()
         return bool(str_value)  # True si no está vacío después del strip
-    
+
     @staticmethod
     def _generate_complete_metafields(rms_item: RMSViewItem) -> List[Dict[str, Any]]:
         """
@@ -507,7 +527,12 @@ class RMSToShopifyMapper:
         # Información básica de RMS - VALIDAR QUE NO SEA SOLO ESPACIOS
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.familia):
             metafields.append(
-                {"namespace": "rms", "key": "familia", "value": str(rms_item.familia).strip(), "type": "single_line_text_field"}
+                {
+                    "namespace": "rms",
+                    "key": "familia",
+                    "value": str(rms_item.familia).strip(),
+                    "type": "single_line_text_field",
+                }
             )
 
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.categoria):
@@ -522,17 +547,32 @@ class RMSToShopifyMapper:
 
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.color):
             metafields.append(
-                {"namespace": "rms", "key": "color", "value": str(rms_item.color).strip(), "type": "single_line_text_field"}
+                {
+                    "namespace": "rms",
+                    "key": "color",
+                    "value": str(rms_item.color).strip(),
+                    "type": "single_line_text_field",
+                }
             )
 
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.talla):
             metafields.append(
-                {"namespace": "rms", "key": "talla", "value": str(rms_item.talla).strip(), "type": "single_line_text_field"}
+                {
+                    "namespace": "rms",
+                    "key": "talla",
+                    "value": str(rms_item.talla).strip(),
+                    "type": "single_line_text_field",
+                }
             )
 
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.ccod):
             metafields.append(
-                {"namespace": "rms", "key": "ccod", "value": str(rms_item.ccod).strip(), "type": "single_line_text_field"}
+                {
+                    "namespace": "rms",
+                    "key": "ccod",
+                    "value": str(rms_item.ccod).strip(),
+                    "type": "single_line_text_field",
+                }
             )
 
         if rms_item.item_id:
@@ -556,7 +596,12 @@ class RMSToShopifyMapper:
         # Color - aplicar para cualquier producto que tenga color en RMS
         if RMSToShopifyMapper._is_valid_metafield_value(rms_item.color):
             metafields.append(
-                {"namespace": "custom", "key": "color", "value": str(rms_item.color).strip(), "type": "single_line_text_field"}
+                {
+                    "namespace": "custom",
+                    "key": "color",
+                    "value": str(rms_item.color).strip(),
+                    "type": "single_line_text_field",
+                }
             )
 
         # Target gender - aplicar para cualquier producto que tenga género en RMS
@@ -845,9 +890,6 @@ class DataComparator:
 # NEW: Gender + Category Mapping Functions
 # ====================================================================================
 
-import json
-from pathlib import Path
-
 # Configuration file paths
 _CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 _GENDER_MAPPING_FILE = _CONFIG_DIR / "gender_mapping.json"
@@ -866,7 +908,7 @@ def _load_gender_mapping() -> Dict[str, str]:
         return _gender_mapping_cache
 
     try:
-        with open(_GENDER_MAPPING_FILE, 'r', encoding='utf-8') as f:
+        with open(_GENDER_MAPPING_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             mappings: Dict[str, str] = data.get("mappings", {})
             _gender_mapping_cache = mappings if mappings else {}
@@ -887,7 +929,7 @@ def _load_category_mapping() -> Dict[str, Any]:
         return _category_mapping_cache
 
     try:
-        with open(_CATEGORY_MAPPING_FILE, 'r', encoding='utf-8') as f:
+        with open(_CATEGORY_MAPPING_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             mappings: Dict[str, Any] = data.get("mappings", {})
             _category_mapping_cache = mappings if mappings else {}
@@ -925,7 +967,7 @@ def map_category_to_tags(
     rms_familia: Optional[str],
     rms_categoria: Optional[str],
     rms_gender: Optional[str] = None,
-    include_category_tags: bool = False
+    include_category_tags: bool = False,
 ) -> List[str]:
     """
     Map RMS category to Shopify tags for automated collections.
@@ -978,9 +1020,7 @@ def map_category_to_tags(
 
 
 def get_product_type_from_data(
-    rms_familia: Optional[str],
-    rms_categoria: Optional[str],
-    rms_gender: Optional[str]
+    rms_familia: Optional[str], rms_categoria: Optional[str], rms_gender: Optional[str]
 ) -> str:
     """
     Determine product_type based on familia, categoria, and gender.

@@ -55,18 +55,16 @@ class QueryExecutor(BaseRepository):
         """Track query execution time for performance monitoring."""
         if query_type not in self._query_metrics:
             self._query_metrics[query_type] = []
-        
+
         self._query_metrics[query_type].append(duration)
-        
+
         # Keep only last 100 measurements per query type
         if len(self._query_metrics[query_type]) > 100:
             self._query_metrics[query_type] = self._query_metrics[query_type][-100:]
-        
+
         # Log slow queries
         if duration > self._slow_query_threshold:
-            logger.warning(
-                f"Slow query detected - Type: {query_type}, Duration: {duration:.2f}s"
-            )
+            logger.warning(f"Slow query detected - Type: {query_type}, Duration: {duration:.2f}s")
 
     def get_query_metrics(self) -> Dict[str, Dict[str, float]]:
         """Get performance metrics for all query types."""
@@ -84,21 +82,17 @@ class QueryExecutor(BaseRepository):
     # ------------------------- Core query operations -------------------------
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def execute_custom_query(
-        self, 
-        query: str, 
-        params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+    async def execute_custom_query(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Execute a custom SQL query with parameters.
-        
+
         WARNING: Use parameterized queries to prevent SQL injection.
         Never concatenate user input directly into query strings.
-        
+
         Args:
             query: SQL query with named parameters (e.g., :param_name)
             params: Dictionary of parameter values
-            
+
         Returns:
             List of result rows as dictionaries
         """
@@ -107,30 +101,26 @@ class QueryExecutor(BaseRepository):
                 message="QueryExecutor not initialized",
                 db_host=settings.RMS_DB_HOST,
             )
-        
+
         start_time = time.time()
         try:
             # Basic SQL injection prevention: warn if query looks suspicious
-            if params is None and any(char in query.lower() for char in [';', '--', '/*', '*/', 'exec', 'xp_']):
-                logger.warning(
-                    "Potentially unsafe query detected. Consider using parameterized queries."
-                )
-            
+            if params is None and any(char in query.lower() for char in [";", "--", "/*", "*/", "exec", "xp_"]):
+                logger.warning("Potentially unsafe query detected. Consider using parameterized queries.")
+
             async with self.get_session() as session:
                 result = await session.execute(text(query), params or {})
                 rows = result.fetchall()
-                
+
                 # Convert rows to dictionaries
                 results = [row._asdict() for row in rows]
-                
+
                 duration = time.time() - start_time
                 self._track_query_performance("custom_query", duration)
-                
-                logger.debug(
-                    f"Executed custom query: {len(results)} rows returned in {duration:.2f}s"
-                )
+
+                logger.debug(f"Executed custom query: {len(results)} rows returned in {duration:.2f}s")
                 return results
-                
+
         except Exception as e:
             logger.error(f"Error executing custom query: {e}")
             raise RMSConnectionException(
@@ -150,13 +140,13 @@ class QueryExecutor(BaseRepository):
     ) -> List[Dict[str, Any]]:
         """
         Execute a query with pagination using OFFSET/FETCH.
-        
+
         Args:
             query: Base SQL query (must include ORDER BY, no OFFSET/FETCH)
             offset: Number of rows to skip
             limit: Maximum number of rows to return
             params: Optional query parameters
-            
+
         Returns:
             List of paginated results as dictionaries
         """
@@ -165,37 +155,33 @@ class QueryExecutor(BaseRepository):
                 message="QueryExecutor not initialized",
                 db_host=settings.RMS_DB_HOST,
             )
-        
+
         # Validate that query has ORDER BY (required for OFFSET/FETCH)
         if "order by" not in query.lower():
-            raise ValueError(
-                "Query must contain ORDER BY clause for pagination in SQL Server"
-            )
-        
+            raise ValueError("Query must contain ORDER BY clause for pagination in SQL Server")
+
         # Ensure query doesn't already have OFFSET/FETCH
         if "offset" in query.lower() or "fetch" in query.lower():
-            raise ValueError(
-                "Query should not contain OFFSET/FETCH clauses - they will be added automatically"
-            )
-        
+            raise ValueError("Query should not contain OFFSET/FETCH clauses - they will be added automatically")
+
         start_time = time.time()
         try:
             # Add pagination to query
             paginated_query = f"{query} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
-            
+
             async with self.get_session() as session:
                 result = await session.execute(text(paginated_query), params or {})
                 rows = result.fetchall()
                 results = [row._asdict() for row in rows]
-                
+
                 duration = time.time() - start_time
                 self._track_query_performance("paginated_query", duration)
-                
+
                 logger.debug(
                     f"Paginated query: {len(results)} rows (offset={offset}, limit={limit}) in {duration:.2f}s"
                 )
                 return results
-                
+
         except Exception as e:
             logger.error(f"Error executing paginated query: {e}")
             raise RMSConnectionException(
@@ -213,11 +199,11 @@ class QueryExecutor(BaseRepository):
     ) -> int:
         """
         Count total results for a query by converting it to COUNT(*).
-        
+
         Args:
             base_query: Original SELECT query to count results for
             params: Optional query parameters
-            
+
         Returns:
             Total count of results
         """
@@ -226,43 +212,43 @@ class QueryExecutor(BaseRepository):
                 message="QueryExecutor not initialized",
                 db_host=settings.RMS_DB_HOST,
             )
-        
+
         start_time = time.time()
         try:
             # Extract the FROM clause and everything after it
             query_upper = base_query.upper()
             from_index = query_upper.find("FROM")
-            
+
             if from_index == -1:
                 raise ValueError("Query must contain FROM clause")
-            
+
             # Get everything from FROM onwards
             from_part = base_query[from_index:]
-            
+
             # Remove ORDER BY if present (not needed for COUNT)
             order_by_index = from_part.upper().find("ORDER BY")
             if order_by_index != -1:
                 from_part = from_part[:order_by_index]
-            
+
             # Remove OFFSET/FETCH if present
             offset_index = from_part.upper().find("OFFSET")
             if offset_index != -1:
                 from_part = from_part[:offset_index]
-            
+
             # Build COUNT query
             count_query = f"SELECT COUNT(*) as total {from_part}"
-            
+
             async with self.get_session() as session:
                 result = await session.execute(text(count_query), params or {})
                 row = result.fetchone()
                 count = row.total if row else 0
-                
+
                 duration = time.time() - start_time
                 self._track_query_performance("count_query", duration)
-                
+
                 logger.debug(f"Count query result: {count} rows in {duration:.2f}s")
                 return count
-                
+
         except Exception as e:
             logger.error(f"Error counting query results: {e}")
             raise RMSConnectionException(
@@ -291,8 +277,13 @@ class QueryExecutor(BaseRepository):
                 vi.C_ARTICULO as sku,
                 vi.CCOD as ccod,
                 vi.Quantity,
-                vi.Price,
-                i.Cost
+                vi.Price as price,
+                vi.Tax as tax_percentage,
+                i.Cost as cost,
+                i.SalePrice as sale_price,
+                i.SaleStartDate as sale_start,
+                i.SaleEndDate as sale_end,
+                i.Taxable as taxable
             FROM View_Items vi
             INNER JOIN Item i ON vi.ItemID = i.ID
             WHERE vi.C_ARTICULO = :sku
@@ -340,61 +331,59 @@ class QueryExecutor(BaseRepository):
     ) -> int:
         """
         Execute bulk insert operation with batching.
-        
+
         Args:
             table: Target table name
             rows: List of row dictionaries to insert
             batch_size: Number of rows per batch
-            
+
         Returns:
             Total number of rows inserted
         """
         if not rows:
             return 0
-        
+
         if not self.is_initialized():
             raise RMSConnectionException(
                 message="QueryExecutor not initialized",
                 db_host=settings.RMS_DB_HOST,
             )
-        
+
         total_inserted = 0
         start_time = time.time()
-        
+
         try:
             # Process in batches
             for i in range(0, len(rows), batch_size):
-                batch = rows[i:i + batch_size]
-                
+                batch = rows[i : i + batch_size]
+
                 # Get column names from first row
                 columns = list(batch[0].keys())
                 column_list = ", ".join(columns)
                 value_placeholders = ", ".join([f":{col}" for col in columns])
-                
+
                 # Build INSERT query
                 query = f"""
                 INSERT INTO {table} ({column_list})
                 VALUES ({value_placeholders})
                 """
-                
+
                 async with self.get_session() as session:
                     # Execute batch insert
                     for row in batch:
                         await session.execute(text(query), row)
-                    
+
                     await session.commit()
                     total_inserted += len(batch)
-                    
+
                 logger.debug(f"Inserted batch of {len(batch)} rows into {table}")
-            
+
             duration = time.time() - start_time
             self._track_query_performance("bulk_insert", duration)
-            
-            logger.info(
-                f"Bulk insert completed: {total_inserted} rows into {table} in {duration:.2f}s"
-            )
+
+            logger.info(f"Bulk insert completed: {total_inserted} rows into {table} in {duration:.2f}s")
             return total_inserted
-            
+
         except Exception as e:
             logger.error(f"Error executing bulk insert: {e}")
             raise RMSConnectionException(
@@ -408,10 +397,10 @@ class QueryExecutor(BaseRepository):
     async def table_exists(self, table_name: str) -> bool:
         """
         Check if a table exists in the database.
-        
+
         Args:
             table_name: Name of the table to check
-            
+
         Returns:
             True if table exists, False otherwise
         """

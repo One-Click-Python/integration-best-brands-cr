@@ -6,7 +6,7 @@ for monetary operations in the domain.
 """
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,11 @@ class Money:
         if not isinstance(self.amount, Decimal):
             # Convert to Decimal if needed
             object.__setattr__(self, "amount", Decimal(str(self.amount)))
+
+        # Normalizar a 2 decimales para valores monetarios
+        # Esto previene errores de precisión excesiva en cálculos acumulativos
+        normalized_amount = self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        object.__setattr__(self, "amount", normalized_amount)
 
         if self.amount < 0:
             raise ValueError(f"Money amount cannot be negative: {self.amount}")

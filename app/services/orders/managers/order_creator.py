@@ -38,7 +38,22 @@ class OrderCreator:
         try:
             # Convert domain model to RMS schema
             order_data = order.to_dict()
+
+            # 🔍 Logging de depuración - valores ANTES de RMSOrder
+            logger.info(
+                f"🔍 Order data BEFORE RMSOrder conversion: "
+                f"total={order_data['total']} ({type(order_data['total']).__name__}), "
+                f"tax={order_data['tax']} ({type(order_data['tax']).__name__})"
+            )
+
             order_model = RMSOrder(**order_data)
+
+            # 🔍 Logging de depuración - valores DESPUÉS de RMSOrder
+            logger.info(
+                f"🔍 Order model AFTER RMSOrder conversion: "
+                f"total={order_model.total} ({type(order_model.total).__name__}), "
+                f"tax={order_model.tax} ({type(order_model.tax).__name__})"
+            )
 
             # Create order header
             order_id = await self.order_repo.create_order(order_model)
@@ -82,6 +97,21 @@ class OrderCreator:
         try:
             # 1. Update order header
             order_data = order.to_dict()
+
+            # 🔍 Logging de depuración - valores del OrderDomain
+            logger.info(
+                f"🔍 OrderDomain values BEFORE to_dict: "
+                f"total={order.total.amount} ({type(order.total.amount).__name__}), "
+                f"tax={order.tax.amount} ({type(order.tax.amount).__name__})"
+            )
+
+            # 🔍 Logging de depuración - valores después de to_dict
+            logger.info(
+                f"🔍 order_data AFTER to_dict: "
+                f"total={order_data['total']} ({type(order_data['total']).__name__}), "
+                f"tax={order_data['tax']} ({type(order_data['tax']).__name__})"
+            )
+
             # Remove id from update data, we use existing_order_id
             order_data.pop("id", None)
 

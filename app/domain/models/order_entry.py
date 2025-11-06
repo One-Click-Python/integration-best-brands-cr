@@ -47,7 +47,7 @@ class OrderEntryDomain:
     quantity_rtd: float = 0.0
     description: str = ""
     taxable: bool = True
-    sales_rep_id: int = 0
+    sales_rep_id: int = 1000  # Valor estándar para Shopify
     discount_reason_code_id: int = 0
     return_reason_code_id: int = 0
     is_add_money: bool = False
@@ -107,9 +107,9 @@ class OrderEntryDomain:
             "order_id": self.order_id,
             "item_id": self.item_id,
             "store_id": self.store_id,
-            "price": float(self.price.amount),
-            "full_price": float(self.full_price.amount),
-            "cost": float(self.cost.amount),
+            "price": float(round(self.price.amount, 2)),
+            "full_price": float(round(self.full_price.amount, 2)),
+            "cost": float(round(self.cost.amount, 2)),
             "quantity_on_order": self.quantity_on_order,
             "quantity_rtd": self.quantity_rtd,
             "description": self.description,
