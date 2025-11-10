@@ -418,8 +418,10 @@ class RMSToShopifyMapper:
         """
         Limpia tags RMS-Sync antiguos y mantiene solo el más reciente.
 
-        Elimina todos los tags que empiecen con "RMS-SYNC-" y agrega el nuevo tag.
+        Elimina TODOS los tags que empiecen con "RMS-SYNC" (case-insensitive) y agrega el nuevo tag.
         Preserva todos los demás tags (ccod_, categoría, género, etc.).
+
+        Elimina variantes como: RMS-SYNC-*, RMS-Sync, RMS-sync, rms-sync, etc.
 
         Args:
             existing_tags: Lista de tags actuales del producto en Shopify
@@ -429,13 +431,17 @@ class RMSToShopifyMapper:
             list[str]: Lista de tags limpia con solo el nuevo tag RMS-Sync
 
         Example:
-            >>> existing = ["ccod_24X104", "RMS-SYNC-25-01-20", "RMS-SYNC-25-01-21", "Mujer"]
+            >>> existing = ["ccod_24X104", "RMS-SYNC-25-01-20", "RMS-Sync", "Mujer"]
             >>> new_tag = "RMS-SYNC-25-01-23"
             >>> clean_rms_sync_tags(existing, new_tag)
             ["ccod_24X104", "Mujer", "RMS-SYNC-25-01-23"]
         """
-        # Filtrar tags antiguos de RMS-Sync
-        cleaned_tags = [tag for tag in existing_tags if not tag.startswith("RMS-SYNC-")]
+        # Filtrar tags antiguos de RMS-Sync (case-insensitive para capturar todas las variantes)
+        # Elimina: RMS-SYNC-*, RMS-Sync, RMS-sync, rms-sync, etc.
+        cleaned_tags = [
+            tag for tag in existing_tags
+            if not tag.upper().startswith("RMS-SYNC")
+        ]
 
         # Agregar el nuevo tag de sincronización
         cleaned_tags.append(new_sync_tag)

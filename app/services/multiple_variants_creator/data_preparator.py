@@ -240,7 +240,9 @@ class DataPreparator:
 
             if new_sync_tag:
                 # Limpiar tags antiguos y mantener solo el nuevo
+                logger.debug(f"🏷️ Tags BEFORE cleanup: {existing_tags}")
                 cleaned_tags = RMSToShopifyMapper.clean_rms_sync_tags(existing_tags, new_sync_tag)
+                logger.debug(f"🏷️ Tags AFTER cleanup: {cleaned_tags}")
 
                 # Agregar tags no-RMS-Sync de shopify_input (como ccod_)
                 for tag in shopify_input.tags:
@@ -262,8 +264,20 @@ class DataPreparator:
 
         # Alternativa: usar el método del ShopifyProductInput si no se especifican campos custom
         if not fields_to_update:
-            update_data = shopify_input.to_safe_update_input(preserve_media, preserve_publishing)
-            logger.info(f"📝 Usando actualización segura con campos: {list(update_data.keys())}")
+            # Check if tags were already cleaned manually
+            if "tags" in update_data:
+                # Tags were cleaned - preserve them while merging safe fields
+                cleaned_tags = update_data["tags"]
+                update_data = shopify_input.to_safe_update_input(preserve_media, preserve_publishing)
+                update_data["tags"] = cleaned_tags  # ✅ Restore cleaned tags
+                logger.info(
+                    f"📝 Usando actualización segura con tags limpios: "
+                    f"{list(update_data.keys())} | Tags: {len(cleaned_tags)}"
+                )
+            else:
+                # No tag processing happened, use safe defaults
+                update_data = shopify_input.to_safe_update_input(preserve_media, preserve_publishing)
+                logger.info(f"📝 Usando actualización segura con campos: {list(update_data.keys())}")
         else:
             logger.info(f"📝 Actualizando campos específicos: {list(update_data.keys())}")
 

@@ -387,6 +387,68 @@ class ProductRepository(BaseRepository):
             logger.error(f"Error retrieving products by CCOD {ccod}: {e}")
             return []
 
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def get_zero_stock_variants_by_ccod(self, ccod: str) -> List[RMSViewItem]:
+        """
+        Get all product variants with zero stock for a specific CCOD.
+
+        This is used to identify variants that should be removed from Shopify
+        since they have no stock in RMS.
+
+        Args:
+            ccod: Product code (CCOD) to search for
+
+        Returns:
+            List of RMSViewItem objects with Quantity = 0
+        """
+        try:
+            async with self.get_session() as session:
+                query = """
+                SELECT
+                    Familia as familia,
+                    Genero as genero,
+                    Categoria as categoria,
+                    CCOD as ccod,
+                    C_ARTICULO as c_articulo,
+                    ItemID as item_id,
+                    Description as description,
+                    color,
+                    talla,
+                    Quantity as quantity,
+                    Price as price,
+                    SaleStartDate as sale_start_date,
+                    SaleEndDate as sale_end_date,
+                    SalePrice as sale_price,
+                    ExtendedCategory as extended_category,
+                    Tax as tax,
+                    Exis00 as exis00,
+                    Exis57 as exis57
+                FROM View_Items
+                WHERE CCOD = :ccod AND Quantity = 0
+                ORDER BY C_ARTICULO
+                """
+                result = await session.execute(text(query), {"ccod": ccod})
+                rows = result.fetchall()
+                products: List[RMSViewItem] = []
+                for row in rows:
+                    try:
+                        products.append(RMSViewItem(**row._asdict()))
+                    except Exception as e:
+                        logger.warning(f"Error converting row to RMSViewItem: {e}")
+                        continue
+
+                if products:
+                    logger.info(
+                        f"Found {len(products)} zero-stock variants for CCOD {ccod}: "
+                        f"{[p.c_articulo for p in products]}"
+                    )
+
+                return products
+        except Exception as e:
+            logger.error(f"Error retrieving zero-stock variants for CCOD {ccod}: {e}")
+            return []
+
     # ------------------------- Counting/Aggregations -------------------------
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()

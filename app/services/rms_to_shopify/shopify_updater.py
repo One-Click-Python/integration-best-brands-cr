@@ -3,6 +3,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
+from app.core.config import get_settings
+from app.db.rms.product_repository import ProductRepository
 from app.db.shopify_graphql_client import ShopifyGraphQLClient
 from app.services.multiple_variants_creator import MultipleVariantsCreator
 from app.utils.error_handler import SyncException
@@ -13,9 +15,15 @@ logger = logging.getLogger(__name__)
 class ShopifyUpdater:
     """Updates data in Shopify."""
 
-    def __init__(self, shopify_client: ShopifyGraphQLClient, primary_location_id: str):
+    def __init__(
+        self,
+        shopify_client: ShopifyGraphQLClient,
+        primary_location_id: str,
+        product_repository: Optional[ProductRepository] = None,
+    ):
         self.shopify_client = shopify_client
         self.primary_location_id = primary_location_id
+        self.product_repository = product_repository
         self.batch_handle_cache: Dict[str, Optional[Dict[str, Any]]] = {}
 
     async def check_products_exist_batch(self, handles: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
@@ -88,7 +96,13 @@ class ShopifyUpdater:
             The created product with all variants.
         """
         try:
-            variants_creator = MultipleVariantsCreator(self.shopify_client, self.primary_location_id)
+            settings = get_settings()
+            variants_creator = MultipleVariantsCreator(
+                self.shopify_client,
+                self.primary_location_id,
+                self.product_repository,
+                enable_cleanup=settings.ENABLE_ZERO_STOCK_CLEANUP,
+            )
             created_product = await variants_creator.create_product_with_variants(shopify_input)
 
             sku = shopify_input.variants[0].sku if shopify_input.variants else "unknown"
@@ -118,7 +132,13 @@ class ShopifyUpdater:
             The updated product.
         """
         try:
-            variants_creator = MultipleVariantsCreator(self.shopify_client, self.primary_location_id)
+            settings = get_settings()
+            variants_creator = MultipleVariantsCreator(
+                self.shopify_client,
+                self.primary_location_id,
+                self.product_repository,
+                enable_cleanup=settings.ENABLE_ZERO_STOCK_CLEANUP,
+            )
 
             product_id = shopify_product.get("id")
             if not product_id:

@@ -183,7 +183,8 @@ class ShopifyProductInput(BaseModel):
             Dict con solo los campos seguros para actualizar
         """
         # Campos seguros que siempre se pueden actualizar (datos de RMS)
-        safe_fields = ["title", "status", "productType", "vendor", "category"]
+        # NOTA: productType NO se incluye porque RMS retorna "", no queremos sobrescribir valores manuales de Shopify
+        safe_fields = ["title", "status", "vendor", "category"]
         
         # Campos a excluir siempre en actualizaciones
         always_exclude = {"id", "variants", "options", "metafields"}

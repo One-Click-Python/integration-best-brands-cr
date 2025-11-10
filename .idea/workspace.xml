@@ -5,8 +5,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/chroma_data/chroma.sqlite3" beforeDir="false" afterPath="$PROJECT_DIR$/chroma_data/chroma.sqlite3" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GEMINI.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/v1/schemas/shopify_schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/schemas/shopify_schemas.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/db/rms/product_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms/product_repository.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/multiple_variants_creator/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/multiple_variants_creator/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/shopify_updater.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/shopify_updater.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/rms_to_shopify/sync_orchestrator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/checkpoint/checkpoint.json" beforeDir="false" afterPath="$PROJECT_DIR$/checkpoint/checkpoint.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -142,11 +151,6 @@
           <url>file://$PROJECT_DIR$/app/services/inventory_manager.py</url>
           <line>31</line>
           <option name="timeStamp" value="74" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>
-          <line>182</line>
-          <option name="timeStamp" value="82" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/db/shopify_clients/product_client.py</url>

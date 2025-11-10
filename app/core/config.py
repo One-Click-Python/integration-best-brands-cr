@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     SYNC_UPDATE_ZERO_STOCK_PRODUCTS: bool = Field(default=True, env="SYNC_UPDATE_ZERO_STOCK_PRODUCTS")
     SYNC_CREATE_ZERO_STOCK_PRODUCTS: bool = Field(default=False, env="SYNC_CREATE_ZERO_STOCK_PRODUCTS")
 
+    # === CONFIGURACIÓN DE LIMPIEZA DE VARIANTES CON STOCK 0 ===
+    ENABLE_ZERO_STOCK_CLEANUP: bool = Field(
+        default=True,
+        env="ENABLE_ZERO_STOCK_CLEANUP",
+        description="Habilitar limpieza automática de variantes con stock 0 en RMS durante sincronización"
+    )
+
     # === CONFIGURACIÓN DE CATEGORÍAS Y COLLECTIONS ===
     SYNC_INCLUDE_CATEGORY_TAGS: bool = Field(
         default=False,
@@ -338,6 +345,7 @@ class Settings(BaseSettings):
             f"mssql+pyodbc://{self.RMS_DB_USER}:{self.RMS_DB_PASSWORD}"
             f"@{host_part}/{self.RMS_DB_NAME}"
             f"?driver={self.RMS_DB_DRIVER.replace(' ', '+')}"
+            f"&TrustServerCertificate=yes"
             f"&connect_timeout={self.RMS_CONNECTION_TIMEOUT}"
         )
 

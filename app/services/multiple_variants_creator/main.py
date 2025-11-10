@@ -7,9 +7,11 @@ utilizando los módulos especializados.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.api.v1.schemas.shopify_schemas import ShopifyProductInput
+from app.db.rms.product_repository import ProductRepository
+from app.services.zero_stock_variant_cleanup import ZeroStockVariantCleanupService
 
 from .data_preparator import DataPreparator
 from .inventory_manager import InventoryManager
@@ -27,22 +29,43 @@ class MultipleVariantsCreator:
     a módulos especializados siguiendo el principio de Single Responsibility.
     """
 
-    def __init__(self, shopify_client, primary_location_id: str):
+    def __init__(
+        self,
+        shopify_client,
+        primary_location_id: str,
+        product_repository: Optional[ProductRepository] = None,
+        enable_cleanup: bool = True,
+    ):
         """
         Inicializa el creador de variantes múltiples.
 
         Args:
             shopify_client: Cliente de Shopify GraphQL
             primary_location_id: ID de la ubicación principal
+            product_repository: Repositorio de productos RMS (requerido para limpieza)
+            enable_cleanup: Habilitar limpieza de variantes con stock 0 (default: True)
         """
         self.shopify_client = shopify_client
         self.primary_location_id = primary_location_id
+        self.product_repository = product_repository
 
         # Inicializar módulos especializados
         self.data_preparator = DataPreparator()
         self.variant_manager = VariantManager(shopify_client, primary_location_id)
         self.inventory_manager = InventoryManager(shopify_client, primary_location_id)
         self.metafields_manager = MetafieldsManager(shopify_client)
+
+        # Inicializar servicio de limpieza de variantes con stock 0
+        # Solo si enable_cleanup Y product_repository están disponibles
+        self.cleanup_service = None
+        if enable_cleanup and product_repository:
+            self.cleanup_service = ZeroStockVariantCleanupService(
+                shopify_client=shopify_client,
+            )
+        elif enable_cleanup and not product_repository:
+            logger.warning(
+                "⚠️  Cleanup service disabled: product_repository not provided"
+            )
 
     async def create_product_with_variants(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """
@@ -179,6 +202,62 @@ class MultipleVariantsCreator:
             # Para actualizaciones, usar el método original que funcionaba
             await self.inventory_manager.activate_inventory_for_all_variants(product_id, shopify_input.variants)
             logger.info("✅ STEP D: Inventory tracking updated")
+
+            # D.1 LIMPIEZA DE VARIANTES CON STOCK 0 EN RMS
+            if self.cleanup_service and self.product_repository:
+                logger.info("🔄 STEP D.1: Cleaning up zero-stock variants from Shopify")
+
+                # Extraer CCOD para consulta SQL
+                ccod = "unknown"
+                if shopify_input.metafields:
+                    for metafield in shopify_input.metafields:
+                        if metafield.get("key") == "ccod" and metafield.get("namespace") == "rms":
+                            ccod = metafield.get("value", "unknown")
+                            break
+
+                # Validar CCOD extraído
+                if ccod == "unknown":
+                    available_keys = [m.get("key") for m in (shopify_input.metafields or [])]
+                    logger.warning(
+                        f"⚠️ STEP D.1: Cannot cleanup - CCOD metafield not found in product. "
+                        f"Available metafield keys: {available_keys}"
+                    )
+                    logger.info("⏭️  STEP D.1: Skipping zero-stock cleanup (no valid CCOD)")
+                else:
+                    logger.info(f"📋 STEP D.1: Extracted CCOD={ccod} from metafields")
+                    logger.info(f"🔍 STEP D.1: Querying RMS for zero-stock variants (CCOD={ccod})")
+
+                    # 1. Consultar RMS por variantes con stock 0
+                    zero_stock_variants = await self.product_repository.get_zero_stock_variants_by_ccod(ccod)
+                    zero_stock_skus = {v.c_articulo for v in zero_stock_variants if v.c_articulo}
+
+                    logger.info(
+                        f"📊 STEP D.1: RMS Query Results - "
+                        f"Found {len(zero_stock_variants)} variants with Quantity=0 for CCOD={ccod}"
+                    )
+
+                    # 2. Si hay variantes con stock 0, eliminarlas de Shopify
+                    if zero_stock_skus:
+                        logger.info(
+                            f"🗑️  STEP D.1: Will attempt to delete {len(zero_stock_skus)} zero-stock variants: "
+                            f"{list(zero_stock_skus)[:5]}{'...' if len(zero_stock_skus) > 5 else ''}"
+                        )
+
+                        cleanup_stats = await self.cleanup_service.cleanup_zero_stock_variants(
+                            shopify_product_id=product_id,
+                            zero_stock_skus=zero_stock_skus,
+                            ccod=ccod,
+                        )
+                        logger.info(
+                            f"✅ STEP D.1: Cleanup completed - "
+                            f"Checked: {cleanup_stats['variants_checked']}, "
+                            f"Deleted: {cleanup_stats['variants_deleted']}, "
+                            f"Errors: {cleanup_stats['errors']}"
+                        )
+                    else:
+                        logger.info(f"✅ STEP D.1: No zero-stock variants found in RMS for CCOD={ccod}")
+            else:
+                logger.debug("⏭️  STEP D.1: Zero-stock cleanup skipped (service/repository not available)")
 
             # F→G→H. PRECIO DE OFERTA SE APLICA POR CÓDIGO PYTHON (descuentos removidos)
             logger.info("✅ STEPS F-H: Sale prices applied directly in Python code")

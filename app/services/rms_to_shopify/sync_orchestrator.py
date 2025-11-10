@@ -74,7 +74,9 @@ class RMSToShopifySyncOrchestrator:
             if not self.primary_location_id:
                 logger.warning("No primary location found - inventory updates may fail")
 
-            self.shopify_updater = ShopifyUpdater(self.shopify_client, self.primary_location_id)
+            self.shopify_updater = ShopifyUpdater(
+                self.shopify_client, self.primary_location_id, self.product_repository
+            )
             self.rms_extractor = RMSExtractor(
                 self.query_executor, self.product_repository, self.shopify_client, self.primary_location_id
             )
