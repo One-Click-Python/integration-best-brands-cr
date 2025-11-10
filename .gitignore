@@ -152,4 +152,5 @@ logs/
 temp/
 tmp/
 CLAUDE.md
+.claude/
 desarrollo.pdf
