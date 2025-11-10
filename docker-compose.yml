@@ -11,13 +11,13 @@ services:
       - LOG_LEVEL=INFO
       
       # RMS Database Configuration
-      - RMS_DB_HOST=${RMS_DB_HOST:-190.106.75.222,1438}
-      - RMS_DB_PORT=${RMS_DB_PORT:-1433}
+      - RMS_DB_HOST=${RMS_DB_HOST:-host.docker.internal}
+      - RMS_DB_PORT=${RMS_DB_PORT:-1438}
       - RMS_DB_NAME=${RMS_DB_NAME:-BB57_TempSF}
       - RMS_DB_USER=${RMS_DB_USER:-Shop1fy5428}
       - RMS_DB_PASSWORD=${RMS_DB_PASSWORD:-sh0pqfy10736!}
-      - RMS_DB_DRIVER=${RMS_DB_DRIVER:-ODBC Driver 18 for SQL Server}
-      - RMS_CONNECTION_TIMEOUT=${RMS_CONNECTION_TIMEOUT:-30}
+      - RMS_DB_DRIVER=${RMS_DB_DRIVER:-ODBC Driver 17 for SQL Server}
+      - RMS_CONNECTION_TIMEOUT=${RMS_CONNECTION_TIMEOUT:-60}
       
       # Shopify Configuration
       - SHOPIFY_SHOP_URL=${SHOPIFY_SHOP_URL}
@@ -32,6 +32,13 @@ services:
       - ENABLE_SCHEDULED_SYNC=${ENABLE_SCHEDULED_SYNC:-True}
       - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
       - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
+      - ENABLE_ZERO_STOCK_CLEANUP=${ENABLE_ZERO_STOCK_CLEANUP:-True}
+
+      # Full Sync Schedule (una vez al día)
+      - ENABLE_FULL_SYNC_SCHEDULE=${ENABLE_FULL_SYNC_SCHEDULE:-True}
+      - FULL_SYNC_HOUR=${FULL_SYNC_HOUR:-23}
+      - FULL_SYNC_MINUTE=${FULL_SYNC_MINUTE:-0}
+      - FULL_SYNC_TIMEZONE=${FULL_SYNC_TIMEZONE:-America/Costa_Rica}
     
     volumes:
       - ./logs:/app/logs
