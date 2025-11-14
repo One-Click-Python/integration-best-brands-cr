@@ -119,13 +119,13 @@ class CustomerRepository(BaseRepository):
             logger.debug(
                 "Customer creation skipped (no customer table). Returning stub ID.",
             )
-            return 1  # Stub ID for compatibility
+            return 9111  # Stub ID for compatibility
 
         # Schema unknown; safest approach is to avoid blind inserts.
         logger.warning(
             "Customer table detected but schema is unknown; returning stub ID to avoid schema mismatch."
         )
-        return 1
+        return 9111
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
@@ -167,10 +167,10 @@ class CustomerRepository(BaseRepository):
         # If no customer table, return stub ID
         if not self._has_customer_table or not self._customer_table_name:
             logger.warning(
-                "No customer table available - using stub guest customer ID=1"
+                "No customer table available - using stub guest customer ID=9111"
             )
-            self._guest_customer_id = 1
-            return 1
+            self._guest_customer_id = 9111
+            return 9111
 
         try:
             # Search for existing guest customer
@@ -310,9 +310,9 @@ class CustomerRepository(BaseRepository):
 
         except Exception as e:
             logger.error(f"Failed to find/create guest customer: {e}")
-            logger.warning("Falling back to stub guest customer ID=1")
-            self._guest_customer_id = 1
-            return 1
+            logger.warning("Falling back to stub guest customer ID=9111")
+            self._guest_customer_id = 9111
+            return 9111
 
     # ------------------------- Optional extensions (stubs) -------------------------
     @with_retry(max_attempts=3, delay=1.0)
