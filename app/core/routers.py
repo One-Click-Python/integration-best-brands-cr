@@ -14,6 +14,8 @@ from fastapi.responses import JSONResponse
 
 # Importar routers de la API
 from app.api.v1.endpoints.collections import router as collections_router
+from app.api.v1.endpoints.order_polling import router as order_polling_router
+from app.api.v1.endpoints.reverse_stock_sync import router as reverse_stock_sync_router
 from app.api.v1.endpoints.sync import router as sync_router
 from app.api.v1.endpoints.sync_monitor import router as sync_monitor_router
 from app.api.v1.endpoints.webhooks import router as webhooks_router
@@ -54,6 +56,7 @@ def create_root_endpoints(app: FastAPI) -> None:
                 "sync_monitor": "/api/v1/sync/monitor",
                 "webhooks": "/api/v1/webhooks",
                 "collections": "/api/v1/collections",
+                "order_polling": "/api/v1/orders/polling",
             },
         }
 
@@ -330,6 +333,30 @@ def configure_api_v1_routers(app: FastAPI) -> None:
         },
     )
     logger.info("✅ Router de collections configurado")
+
+    # Router de sincronización reversa de stock
+    app.include_router(
+        reverse_stock_sync_router,
+        prefix="/api/v1/sync",
+        tags=["Reverse Stock Sync"],
+        responses={
+            404: {"description": "Reverse stock sync endpoint not found"},
+            500: {"description": "Reverse stock sync error"},
+        },
+    )
+    logger.info("✅ Router de sincronización reversa de stock configurado")
+
+    # Router de order polling
+    app.include_router(
+        order_polling_router,
+        prefix="/api/v1/orders/polling",
+        tags=["Order Polling"],
+        responses={
+            404: {"description": "Order polling endpoint not found"},
+            500: {"description": "Order polling error"},
+        },
+    )
+    logger.info("✅ Router de order polling configurado")
 
 
 def configure_optional_routers(app: FastAPI) -> None:

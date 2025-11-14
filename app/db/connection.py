@@ -131,6 +131,30 @@ class ConnDB:
                         connection_type="test",
                     )
 
+                # Verify database name matches configuration
+                result = await session.execute(text("SELECT DB_NAME() as current_db"))
+                connected_db = result.scalar()
+
+                logger.info(f"✅ Connected to SQL Server database: {connected_db}")
+
+                # Extract expected database name from connection string
+                # settings.RMS_DB_NAME may be path-like, we want the last part
+                expected_db = settings.RMS_DB_NAME
+
+                # Warn if connected database differs from configuration
+                if connected_db != expected_db:
+                    error_msg = (
+                        f"DATABASE MISMATCH! Connected to '{connected_db}' "
+                        f"but configured to use '{expected_db}'. "
+                        f"Check your .env file and system environment variables."
+                    )
+                    logger.error(f"❌ {error_msg}")
+                    raise RMSConnectionException(
+                        message=error_msg,
+                        db_host=settings.RMS_DB_HOST,
+                        connection_type="database_mismatch",
+                    )
+
                 # Test de acceso a View_Items
                 result = await session.execute(text("SELECT TOP 1 C_ARTICULO FROM View_Items"))
                 sample_sku = result.scalar()

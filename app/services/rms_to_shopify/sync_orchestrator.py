@@ -455,40 +455,60 @@ class RMSToShopifySyncOrchestrator:
 
     async def _update_checkpoint_if_successful(self, final_report: Dict[str, Any]) -> None:
         """
-        Update the update checkpoint if sync was successful.
+        Update the update checkpoint if sync was successful and notify scheduler.
 
         Args:
             final_report: The final sync report containing statistics and success rate
         """
-        if not self.use_update_checkpoint:
-            return
-
         try:
             success_rate = final_report.get("success_rate", 0) / 100  # Convert percentage to decimal
+            sync_successful = success_rate >= self.checkpoint_success_threshold
 
-            if success_rate >= self.checkpoint_success_threshold:
-                # Update checkpoint with current timestamp
-                if self.update_checkpoint_manager.save_checkpoint(self.sync_start_time):
-                    logger.info(
-                        f"✅ Update checkpoint saved successfully - "
-                        f"Success rate: {success_rate:.2%} >= {self.checkpoint_success_threshold:.2%} threshold"
-                    )
-                    final_report["update_checkpoint_saved"] = True
-                    final_report["update_checkpoint_timestamp"] = self.sync_start_time.isoformat()
+            # Update checkpoint only if feature is enabled
+            if self.use_update_checkpoint:
+                if sync_successful:
+                    # Update checkpoint with current timestamp
+                    if self.update_checkpoint_manager.save_checkpoint(self.sync_start_time):
+                        logger.info(
+                            f"✅ Update checkpoint saved successfully - "
+                            f"Success rate: {success_rate:.2%} >= {self.checkpoint_success_threshold:.2%} threshold"
+                        )
+                        final_report["update_checkpoint_saved"] = True
+                        final_report["update_checkpoint_timestamp"] = self.sync_start_time.isoformat()
+                    else:
+                        logger.warning("⚠️ Failed to save update checkpoint")
+                        final_report["update_checkpoint_saved"] = False
+                        sync_successful = False  # Mark as unsuccessful if checkpoint save failed
                 else:
-                    logger.warning("⚠️ Failed to save update checkpoint")
+                    logger.info(
+                        f"ℹ️ Update checkpoint not saved - "
+                        f"Success rate: {success_rate:.2%} < {self.checkpoint_success_threshold:.2%} threshold"
+                    )
                     final_report["update_checkpoint_saved"] = False
-            else:
-                logger.info(
-                    f"ℹ️ Update checkpoint not saved - "
-                    f"Success rate: {success_rate:.2%} < {self.checkpoint_success_threshold:.2%} threshold"
-                )
-                final_report["update_checkpoint_saved"] = False
-                final_report["update_checkpoint_reason"] = "Success rate below threshold"
+                    final_report["update_checkpoint_reason"] = "Success rate below threshold"
+
+            # ALWAYS notify scheduler about sync completion (regardless of checkpoint setting)
+            # This triggers reverse stock sync after configured delay
+            try:
+                from app.core.scheduler import notify_rms_sync_completed
+                notify_rms_sync_completed(success=sync_successful)
+                logger.info(f"📝 Scheduler notified of RMS→Shopify sync (success: {sync_successful})")
+                final_report["scheduler_notified"] = True
+            except Exception as notify_error:
+                logger.error(f"Error notifying scheduler: {notify_error}")
+                final_report["scheduler_notified"] = False
+                final_report["scheduler_notification_error"] = str(notify_error)
 
         except Exception as e:
             logger.error(f"❌ Error updating checkpoint: {e}")
             final_report["update_checkpoint_error"] = str(e)
+
+            # Notify scheduler about failed sync
+            try:
+                from app.core.scheduler import notify_rms_sync_completed
+                notify_rms_sync_completed(success=False)
+            except Exception as notify_error:
+                logger.error(f"Error notifying scheduler about failed sync: {notify_error}")
 
 
 async def sync_rms_to_shopify(

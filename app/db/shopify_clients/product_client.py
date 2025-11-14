@@ -674,3 +674,100 @@ class ShopifyProductClient(BaseShopifyGraphQLClient):
         except Exception as e:
             logger.error(f"Error fetching all ACTIVE products: {e}")
             raise ShopifyAPIException(f"Failed to fetch all ACTIVE products: {str(e)}") from e
+
+    async def delete_variant(self, product_id: str, variant_id: str) -> Dict[str, Any]:
+        """
+        Delete a product variant using bulk delete mutation (API 2025-04 compatible).
+
+        Args:
+            product_id: Product ID (gid://shopify/Product/...)
+            variant_id: Variant ID to delete (gid://shopify/ProductVariant/...)
+
+        Returns:
+            Deletion result with product info after deletion
+        """
+        try:
+            from app.db.queries.reverse_sync import DELETE_VARIANTS_BULK_MUTATION
+
+            variables = {"productId": product_id, "variantsIds": [variant_id]}
+
+            result = await self._execute_query(DELETE_VARIANTS_BULK_MUTATION, variables)
+
+            delete_result = result.get("productVariantsBulkDelete", {})
+            self._handle_graphql_errors(delete_result, "Variant deletion")
+
+            product = delete_result.get("product")
+            if product:
+                logger.info(f"✅ Variant deleted from product: {product.get('id')}")
+                return {
+                    "success": True,
+                    "product": product,
+                }
+
+            raise ShopifyAPIException("Variant deletion failed: No product returned")
+
+        except Exception as e:
+            logger.error(f"Error deleting variant {variant_id}: {e}")
+            raise ShopifyAPIException(f"Failed to delete variant: {str(e)}") from e
+
+    async def get_products_without_tag(
+        self, tag: str, limit: int = 250, cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get products that DON'T have a specific tag.
+
+        Args:
+            tag: Tag to exclude (e.g., "RMS-SYNC-25-01-23")
+            limit: Number of products to fetch (max 250)
+            cursor: Pagination cursor
+
+        Returns:
+            Dict containing products and pagination info
+        """
+        try:
+            from app.db.queries.reverse_sync import PRODUCTS_WITHOUT_TAG_QUERY
+
+            query_string = f"status:ACTIVE AND NOT tag:{tag}"
+            variables = {"query": query_string, "first": min(limit, 250)}
+            if cursor:
+                variables["after"] = cursor
+
+            result = await self._execute_query(PRODUCTS_WITHOUT_TAG_QUERY, variables)
+            products_data = result.get("products", {})
+
+            products_count = len(products_data.get("edges", []))
+            logger.info(f"Fetched {products_count} products without tag '{tag}'")
+
+            return products_data
+
+        except Exception as e:
+            logger.error(f"Error fetching products without tag '{tag}': {e}")
+            raise ShopifyAPIException(f"Failed to fetch products without tag: {str(e)}") from e
+
+    async def get_product_with_inventory(self, product_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get product with full inventory information.
+
+        Args:
+            product_id: Product ID (gid://shopify/Product/...)
+
+        Returns:
+            Product dict with variants and inventory data, or None if not found
+        """
+        try:
+            from app.db.queries.reverse_sync import PRODUCT_WITH_INVENTORY_QUERY
+
+            variables = {"id": product_id}
+            result = await self._execute_query(PRODUCT_WITH_INVENTORY_QUERY, variables)
+
+            product = result.get("product")
+            if product:
+                logger.info(f"Found product with inventory: {product.get('title', 'Unknown')}")
+                return product
+
+            logger.info(f"No product found with ID: {product_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching product with inventory {product_id}: {e}")
+            raise ShopifyAPIException(f"Failed to fetch product with inventory: {str(e)}") from e

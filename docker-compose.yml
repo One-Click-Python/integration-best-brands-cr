@@ -13,7 +13,7 @@ services:
       # RMS Database Configuration
       - RMS_DB_HOST=${RMS_DB_HOST:-host.docker.internal}
       - RMS_DB_PORT=${RMS_DB_PORT:-1438}
-      - RMS_DB_NAME=${RMS_DB_NAME:-BB57_TempSF}
+      - RMS_DB_NAME=${RMS_DB_NAME:-BB57}
       - RMS_DB_USER=${RMS_DB_USER:-Shop1fy5428}
       - RMS_DB_PASSWORD=${RMS_DB_PASSWORD:-sh0pqfy10736!}
       - RMS_DB_DRIVER=${RMS_DB_DRIVER:-ODBC Driver 17 for SQL Server}
@@ -30,16 +30,34 @@ services:
       
       # Synchronization Settings
       - ENABLE_SCHEDULED_SYNC=${ENABLE_SCHEDULED_SYNC:-True}
-      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-5}
       - SYNC_BATCH_SIZE=${SYNC_BATCH_SIZE:-100}
       - ENABLE_ZERO_STOCK_CLEANUP=${ENABLE_ZERO_STOCK_CLEANUP:-True}
 
-      # Full Sync Schedule (una vez al día)
+      # Full Sync Schedule (una vez al día a las 2am Costa Rica)
       - ENABLE_FULL_SYNC_SCHEDULE=${ENABLE_FULL_SYNC_SCHEDULE:-True}
-      - FULL_SYNC_HOUR=${FULL_SYNC_HOUR:-23}
+      - FULL_SYNC_HOUR=${FULL_SYNC_HOUR:-2}
       - FULL_SYNC_MINUTE=${FULL_SYNC_MINUTE:-0}
       - FULL_SYNC_TIMEZONE=${FULL_SYNC_TIMEZONE:-America/Costa_Rica}
-    
+
+      # Order Synchronization (PRIMARY METHOD - Order Polling)
+      - ENABLE_ORDER_POLLING=${ENABLE_ORDER_POLLING:-True}
+      - ORDER_POLLING_INTERVAL_MINUTES=${ORDER_POLLING_INTERVAL_MINUTES:-10}
+      - ORDER_POLLING_LOOKBACK_MINUTES=${ORDER_POLLING_LOOKBACK_MINUTES:-15}
+      - ORDER_POLLING_BATCH_SIZE=${ORDER_POLLING_BATCH_SIZE:-50}
+      - ORDER_POLLING_MAX_PAGES=${ORDER_POLLING_MAX_PAGES:-10}
+
+      # Webhooks (OPTIONAL BACKUP - disabled by default)
+      - ENABLE_WEBHOOKS=${ENABLE_WEBHOOKS:-False}
+
+      # Order Filtering (applies to both polling and webhooks)
+      - ALLOWED_ORDER_FINANCIAL_STATUSES=${ALLOWED_ORDER_FINANCIAL_STATUSES:-PAID,PARTIALLY_PAID,AUTHORIZED,PENDING}
+
+      # Guest Customer Configuration
+      - ALLOW_ORDERS_WITHOUT_CUSTOMER=${ALLOW_ORDERS_WITHOUT_CUSTOMER:-True}
+      - GUEST_CUSTOMER_ACCOUNT_NUMBER=${GUEST_CUSTOMER_ACCOUNT_NUMBER:-SHOPIFY-GUEST}
+      - REQUIRE_CUSTOMER_EMAIL=${REQUIRE_CUSTOMER_EMAIL:-False}
+
     volumes:
       - ./logs:/app/logs
     

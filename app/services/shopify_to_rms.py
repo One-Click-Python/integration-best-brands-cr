@@ -215,12 +215,42 @@ class ShopifyToRMSSync:
                     message=f"Order {order_id} not found in Shopify", field="order_id", invalid_value=order_id
                 )
 
-            # 2. Verificar si ya existe para determinar acción
+            # 2. Detectar si orden está cancelada en Shopify
+            is_cancelled = shopify_order.get("cancelledAt") is not None
+            cancel_reason = shopify_order.get("cancelReason", "")
+
+            # 3. Verificar si ya existe para determinar acción
             shopify_id_numeric = order_id.split("/")[-1]
             existing_order = await self.order_repo.find_order_by_shopify_id(shopify_id_numeric)
 
+            # 4. Manejar orden cancelada
+            if is_cancelled:
+                if existing_order:
+                    # Marcar orden existente como cancelada en RMS
+                    logger.info(f"Order {order_id} is CANCELLED in Shopify, marking as closed in RMS")
+                    await self._mark_order_cancelled(
+                        existing_order["ID"],
+                        cancel_reason or "Cancelled in Shopify"
+                    )
+                    return {
+                        "order_id": order_id,
+                        "action": "cancelled",
+                        "rms_order_id": existing_order["ID"],
+                        "shopify_order_number": shopify_order.get("name", ""),
+                    }
+                else:
+                    # Orden cancelada que no existe en RMS → skip (no crear órdenes canceladas)
+                    logger.info(f"Order {order_id} is CANCELLED and doesn't exist in RMS - skipping")
+                    return {
+                        "order_id": order_id,
+                        "action": "skipped",
+                        "rms_order_id": None,
+                        "shopify_order_number": shopify_order.get("name", ""),
+                        "reason": "Order cancelled in Shopify",
+                    }
+
+            # 5. Actualizar orden existente (no cancelada)
             if existing_order:
-                # Update existing order using SOLID orchestrator
                 logger.info(f"Order {order_id} already exists in RMS (ID: {existing_order.get('ID')}), updating...")
                 result = await self.orchestrator.update_order(
                     existing_order["ID"], shopify_order, skip_validation=skip_validation
@@ -233,7 +263,7 @@ class ShopifyToRMSSync:
                     "shopify_order_number": shopify_order.get("name", ""),
                 }
 
-            # 3. Crear nueva orden usando orchestrator (SOLID approach)
+            # 6. Crear nueva orden usando orchestrator (SOLID approach)
             logger.info(f"Creating new order {order_id} using SOLID orchestrator")
             result = await self.orchestrator.sync_order(shopify_order, skip_validation=skip_validation)
 
@@ -248,6 +278,33 @@ class ShopifyToRMSSync:
         except Exception as e:
             logger.error(f"Error syncing order {order_id}: {e}")
             raise
+
+    async def _mark_order_cancelled(self, rms_order_id: int, cancel_reason: str) -> None:
+        """
+        Marca una orden como cancelada en RMS.
+
+        Args:
+            rms_order_id: ID de la orden en RMS
+            cancel_reason: Razón de cancelación desde Shopify
+        """
+        try:
+            comment = f"CANCELADA EN SHOPIFY"
+            if cancel_reason:
+                comment += f": {cancel_reason}"
+
+            await self.order_repo.update_order(rms_order_id, {
+                "closed": True,
+                "comment": comment
+            })
+            logger.info(f"✅ Marked RMS order {rms_order_id} as cancelled")
+
+        except Exception as e:
+            logger.error(f"❌ Error marking order {rms_order_id} as cancelled: {e}")
+            raise SyncException(
+                message=f"Failed to mark order as cancelled: {str(e)}",
+                service="shopify_to_rms",
+                operation="mark_cancelled",
+            ) from e
 
     def _generate_sync_report(self, stats: Dict[str, Any], duration: float) -> Dict[str, Any]:
         """

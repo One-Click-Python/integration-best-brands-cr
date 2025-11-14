@@ -34,6 +34,22 @@ async def receive_shopify_webhook(request: Request, background_tasks: Background
     Returns:
         JSONResponse: Respuesta inmediata para Shopify
     """
+    # Verificar si webhooks están habilitados
+    if not settings.ENABLE_WEBHOOKS:
+        logger.warning(
+            "⚠️ Webhook received but ENABLE_WEBHOOKS=False. "
+            "Order Polling is the active sync method. "
+            "Set ENABLE_WEBHOOKS=True in .env to enable webhook processing."
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Webhooks disabled",
+                "message": "Order Polling is the primary sync method. Enable ENABLE_WEBHOOKS to use webhooks.",
+                "active_sync_method": "order_polling"
+            }
+        )
+
     try:
         # Validar request y extraer datos
         topic, payload = await validate_webhook_request(request)

@@ -22,6 +22,91 @@ _scheduler_running = False
 _scheduler_task: Optional[asyncio.Task] = None
 _change_detector = None
 _last_full_sync_date: Optional[datetime] = None
+_last_rms_sync_time: Optional[datetime] = None
+_last_rms_sync_success: bool = False
+
+# Order polling state
+_polling_service = None
+_last_order_poll_time: Optional[datetime] = None
+
+
+async def _save_scheduler_state():
+    """
+    Persiste el estado del scheduler en Redis para sobrevivir restarts.
+
+    Guarda:
+    - last_rms_sync_time: Timestamp de última sync RMS→Shopify
+    - last_rms_sync_success: Éxito de última sync
+    - last_full_sync_date: Fecha de última full sync programada
+    """
+    try:
+        from app.core.redis_client import get_redis_client
+        import json
+
+        if not settings.REDIS_URL:
+            logger.debug("Redis no configurado, estado no persistido")
+            return
+
+        redis = get_redis_client()
+
+        state = {
+            "last_rms_sync_time": _last_rms_sync_time.isoformat() if _last_rms_sync_time else None,
+            "last_rms_sync_success": _last_rms_sync_success,
+            "last_full_sync_date": _last_full_sync_date.isoformat() if _last_full_sync_date else None,
+            "last_order_poll_time": _last_order_poll_time.isoformat() if _last_order_poll_time else None,
+        }
+
+        # Guardar en Redis con TTL de 24 horas
+        await redis.set("scheduler:state", json.dumps(state), ex=86400)
+        logger.debug("✅ Scheduler state saved to Redis")
+
+    except Exception as e:
+        logger.error(f"Error saving scheduler state to Redis: {e}")
+
+
+async def _load_scheduler_state():
+    """
+    Carga el estado del scheduler desde Redis al iniciar.
+
+    Permite que el scheduler reanude correctamente después de un restart,
+    manteniendo el conocimiento de la última sync RMS→Shopify.
+    """
+    global _last_rms_sync_time, _last_rms_sync_success, _last_full_sync_date, _last_order_poll_time
+
+    try:
+        from app.core.redis_client import get_redis_client
+        import json
+
+        if not settings.REDIS_URL:
+            logger.debug("Redis no configurado, estado no cargado")
+            return
+
+        redis = get_redis_client()
+
+        state_json = await redis.get("scheduler:state")
+        if not state_json:
+            logger.info("No hay estado previo del scheduler en Redis")
+            return
+
+        state = json.loads(state_json)
+
+        if state.get("last_rms_sync_time"):
+            _last_rms_sync_time = datetime.fromisoformat(state["last_rms_sync_time"])
+        _last_rms_sync_success = state.get("last_rms_sync_success", False)
+        if state.get("last_full_sync_date"):
+            _last_full_sync_date = datetime.fromisoformat(state["last_full_sync_date"]).date()
+        if state.get("last_order_poll_time"):
+            _last_order_poll_time = datetime.fromisoformat(state["last_order_poll_time"])
+
+        logger.info(
+            f"✅ Scheduler state loaded from Redis - "
+            f"Last RMS sync: {_last_rms_sync_time.isoformat() if _last_rms_sync_time else 'None'}, "
+            f"Success: {_last_rms_sync_success}, "
+            f"Last order poll: {_last_order_poll_time.isoformat() if _last_order_poll_time else 'None'}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error loading scheduler state from Redis: {e}")
 
 
 async def start_scheduler():
@@ -36,6 +121,32 @@ async def start_scheduler():
             return
 
         logger.info("🕒 Iniciando scheduler con detección automática de cambios")
+
+        # Load previous scheduler state from Redis (if available)
+        await _load_scheduler_state()
+
+        # Log order synchronization method priority
+        if settings.ENABLE_ORDER_POLLING and settings.ENABLE_WEBHOOKS:
+            logger.warning(
+                "⚠️ AMBOS métodos de sincronización de órdenes activos. "
+                "Order Polling es el método PRIMARY, webhooks son BACKUP."
+            )
+        elif settings.ENABLE_ORDER_POLLING:
+            logger.info(
+                "✅ Order Polling ACTIVO (método PRIMARY para sincronización de órdenes). "
+                f"Intervalo: {settings.ORDER_POLLING_INTERVAL_MINUTES} minutos"
+            )
+        elif settings.ENABLE_WEBHOOKS:
+            logger.warning(
+                "⚠️ Solo webhooks activo (no recomendado). "
+                "Considere habilitar Order Polling (más confiable)."
+            )
+        else:
+            logger.error(
+                "❌ NINGÚN método de sincronización de órdenes activo. "
+                "Habilite ENABLE_ORDER_POLLING o ENABLE_WEBHOOKS."
+            )
+
         _scheduler_running = True
 
         # Iniciar loop principal del scheduler (inicializará el detector internamente)
@@ -53,7 +164,7 @@ async def stop_scheduler():
     """
     Detiene el scheduler y la detección de cambios.
     """
-    global _scheduler_running, _scheduler_task, _change_detector
+    global _scheduler_running, _scheduler_task, _change_detector, _polling_service
 
     try:
         if not _scheduler_running:
@@ -66,6 +177,15 @@ async def stop_scheduler():
         # Detener detector de cambios
         if _change_detector:
             await _change_detector.stop_monitoring()
+
+        # Detener polling service
+        if _polling_service:
+            try:
+                from app.services.order_polling_service import close_polling_service
+                await close_polling_service()
+                logger.info("✅ Order polling service detenido")
+            except Exception as e:
+                logger.error(f"Error deteniendo polling service: {e}")
 
         # Cancelar tarea del scheduler
         if _scheduler_task and not _scheduler_task.done():
@@ -112,8 +232,14 @@ async def _scheduler_loop():
                 # Verificar tareas programadas adicionales
                 await _check_scheduled_syncs()
 
-                # Sleep por 5 minutos entre verificaciones de salud
-                await asyncio.sleep(300)  # 5 minutos
+                # Verificar si debe ejecutarse reverse stock sync
+                await _check_reverse_stock_sync()
+
+                # Verificar si debe ejecutarse order polling
+                await _check_order_polling()
+
+                # Sleep por 1 minuto entre verificaciones
+                await asyncio.sleep(60)  # 1 minuto
 
             except asyncio.CancelledError:
                 logger.info("Loop del scheduler cancelado")
@@ -145,6 +271,160 @@ async def _check_change_detector_health():
 
     except Exception as e:
         logger.error(f"Error verificando salud del detector: {e}")
+
+
+async def _check_reverse_stock_sync():
+    """
+    Verifica y ejecuta reverse stock sync si es necesario.
+
+    Condiciones para ejecutar:
+    - ENABLE_REVERSE_STOCK_SYNC=true
+    - Última sync RMS→Shopify fue exitosa
+    - Ha pasado el delay configurado desde la última sync RMS→Shopify
+    """
+    global _last_rms_sync_time, _last_rms_sync_success
+
+    try:
+        if not settings.ENABLE_REVERSE_STOCK_SYNC:
+            return
+
+        # Verificar que haya habido una sync RMS→Shopify exitosa
+        if not _last_rms_sync_success or not _last_rms_sync_time:
+            return
+
+        # Verificar delay mínimo
+        time_since_last_sync = datetime.now(pytz.UTC) - _last_rms_sync_time
+        required_delay = timedelta(minutes=settings.REVERSE_SYNC_DELAY_MINUTES)
+
+        if time_since_last_sync < required_delay:
+            return
+
+        logger.info(
+            f"🔄 Ejecutando reverse stock sync "
+            f"({time_since_last_sync.total_seconds() / 60:.1f} min después de RMS→Shopify)"
+        )
+
+        # Importar y ejecutar reverse sync
+        from app.db.connection import ConnDB
+        from app.db.rms.product_repository import ProductRepository
+        from app.db.shopify_graphql_client import ShopifyGraphQLClient
+        from app.services.reverse_stock_sync import ReverseStockSynchronizer
+
+        # Initialize clients
+        shopify_client = ShopifyGraphQLClient(
+            shop_url=settings.SHOPIFY_SHOP_URL,
+            access_token=settings.SHOPIFY_ACCESS_TOKEN,
+            api_version=settings.SHOPIFY_API_VERSION,
+        )
+
+        primary_location = await shopify_client.get_primary_location()
+        primary_location_id = primary_location.get("id")
+
+        conn_db = ConnDB()
+        await conn_db.initialize()
+        product_repository = ProductRepository(conn_db)
+
+        try:
+            # Create synchronizer
+            synchronizer = ReverseStockSynchronizer(
+                shopify_client=shopify_client,
+                product_repository=product_repository,
+                primary_location_id=primary_location_id,
+            )
+
+            # Execute reverse sync
+            report = await synchronizer.execute_reverse_sync(
+                dry_run=False,
+                delete_zero_stock=settings.REVERSE_SYNC_DELETE_ZERO_STOCK,
+                batch_size=settings.REVERSE_SYNC_BATCH_SIZE,
+                limit=None,  # Process all unsynced products
+            )
+
+            success_rate = (
+                (report['statistics']['variants_updated'] + report['statistics']['variants_deleted'])
+                / max(1, report['statistics']['variants_checked'])
+            ) * 100
+
+            logger.info(
+                f"✅ Reverse stock sync completado - "
+                f"Success rate: {success_rate:.1f}%, "
+                f"Updated: {report['statistics']['variants_updated']}, "
+                f"Deleted: {report['statistics']['variants_deleted']}"
+            )
+
+            # Reset sync time to prevent re-execution
+            _last_rms_sync_time = None
+
+        finally:
+            await conn_db.close()
+
+    except Exception as e:
+        logger.error(f"Error en reverse stock sync: {e}", exc_info=True)
+
+
+async def _check_order_polling():
+    """
+    Verifica y ejecuta order polling si es necesario.
+
+    Condiciones para ejecutar:
+    - ENABLE_ORDER_POLLING=true
+    - Ha pasado el intervalo configurado desde el último polling
+    - Webhook y polling pueden correr en paralelo (no se excluyen mutuamente)
+    """
+    global _polling_service, _last_order_poll_time
+
+    try:
+        if not settings.ENABLE_ORDER_POLLING:
+            return
+
+        # Verificar intervalo mínimo entre polls
+        now = datetime.now(pytz.UTC)
+
+        if _last_order_poll_time:
+            time_since_last_poll = now - _last_order_poll_time
+            required_interval = timedelta(minutes=settings.ORDER_POLLING_INTERVAL_MINUTES)
+
+            if time_since_last_poll < required_interval:
+                return
+
+        logger.info(
+            f"🔄 Ejecutando order polling "
+            f"(intervalo: {settings.ORDER_POLLING_INTERVAL_MINUTES} min)"
+        )
+
+        # Inicializar polling service si es necesario
+        if not _polling_service:
+            from app.services.order_polling_service import get_polling_service
+
+            _polling_service = await get_polling_service()
+            logger.info("✅ Order polling service initialized")
+
+        # Ejecutar polling
+        result = await _polling_service.poll_and_sync(
+            lookback_minutes=settings.ORDER_POLLING_LOOKBACK_MINUTES,
+            batch_size=settings.ORDER_POLLING_BATCH_SIZE,
+            max_pages=settings.ORDER_POLLING_MAX_PAGES,
+            dry_run=False,
+        )
+
+        # Actualizar timestamp del último polling
+        _last_order_poll_time = now
+
+        # Persistir estado
+        await _save_scheduler_state()
+
+        # Logging de resultados
+        stats = result.get("statistics", {})
+        logger.info(
+            f"✅ Order polling completado - "
+            f"Total: {stats.get('total_polled', 0)}, "
+            f"Already synced: {stats.get('already_synced', 0)}, "
+            f"Newly synced: {stats.get('newly_synced', 0)}, "
+            f"Errors: {stats.get('sync_errors', 0)}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error en order polling: {e}", exc_info=True)
 
 
 async def _check_scheduled_syncs():
@@ -201,7 +481,8 @@ def get_scheduler_status() -> Dict[str, Any]:
     Returns:
         Dict: Información del estado
     """
-    global _change_detector, _last_full_sync_date
+    global _change_detector, _last_full_sync_date, _last_rms_sync_time, _last_rms_sync_success
+    global _polling_service, _last_order_poll_time
 
     status = {
         "running": _scheduler_running,
@@ -219,10 +500,81 @@ def get_scheduler_status() -> Dict[str, Any]:
         },
     }
 
+    # Agregar información sobre reverse stock sync
+    reverse_sync_info = {
+        "enabled": settings.ENABLE_REVERSE_STOCK_SYNC,
+        "delay_minutes": settings.REVERSE_SYNC_DELAY_MINUTES,
+        "last_rms_sync_time": _last_rms_sync_time.isoformat() if _last_rms_sync_time else None,
+        "last_rms_sync_success": _last_rms_sync_success,
+        "will_execute_next_cycle": False,
+        "seconds_until_eligible": None,
+        "status": "waiting_for_rms_sync",
+    }
+
+    # Calcular si reverse sync se ejecutará en el próximo ciclo
+    if _last_rms_sync_time and _last_rms_sync_success:
+        now = datetime.now(pytz.UTC)
+        time_since_sync = (now - _last_rms_sync_time).total_seconds()
+        delay_seconds = settings.REVERSE_SYNC_DELAY_MINUTES * 60
+
+        if time_since_sync >= delay_seconds:
+            reverse_sync_info["will_execute_next_cycle"] = True
+            reverse_sync_info["seconds_until_eligible"] = 0
+            reverse_sync_info["status"] = "ready_to_execute"
+        else:
+            reverse_sync_info["seconds_until_eligible"] = int(delay_seconds - time_since_sync)
+            reverse_sync_info["status"] = "waiting_for_delay"
+    elif _last_rms_sync_time and not _last_rms_sync_success:
+        reverse_sync_info["status"] = "blocked_by_failed_rms_sync"
+
+    status["reverse_stock_sync"] = reverse_sync_info
+
+    # Agregar información sobre order polling
+    order_polling_info = {
+        "enabled": settings.ENABLE_ORDER_POLLING,
+        "interval_minutes": settings.ORDER_POLLING_INTERVAL_MINUTES,
+        "lookback_minutes": settings.ORDER_POLLING_LOOKBACK_MINUTES,
+        "batch_size": settings.ORDER_POLLING_BATCH_SIZE,
+        "last_poll_time": _last_order_poll_time.isoformat() if _last_order_poll_time else None,
+        "polling_service_initialized": _polling_service is not None,
+        "will_execute_next_cycle": False,
+        "seconds_until_next_poll": None,
+        "webhooks_enabled": settings.ENABLE_WEBHOOKS,
+        "status": "waiting",
+    }
+
+    # Calcular si polling se ejecutará en el próximo ciclo
+    if settings.ENABLE_ORDER_POLLING:
+        if _last_order_poll_time:
+            now = datetime.now(pytz.UTC)
+            time_since_poll = (now - _last_order_poll_time).total_seconds()
+            interval_seconds = settings.ORDER_POLLING_INTERVAL_MINUTES * 60
+
+            if time_since_poll >= interval_seconds:
+                order_polling_info["will_execute_next_cycle"] = True
+                order_polling_info["seconds_until_next_poll"] = 0
+                order_polling_info["status"] = "ready_to_poll"
+            else:
+                order_polling_info["seconds_until_next_poll"] = int(interval_seconds - time_since_poll)
+                order_polling_info["status"] = "waiting_for_interval"
+        else:
+            order_polling_info["status"] = "ready_to_poll"
+            order_polling_info["will_execute_next_cycle"] = True
+
+    status["order_polling"] = order_polling_info
+
     # Agregar estadísticas del detector si está disponible
     if _change_detector:
         detector_stats = _change_detector.get_stats()
         status.update({"change_detector": detector_stats, "monitoring_active": _change_detector.is_running()})
+
+    # Agregar estadísticas del polling service si está disponible
+    if _polling_service:
+        try:
+            polling_stats = _polling_service.get_statistics()
+            status["order_polling"]["statistics"] = polling_stats
+        except Exception as e:
+            logger.error(f"Error getting polling statistics: {e}")
 
     return status
 
@@ -314,6 +666,35 @@ def get_sync_stats() -> Dict[str, Any]:
         return _change_detector.get_stats()
     else:
         return {"status": "not_initialized", "message": "Change detector not available"}
+
+
+def notify_rms_sync_completed(success: bool):
+    """
+    Notifica al scheduler que una sync RMS→Shopify ha completado.
+
+    Args:
+        success: True si la sync fue exitosa
+
+    Esta función se llama desde el change detector o desde endpoints de sync manual
+    para activar el reverse stock sync si es necesario.
+    """
+    global _last_rms_sync_time, _last_rms_sync_success
+
+    _last_rms_sync_time = datetime.now(pytz.UTC)
+    _last_rms_sync_success = success
+
+    if success:
+        logger.info(f"📝 RMS sync completada exitosamente - Reverse sync programado para dentro de {settings.REVERSE_SYNC_DELAY_MINUTES} min")
+    else:
+        logger.warning("⚠️ RMS sync completada con errores - Reverse sync no se ejecutará")
+
+    # Persist state to Redis (non-blocking)
+    # Create background task to save state without blocking
+    try:
+        asyncio.create_task(_save_scheduler_state())
+    except RuntimeError:
+        # If no event loop is running, log a warning but continue
+        logger.warning("No event loop running, scheduler state not persisted to Redis")
 
 
 def _get_next_full_sync_time() -> Optional[str]:

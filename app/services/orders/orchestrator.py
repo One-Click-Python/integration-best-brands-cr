@@ -110,10 +110,11 @@ class ShopifyToRMSOrderOrchestrator:
             logger.debug(f"Creating order {order_id} in RMS")
             rms_order_id = await self.order_creator.create(order_domain)
 
-            # Step 5: Update inventory
-            logger.debug(f"Updating inventory for order {order_id}")
-            entry_dicts = [entry.to_dict() for entry in order_domain.entries]
-            await self.inventory_manager.validate_and_update(entry_dicts)
+            # Step 5: Update inventory - DISABLED (inventario se maneja por otro sistema)
+            # logger.debug(f"Updating inventory for order {order_id}")
+            # entry_dicts = [entry.to_dict() for entry in order_domain.entries]
+            # await self.inventory_manager.validate_and_update(entry_dicts)
+            logger.info(f"Inventory update skipped for order {order_id} (managed externally)")
 
             logger.info(f"Successfully synced order {order_id} → RMS order {rms_order_id}")
 
@@ -202,10 +203,11 @@ class ShopifyToRMSOrderOrchestrator:
             logger.debug(f"Updating order {existing_order_id} in RMS")
             rms_order_id = await self.order_creator.update(existing_order_id, order_domain)
 
-            # Step 6: Adjust inventory based on differences
-            logger.debug("Adjusting inventory for order update")
-            new_entries = [entry.to_dict() for entry in order_domain.entries]
-            await self.inventory_manager.adjust_for_update(old_entries, new_entries)
+            # Step 6: Adjust inventory based on differences - DISABLED (inventario se maneja por otro sistema)
+            # logger.debug("Adjusting inventory for order update")
+            # new_entries = [entry.to_dict() for entry in order_domain.entries]
+            # await self.inventory_manager.adjust_for_update(old_entries, new_entries)
+            logger.info(f"Inventory adjustment skipped for order update {existing_order_id} (managed externally)")
 
             logger.info(f"Successfully updated order {order_id} → RMS order {rms_order_id}")
 

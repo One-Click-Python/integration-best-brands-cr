@@ -8,10 +8,42 @@ incluyendo operaciones de cache, pub/sub y gestión de sesiones.
 import logging
 from typing import Optional
 
+import redis.asyncio as redis
+
 from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Global Redis client instance
+_redis_client: Optional[redis.Redis] = None
+
+
+def get_redis_client() -> redis.Redis:
+    """
+    Returns a Redis client instance.
+
+    Returns:
+        redis.Redis: Redis client instance
+
+    Raises:
+        RuntimeError: If Redis URL is not configured
+    """
+    global _redis_client
+
+    if not settings.REDIS_URL:
+        raise RuntimeError("Redis URL not configured")
+
+    if _redis_client is None:
+        # Create Redis client synchronously (connection will be established async)
+        _redis_client = redis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+        )
+        logger.debug("Redis client instance created")
+
+    return _redis_client
 
 
 async def test_redis_connection() -> bool:

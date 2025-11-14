@@ -193,12 +193,30 @@ class ChangeDetector:
                                 success_rate:.1f}%"
                         )
                         self.update_checkpoint_manager.save_checkpoint(check_start)
+
+                        # Notify scheduler that RMS→Shopify sync completed successfully
+                        # This triggers reverse stock sync after configured delay
+                        try:
+                            from app.core.scheduler import notify_rms_sync_completed
+                            notify_rms_sync_completed(success=True)
+                            logger.info("📝 Scheduler notified of successful RMS→Shopify sync")
+                        except Exception as e:
+                            logger.error(f"Error notifying scheduler: {e}")
                     else:
                         logger.warning(
                             f"⚠️ [UPDATE CHECKPOINT] Not updated - Success rate {success_rate:.1f}% < {
                                 settings.CHECKPOINT_SUCCESS_THRESHOLD * 100
                             }% threshold"
                         )
+
+                        # Notify scheduler that sync completed with low success rate
+                        # This prevents reverse sync from executing
+                        try:
+                            from app.core.scheduler import notify_rms_sync_completed
+                            notify_rms_sync_completed(success=False)
+                            logger.info("📝 Scheduler notified of failed RMS→Shopify sync")
+                        except Exception as e:
+                            logger.error(f"Error notifying scheduler: {e}")
                 else:
                     logger.info("ℹ️ [UPDATE CHECKPOINT] No changes to sync, checkpoint remains at current position")
 
@@ -456,10 +474,29 @@ class ChangeDetector:
             self.stats["last_sync_time"] = datetime.now(timezone.utc).isoformat()
 
             logger.info("✅ Sincronización completa forzada completada")
+
+            # Notify scheduler about full sync completion
+            # This triggers reverse stock sync after configured delay
+            try:
+                success_rate = result.get("success_rate", 0) / 100  # Convert to decimal
+                from app.core.scheduler import notify_rms_sync_completed
+                notify_rms_sync_completed(success=success_rate >= 0.95)
+                logger.info(f"📝 Scheduler notified of full sync (success: {success_rate >= 0.95})")
+            except Exception as notify_error:
+                logger.error(f"Error notifying scheduler after full sync: {notify_error}")
+
             return {"success": True, "result": result}
 
         except Exception as e:
             logger.error(f"Error en sincronización forzada: {e}")
+
+            # Notify scheduler about failed sync
+            try:
+                from app.core.scheduler import notify_rms_sync_completed
+                notify_rms_sync_completed(success=False)
+            except Exception as notify_error:
+                logger.error(f"Error notifying scheduler about failed sync: {notify_error}")
+
             return {"success": False, "error": str(e)}
 
     def get_stats(self) -> Dict[str, Any]:

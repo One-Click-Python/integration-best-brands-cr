@@ -202,11 +202,11 @@ class ShopifyGraphQLClient(BaseShopifyGraphQLClient):
     # =============================================================================
 
     async def set_variant_inventory_quantity(
-        self, inventory_item_id: str, location_id: str, quantity: int, disconnect_if_necessary: bool = False
+        self, variant_or_inventory_item_id, location_id: str, quantity: int, disconnect_if_necessary: bool = False
     ) -> Dict[str, Any]:
         """Delegate to inventory client."""
         return await self.inventory.set_variant_inventory_quantity(
-            inventory_item_id, location_id, quantity, disconnect_if_necessary
+            variant_or_inventory_item_id, location_id, quantity, disconnect_if_necessary
         )
 
     async def activate_inventory_tracking_well(

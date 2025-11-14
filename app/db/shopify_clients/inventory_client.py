@@ -240,7 +240,7 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
             
             # Set the inventory quantity
             inventory_level = await self.set_variant_inventory_quantity(
-                inventory_item_id=inventory_item_id,
+                variant_or_inventory_item_id=inventory_item_id,
                 location_id=location_id,
                 quantity=available_quantity
             )
@@ -280,9 +280,9 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
             tasks = []
             for update in chunk:
                 task = self.update_inventory(
-                    inventory_item_id=update["inventory_item_id"],
-                    location_id=update["location_id"],
-                    available_quantity=update["available"]
+                    update["inventory_item_id"],
+                    update["location_id"],
+                    update["available"]
                 )
                 tasks.append(task)
 
@@ -412,11 +412,11 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
     async def update_variant_rest(self, variant_id: str, variant_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Update a variant using REST API (useful for fields like SKU that might not be available in GraphQL).
-        
+
         Args:
             variant_id: Variant ID (without gid prefix)
             variant_data: Data to update
-            
+
         Returns:
             Updated variant data
         """
@@ -458,3 +458,34 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         except Exception as e:
             logger.error(f"Error updating variant via REST API: {e}")
             raise ShopifyAPIException(f"Failed to update variant via REST API: {str(e)}") from e
+
+    async def get_inventory_item(self, inventory_item_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get inventory item with inventory levels.
+
+        Args:
+            inventory_item_id: Inventory item ID (gid://shopify/InventoryItem/...)
+
+        Returns:
+            Inventory item dict with levels, or None if not found
+        """
+        try:
+            from app.db.queries.reverse_sync import INVENTORY_ITEM_QUERY
+
+            variables = {"id": inventory_item_id}
+            result = await self._execute_query(INVENTORY_ITEM_QUERY, variables)
+
+            inventory_item = result.get("inventoryItem")
+            if inventory_item:
+                logger.info(
+                    f"Found inventory item: {inventory_item.get('sku', 'Unknown')} "
+                    f"(tracked: {inventory_item.get('tracked', False)})"
+                )
+                return inventory_item
+
+            logger.info(f"No inventory item found with ID: {inventory_item_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching inventory item {inventory_item_id}: {e}")
+            raise ShopifyAPIException(f"Failed to fetch inventory item: {str(e)}") from e

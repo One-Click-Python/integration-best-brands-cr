@@ -222,9 +222,7 @@ class OrderConverter:
             return Money.from_string(shipping_money, "CRC") if shipping_money else Money.zero("CRC")
         return Money.zero("CRC")
 
-    async def _convert_line_items(
-        self, shopify_order: dict[str, Any]
-    ) -> list[tuple[OrderEntryDomain, Decimal]]:
+    async def _convert_line_items(self, shopify_order: dict[str, Any]) -> list[tuple[OrderEntryDomain, Decimal]]:
         """
         Convert Shopify line items to order entry domain models.
 
@@ -241,6 +239,15 @@ class OrderConverter:
             line_items = line_items_raw if isinstance(line_items_raw, list) else []
 
         for item in line_items:
+            # Skip line items with zero or negative quantity
+            item_quantity = float(item.get("quantity", 0))
+            if item_quantity <= 0:
+                logger.warning(
+                    f"⏭️ Skipping line item with zero/negative quantity: "
+                    f"{item.get('title', 'Unknown')} (quantity={item_quantity})"
+                )
+                continue
+
             # Get SKU
             variant_sku = (item.get("variant") or {}).get("sku")
             item_level_sku = item.get("sku")
@@ -332,10 +339,7 @@ class OrderConverter:
                     f"final={final_full_price}"
                 )
             else:
-                logger.error(
-                    f"❌ View_Items.Price es 0 o nulo para SKU {item_sku}. "
-                    f"FullPrice se establecerá en 0."
-                )
+                logger.error(f"❌ View_Items.Price es 0 o nulo para SKU {item_sku}. " f"FullPrice se establecerá en 0.")
                 final_full_price = Decimal("0")
 
             full_price = Money(final_full_price, "CRC")

@@ -135,6 +135,38 @@ class Settings(BaseSettings):
         description="Lista de estados financieros permitidos para sincronizar pedidos de Shopify a RMS"
     )
 
+    # === CONFIGURACIÓN DE ORDER POLLING (MÉTODO PRIMARY PARA SINCRONIZACIÓN DE ÓRDENES) ===
+    ENABLE_ORDER_POLLING: bool = Field(
+        default=True,
+        env="ENABLE_ORDER_POLLING",
+        description="Habilita polling de órdenes de Shopify (MÉTODO PRIMARY: más confiable que webhooks)"
+    )
+    ENABLE_WEBHOOKS: bool = Field(
+        default=False,
+        env="ENABLE_WEBHOOKS",
+        description="Habilita procesamiento de webhooks de Shopify (OPCIONAL: puede usarse como complemento a polling)"
+    )
+    ORDER_POLLING_INTERVAL_MINUTES: int = Field(
+        default=10,
+        env="ORDER_POLLING_INTERVAL_MINUTES",
+        description="Intervalo en minutos para polling de órdenes (default: 10 minutos)"
+    )
+    ORDER_POLLING_LOOKBACK_MINUTES: int = Field(
+        default=15,
+        env="ORDER_POLLING_LOOKBACK_MINUTES",
+        description="Ventana de tiempo en minutos para buscar órdenes (default: 15 minutos)"
+    )
+    ORDER_POLLING_BATCH_SIZE: int = Field(
+        default=50,
+        env="ORDER_POLLING_BATCH_SIZE",
+        description="Número de órdenes por página en GraphQL (max 250)"
+    )
+    ORDER_POLLING_MAX_PAGES: int = Field(
+        default=10,
+        env="ORDER_POLLING_MAX_PAGES",
+        description="Máximo número de páginas a consultar en cada polling"
+    )
+
     # === CONFIGURACIÓN DE RATE LIMITING ===
     ENABLE_RATE_LIMITING: bool = Field(default=True, env="ENABLE_RATE_LIMITING")
     RATE_LIMIT_PER_MINUTE: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")
@@ -172,6 +204,33 @@ class Settings(BaseSettings):
     DISK_SPACE_THRESHOLD: int = Field(default=10, env="DISK_SPACE_THRESHOLD")  # Porcentaje
     MEMORY_USAGE_THRESHOLD: int = Field(default=90, env="MEMORY_USAGE_THRESHOLD")  # Porcentaje
     CPU_USAGE_THRESHOLD: int = Field(default=95, env="CPU_USAGE_THRESHOLD")  # Porcentaje
+
+    # === CONFIGURACIÓN DE SINCRONIZACIÓN REVERSA (SHOPIFY → RMS STOCK) ===
+    ENABLE_REVERSE_STOCK_SYNC: bool = Field(
+        default=True,
+        env="ENABLE_REVERSE_STOCK_SYNC",
+        description="Habilita sincronización complementaria de inventario Shopify → RMS"
+    )
+    REVERSE_SYNC_DELAY_MINUTES: int = Field(
+        default=5,
+        env="REVERSE_SYNC_DELAY_MINUTES",
+        description="Minutos de espera después de RMS→Shopify antes de ejecutar reverse sync"
+    )
+    REVERSE_SYNC_DELETE_ZERO_STOCK: bool = Field(
+        default=True,
+        env="REVERSE_SYNC_DELETE_ZERO_STOCK",
+        description="Si True, elimina variantes con stock 0 durante reverse sync"
+    )
+    REVERSE_SYNC_BATCH_SIZE: int = Field(
+        default=50,
+        env="REVERSE_SYNC_BATCH_SIZE",
+        description="Número de productos a procesar por batch en reverse sync"
+    )
+    REVERSE_SYNC_PRESERVE_SINGLE_VARIANT: bool = Field(
+        default=True,
+        env="REVERSE_SYNC_PRESERVE_SINGLE_VARIANT",
+        description="Si True, no elimina la última variante de un producto"
+    )
 
     # === CONFIGURACIÓN DE RETRIES ===
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
@@ -448,6 +507,61 @@ class Settings(BaseSettings):
                 "handlers": ["console", "file"] if self.LOG_FILE_PATH else ["console"],
             },
         }
+
+    def model_post_init(self, __context):
+        """
+        Sanitize system environment variables that may override .env settings.
+
+        This method executes AFTER Pydantic loads settings from .env,
+        preventing system-level environment variables from accidentally
+        overriding the application's configuration.
+        """
+        import os
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Critical environment variables that should only come from .env
+        protected_vars = [
+            "RMS_DB_NAME",
+            "RMS_DB_HOST",
+            "RMS_DB_PORT",
+            "RMS_DB_USER",
+            "RMS_DB_PASSWORD",
+            "SHOPIFY_ACCESS_TOKEN",
+            "SHOPIFY_SHOP_URL",
+        ]
+
+        cleared_vars = []
+        for var in protected_vars:
+            if var in os.environ:
+                # Get value from .env (already loaded by Pydantic)
+                loaded_value = str(getattr(self, var, None))
+                system_value = os.environ[var]
+
+                # If system value differs from .env, clear it
+                if system_value != loaded_value:
+                    # Mask sensitive values in logs
+                    display_system = system_value[:10] + "..." if len(system_value) > 10 else system_value
+                    display_loaded = loaded_value[:10] + "..." if len(loaded_value) > 10 else loaded_value
+
+                    logger.warning(
+                        f"⚠️  System environment variable '{var}' "
+                        f"(value: '{display_system}') "
+                        f"was overriding .env configuration. "
+                        f"Clearing to use .env value: '{display_loaded}'"
+                    )
+                    del os.environ[var]
+                    cleared_vars.append(var)
+
+        if cleared_vars:
+            logger.info(
+                f"✅ Sanitized {len(cleared_vars)} environment variables: "
+                f"{', '.join(cleared_vars)}"
+            )
+
+        # Log database being used (for verification)
+        logger.info(f"🗄️  Using RMS database: {self.RMS_DB_NAME} @ {self.RMS_DB_HOST}:{self.RMS_DB_PORT}")
 
 
 @lru_cache()

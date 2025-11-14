@@ -31,7 +31,7 @@ class RMSViewItem(BaseModel):
     talla: Optional[str] = Field(None, max_length=10, description="Código o texto de talla")
 
     # Inventario y precios
-    quantity: int = Field(default=0, ge=0, description="Cantidad disponible")
+    quantity: int = Field(default=0, description="Cantidad disponible")
     price: Decimal = Field(..., decimal_places=2, description="Precio de lista antes de impuestos")
 
     # Promociones y ofertas
@@ -46,6 +46,20 @@ class RMSViewItem(BaseModel):
     # Existencias (campos informativos)
     exis00: Optional[int] = Field(None, description="Existencia en bodega principal")
     exis57: Optional[int] = Field(None, description="Existencia alternativa")
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def normalize_quantity(cls, v):
+        """
+        Normaliza cantidades negativas a 0.
+        RMS puede tener cantidades negativas por ajustes de inventario,
+        pero para Shopify las tratamos como 0 stock.
+        """
+        if v is None:
+            return 0
+        # Convertir a int y normalizar negativos a 0
+        qty = int(float(v)) if isinstance(v, (str, float)) else int(v)
+        return max(0, qty)
 
     @field_validator("price", "sale_price", mode="before")
     @classmethod

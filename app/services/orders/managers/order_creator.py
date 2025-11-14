@@ -82,7 +82,10 @@ class OrderCreator:
 
     async def update(self, existing_order_id: int, order: OrderDomain) -> int:
         """
-        Update existing order in RMS.
+        Update existing order in RMS with atomic transaction.
+
+        All operations (update header, update/create/delete entries) are wrapped
+        in a single database transaction for atomicity.
 
         Args:
             existing_order_id: ID of existing RMS order
@@ -95,64 +98,87 @@ class OrderCreator:
             SyncException: If update fails
         """
         try:
-            # 1. Update order header
-            order_data = order.to_dict()
+            # 🔒 ATOMIC TRANSACTION: All operations in one session
+            async with self.order_repo.get_session() as session:
+                # 1. Update order header
+                order_data = order.to_dict()
 
-            # 🔍 Logging de depuración - valores del OrderDomain
-            logger.info(
-                f"🔍 OrderDomain values BEFORE to_dict: "
-                f"total={order.total.amount} ({type(order.total.amount).__name__}), "
-                f"tax={order.tax.amount} ({type(order.tax.amount).__name__})"
-            )
+                # 🔍 Logging de depuración - valores del OrderDomain
+                logger.info(
+                    f"🔍 OrderDomain values BEFORE to_dict: "
+                    f"total={order.total.amount} ({type(order.total.amount).__name__}), "
+                    f"tax={order.tax.amount} ({type(order.tax.amount).__name__})"
+                )
 
-            # 🔍 Logging de depuración - valores después de to_dict
-            logger.info(
-                f"🔍 order_data AFTER to_dict: "
-                f"total={order_data['total']} ({type(order_data['total']).__name__}), "
-                f"tax={order_data['tax']} ({type(order_data['tax']).__name__})"
-            )
+                # 🔍 Logging de depuración - valores después de to_dict
+                logger.info(
+                    f"🔍 order_data AFTER to_dict: "
+                    f"total={order_data['total']} ({type(order_data['total']).__name__}), "
+                    f"tax={order_data['tax']} ({type(order_data['tax']).__name__})"
+                )
 
-            # Remove id from update data, we use existing_order_id
-            order_data.pop("id", None)
+                # Remove id from update data, we use existing_order_id
+                order_data.pop("id", None)
 
-            await self.order_repo.update_order(existing_order_id, order_data)
-            logger.info(f"Updated RMS order {existing_order_id} for {order.reference_number}")
+                await self.order_repo.update_order(existing_order_id, order_data, session=session)
+                logger.info(f"Updated RMS order {existing_order_id} for {order.reference_number}")
 
-            # 2. Get existing entries to compare
-            existing_entries = await self.order_repo.get_order_entries(existing_order_id)
-            existing_entries_by_item = {entry["ItemID"]: entry for entry in existing_entries}
+                # 2. Get existing entries to compare
+                existing_entries = await self.order_repo.get_order_entries(existing_order_id, session=session)
+                existing_entries_by_item = {entry["ItemID"]: entry for entry in existing_entries}
 
-            # 3. Sync order entries
-            updated_count = 0
-            created_count = 0
+                # 3. Sync order entries (create/update)
+                updated_count = 0
+                created_count = 0
 
-            for entry in order.entries:
-                entry_data = entry.to_dict()
-                entry_data["order_id"] = existing_order_id
-                item_id = entry.item_id
+                for entry in order.entries:
+                    entry_data = entry.to_dict()
+                    entry_data["order_id"] = existing_order_id
+                    item_id = entry.item_id
 
-                if item_id in existing_entries_by_item:
-                    # Update existing entry
-                    existing_entry = existing_entries_by_item[item_id]
-                    entry_id = existing_entry["ID"]
-                    await self.order_repo.update_order_entry(entry_id, entry_data)
-                    updated_count += 1
-                    logger.debug(f"Updated order entry {entry_id} for item {item_id}")
-                else:
-                    # Create new entry
-                    entry_model = RMSOrderEntry(**entry_data)
-                    await self.order_repo.create_order_entry(entry_model)
-                    created_count += 1
-                    logger.debug(f"Created new order entry for item {item_id}")
+                    if item_id in existing_entries_by_item:
+                        # Update existing entry
+                        existing_entry = existing_entries_by_item[item_id]
+                        entry_id = existing_entry["ID"]
+                        await self.order_repo.update_order_entry(entry_id, entry_data, session=session)
+                        updated_count += 1
+                        logger.debug(f"Updated order entry {entry_id} for item {item_id}")
+                    else:
+                        # Create new entry
+                        entry_model = RMSOrderEntry(**entry_data)
+                        await self.order_repo.create_order_entry(entry_model, session=session)
+                        created_count += 1
+                        logger.debug(f"Created new order entry for item {item_id}")
 
-            logger.info(
-                f"Successfully updated order {existing_order_id}: "
-                f"{updated_count} entries updated, {created_count} entries created"
-            )
+                # 4. Delete orphaned entries (products removed from Shopify order)
+                deleted_count = 0
+                shopify_item_ids = {entry.item_id for entry in order.entries}
+
+                for existing_entry in existing_entries:
+                    item_id = existing_entry["ItemID"]
+                    if item_id not in shopify_item_ids:
+                        # This entry exists in RMS but not in Shopify → delete it
+                        entry_id = existing_entry["ID"]
+                        await self.order_repo.delete_order_entry(entry_id, session=session)
+                        deleted_count += 1
+                        logger.info(
+                            f"🗑️ Deleted orphaned order entry {entry_id} for item {item_id} "
+                            f"(product removed from Shopify order)"
+                        )
+
+                # 5. Commit transaction (all or nothing)
+                await session.commit()
+                logger.info(
+                    f"✅ Successfully updated order {existing_order_id} (ATOMIC): "
+                    f"{updated_count} entries updated, {created_count} entries created, "
+                    f"{deleted_count} entries deleted"
+                )
+
             return existing_order_id
 
         except Exception as e:
-            logger.error(f"Error updating RMS order {existing_order_id}: {e}")
+            logger.error(f"❌ Error updating RMS order {existing_order_id}: {e}")
+            # Transaction automatically rolled back on exception
             raise SyncException(
                 message=f"Failed to update RMS order: {str(e)}",
                 service="order_creator",

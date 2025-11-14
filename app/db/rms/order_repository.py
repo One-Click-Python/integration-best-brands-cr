@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.rms_schemas import RMSOrder, RMSOrderEntry
 from app.core.config import get_settings
@@ -156,11 +157,9 @@ class OrderRepository(BaseRepository):
                     )
 
                     # Alertar si hay discrepancia
-                    if abs(float(verify_data.Total) - params['total']) > 0.01:
-                        logger.error(
-                            f"❌ Order.Total mismatch! Expected {params['total']}, got {verify_data.Total}"
-                        )
-                    if abs(float(verify_data.Tax) - params['tax']) > 0.01:
+                    if abs(float(verify_data.Total) - params["total"]) > 0.01:
+                        logger.error(f"❌ Order.Total mismatch! Expected {params['total']}, got {verify_data.Total}")
+                    if abs(float(verify_data.Tax) - params["tax"]) > 0.01:
                         logger.error(f"❌ Order.Tax mismatch! Expected {params['tax']}, got {verify_data.Tax}")
 
                 await session.commit()
@@ -176,58 +175,24 @@ class OrderRepository(BaseRepository):
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def create_order_entry(self, entry: RMSOrderEntry) -> int:
-        """Create a new order entry (line item) in RMS and return its ID."""
+    async def create_order_entry(self, entry: RMSOrderEntry, session: Optional[AsyncSession] = None) -> int:
+        """
+        Create a new order entry (line item) in RMS and return its ID.
+
+        Args:
+            entry: Order entry data
+            session: Optional shared session for atomic transactions
+        """
         if not self.is_initialized():
             raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
         try:
-            async with self.get_session() as session:
-                query = """
-                INSERT INTO OrderEntry (
-                    OrderID, ItemID, StoreId, Price, FullPrice, Cost,
-                    QuantityOnOrder, QuantityRTD, SalesRepID,
-                    DiscountReasonCodeID, ReturnReasonCodeID,
-                    Description, Taxable, IsAddMoney, VoucherID
-                )
-                OUTPUT INSERTED.ID
-                VALUES (
-                    :order_id, :item_id, :store_id, :price, :full_price, :cost,
-                    :quantity_on_order, :quantity_rtd, :sales_rep_id,
-                    :discount_reason_code_id, :return_reason_code_id,
-                    :description, :taxable, :is_add_money, :voucher_id
-                )
-                """
-
-                params = {
-                    "order_id": entry.order_id,
-                    "item_id": entry.item_id,
-                    "store_id": entry.store_id,
-                    "price": float(entry.price),
-                    "full_price": float(entry.full_price),
-                    "cost": float(entry.cost),
-                    "quantity_on_order": entry.quantity_on_order,
-                    "quantity_rtd": entry.quantity_rtd,
-                    "sales_rep_id": entry.sales_rep_id,
-                    "discount_reason_code_id": entry.discount_reason_code_id,
-                    "return_reason_code_id": entry.return_reason_code_id,
-                    "description": entry.description,
-                    "taxable": entry.taxable,
-                    "is_add_money": entry.is_add_money,
-                    "voucher_id": entry.voucher_id,
-                }
-
-                result = await session.execute(text(query), params)
-                entry_id = result.scalar()
-                if not entry_id:
-                    raise RMSConnectionException(
-                        message="Order entry creation did not return an ID",
-                        db_host=settings.RMS_DB_HOST,
-                        connection_type="order_entry_creation",
-                    )
-
-                await session.commit()
-                logger.info(f"Created order entry in RMS with ID: {entry_id}")
-                return int(entry_id)
+            if session:
+                return await self._create_order_entry_impl(session, entry)
+            else:
+                async with self.get_session() as new_session:
+                    entry_id = await self._create_order_entry_impl(new_session, entry)
+                    await new_session.commit()
+                    return entry_id
         except Exception as e:
             logger.error(f"Error creating order entry in RMS: {e}")
             raise RMSConnectionException(
@@ -235,6 +200,54 @@ class OrderRepository(BaseRepository):
                 db_host=settings.RMS_DB_HOST,
                 connection_type="order_entry_creation",
             ) from e
+
+    async def _create_order_entry_impl(self, session: AsyncSession, entry: RMSOrderEntry) -> int:
+        """Internal implementation of create_order_entry."""
+        query = """
+        INSERT INTO OrderEntry (
+            OrderID, ItemID, StoreId, Price, FullPrice, Cost,
+            QuantityOnOrder, QuantityRTD, SalesRepID,
+            DiscountReasonCodeID, ReturnReasonCodeID,
+            Description, Taxable, IsAddMoney, VoucherID
+        )
+        OUTPUT INSERTED.ID
+        VALUES (
+            :order_id, :item_id, :store_id, :price, :full_price, :cost,
+            :quantity_on_order, :quantity_rtd, :sales_rep_id,
+            :discount_reason_code_id, :return_reason_code_id,
+            :description, :taxable, :is_add_money, :voucher_id
+        )
+        """
+
+        params = {
+            "order_id": entry.order_id,
+            "item_id": entry.item_id,
+            "store_id": entry.store_id,
+            "price": float(entry.price),
+            "full_price": float(entry.full_price),
+            "cost": float(entry.cost),
+            "quantity_on_order": entry.quantity_on_order,
+            "quantity_rtd": entry.quantity_rtd,
+            "sales_rep_id": entry.sales_rep_id,
+            "discount_reason_code_id": entry.discount_reason_code_id,
+            "return_reason_code_id": entry.return_reason_code_id,
+            "description": entry.description,
+            "taxable": entry.taxable,
+            "is_add_money": entry.is_add_money,
+            "voucher_id": entry.voucher_id,
+        }
+
+        result = await session.execute(text(query), params)
+        entry_id = result.scalar()
+        if not entry_id:
+            raise RMSConnectionException(
+                message="Order entry creation did not return an ID",
+                db_host=settings.RMS_DB_HOST,
+                connection_type="order_entry_creation",
+            )
+
+        logger.info(f"Created order entry in RMS with ID: {entry_id}")
+        return int(entry_id)
 
     # ------------------------- Retrieval and updates -------------------------
     @with_retry(max_attempts=3, delay=1.0)
@@ -245,8 +258,8 @@ class OrderRepository(BaseRepository):
             async with self.get_session() as session:
                 reference_number = f"SHOPIFY-{shopify_order_id}"
                 query = """
-                SELECT * FROM [Order] 
-                WHERE ReferenceNumber = :reference_number 
+                SELECT * FROM [Order]
+                WHERE ReferenceNumber = :reference_number
                   AND ChannelType = 2
                 """
                 result = await session.execute(text(query), {"reference_number": reference_number})
@@ -258,80 +271,309 @@ class OrderRepository(BaseRepository):
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def update_order(self, order_id: int, order_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update an existing order with provided fields and return updated view."""
+    async def order_exists_by_shopify_id(self, shopify_order_id: str) -> bool:
+        """
+        Check if an order already exists in RMS by Shopify order ID.
+
+        This method is optimized for deduplication checks in the polling system.
+        It only checks existence without retrieving the full order data.
+
+        Args:
+            shopify_order_id: Shopify order ID (e.g., "5678901234")
+
+        Returns:
+            bool: True if order exists, False otherwise
+        """
         try:
             async with self.get_session() as session:
-                set_clauses: List[str] = []
-                params: Dict[str, Any] = {"order_id": order_id}
+                reference_number = f"SHOPIFY-{shopify_order_id}"
+                query = """
+                SELECT COUNT(*) as order_count
+                FROM [Order]
+                WHERE ReferenceNumber = :reference_number
+                  AND ChannelType = 2
+                """
+                result = await session.execute(text(query), {"reference_number": reference_number})
+                count = result.scalar()
+                exists = (count or 0) > 0
 
-                for key, value in order_data.items():
-                    if key != "id":
-                        # Map snake_case to PascalCase for RMS
-                        db_column = self.ORDER_COLUMN_MAP.get(key, key)
-                        set_clauses.append(f"{db_column} = :{key}")
-                        params[key] = value
+                if exists:
+                    logger.debug(f"Order with Shopify ID {shopify_order_id} already exists in RMS")
 
-                if not set_clauses:
-                    logger.warning("No fields to update in order")
-                    return {"id": order_id}
+                return exists
+        except Exception as e:
+            logger.error(f"Error checking order existence for Shopify ID {shopify_order_id}: {e}")
+            # Return False to allow retry instead of blocking the order
+            return False
 
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def check_orders_exist_batch(self, shopify_order_ids: list[str]) -> dict[str, bool]:
+        """
+        Check existence of multiple orders in batch for efficient deduplication.
+
+        Args:
+            shopify_order_ids: List of Shopify order IDs to check
+
+        Returns:
+            Dict mapping Shopify order ID to existence boolean
+        """
+        try:
+            if not shopify_order_ids:
+                return {}
+
+            async with self.get_session() as session:
+                # Build reference numbers
+                reference_numbers = [f"SHOPIFY-{order_id}" for order_id in shopify_order_ids]
+
+                # Use IN clause for batch query
+                placeholders = ", ".join([f":ref{i}" for i in range(len(reference_numbers))])
                 query = f"""
-                UPDATE [Order]
-                SET {', '.join(set_clauses)}
-                WHERE ID = :order_id
+                SELECT ReferenceNumber
+                FROM [Order]
+                WHERE ReferenceNumber IN ({placeholders})
+                  AND ChannelType = 2
                 """
 
-                await session.execute(text(query), params)
-                await session.commit()
-                logger.info(f"Updated order {order_id}")
-                return {"id": order_id, **order_data}
+                # Build params dict
+                params = {f"ref{i}": ref for i, ref in enumerate(reference_numbers)}
+
+                result = await session.execute(text(query), params)
+                existing_refs = {row.ReferenceNumber for row in result.fetchall()}
+
+                # Map back to original Shopify IDs
+                existence_map = {}
+                for order_id in shopify_order_ids:
+                    ref_number = f"SHOPIFY-{order_id}"
+                    existence_map[order_id] = ref_number in existing_refs
+
+                existing_count = sum(existence_map.values())
+                logger.info(
+                    f"Batch existence check: {existing_count}/{len(shopify_order_ids)} " f"orders already exist in RMS"
+                )
+
+                return existence_map
+
+        except Exception as e:
+            logger.error(f"Error in batch order existence check: {e}")
+            # Return empty dict to allow fallback to individual checks
+            return {}
+
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def update_order(
+        self, order_id: int, order_data: Dict[str, Any], session: Optional[AsyncSession] = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing order with provided fields and return updated view.
+
+        Args:
+            order_id: RMS order ID
+            order_data: Fields to update
+            session: Optional shared session for atomic transactions
+        """
+        try:
+            # Use provided session or create a new one
+            if session:
+                return await self._update_order_impl(session, order_id, order_data)
+            else:
+                async with self.get_session() as new_session:
+                    result = await self._update_order_impl(new_session, order_id, order_data)
+                    await new_session.commit()
+                    return result
         except Exception as e:
             logger.error(f"Error updating order {order_id}: {e}")
             raise
 
+    async def _update_order_impl(
+        self, session: AsyncSession, order_id: int, order_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Internal implementation of update_order."""
+        set_clauses: List[str] = []
+        params: Dict[str, Any] = {"order_id": order_id}
+
+        for key, value in order_data.items():
+            if key != "id":
+                # Map snake_case to PascalCase for RMS
+                db_column = self.ORDER_COLUMN_MAP.get(key, key)
+                set_clauses.append(f"{db_column} = :{key}")
+                params[key] = value
+
+        if not set_clauses:
+            logger.warning("No fields to update in order")
+            return {"id": order_id}
+
+        query = f"""
+        UPDATE [Order]
+        SET {', '.join(set_clauses)}
+        WHERE ID = :order_id
+        """
+
+        await session.execute(text(query), params)
+        logger.info(f"Updated order {order_id}")
+        return {"id": order_id, **order_data}
+
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def get_order_entries(self, order_id: int) -> List[Dict[str, Any]]:
-        """Retrieve all entries for an order."""
+    async def get_order_entries(self, order_id: int, session: Optional[AsyncSession] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve all entries for an order.
+
+        Args:
+            order_id: RMS order ID
+            session: Optional shared session for atomic transactions
+        """
         try:
-            async with self.get_session() as session:
-                query = """
-                SELECT * FROM OrderEntry 
-                WHERE OrderID = :order_id
-                """
-                result = await session.execute(text(query), {"order_id": order_id})
-                rows = result.fetchall()
-                return [row._asdict() for row in rows]
+            if session:
+                return await self._get_order_entries_impl(session, order_id)
+            else:
+                async with self.get_session() as new_session:
+                    return await self._get_order_entries_impl(new_session, order_id)
         except Exception as e:
             logger.error(f"Error getting order entries for order {order_id}: {e}")
             return []
 
+    async def _get_order_entries_impl(self, session: AsyncSession, order_id: int) -> List[Dict[str, Any]]:
+        """Internal implementation of get_order_entries."""
+        query = """
+        SELECT * FROM OrderEntry
+        WHERE OrderID = :order_id
+        """
+        result = await session.execute(text(query), {"order_id": order_id})
+        rows = result.fetchall()
+        return [row._asdict() for row in rows]
+
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def update_order_entry(self, entry_id: int, entry_data: Dict[str, Any]) -> None:
-        """Update fields for a specific order entry."""
+    async def update_order_entry(
+        self, entry_id: int, entry_data: Dict[str, Any], session: Optional[AsyncSession] = None
+    ) -> None:
+        """
+        Update fields for a specific order entry.
+
+        Args:
+            entry_id: RMS OrderEntry ID
+            entry_data: Fields to update
+            session: Optional shared session for atomic transactions
+        """
         try:
-            async with self.get_session() as session:
-                set_clauses: List[str] = []
-                params: Dict[str, Any] = {"entry_id": entry_id}
-
-                for key, value in entry_data.items():
-                    if key != "id":
-                        # Map snake_case to PascalCase for RMS
-                        db_column = self.ORDER_ENTRY_COLUMN_MAP.get(key, key)
-                        set_clauses.append(f"{db_column} = :{key}")
-                        params[key] = value
-
-                if set_clauses:
-                    query = f"""
-                    UPDATE OrderEntry
-                    SET {', '.join(set_clauses)}
-                    WHERE ID = :entry_id
-                    """
-                    await session.execute(text(query), params)
-                    await session.commit()
-                    logger.info(f"Updated order entry {entry_id}")
+            if session:
+                await self._update_order_entry_impl(session, entry_id, entry_data)
+            else:
+                async with self.get_session() as new_session:
+                    await self._update_order_entry_impl(new_session, entry_id, entry_data)
+                    await new_session.commit()
         except Exception as e:
             logger.error(f"Error updating order entry {entry_id}: {e}")
             raise
+
+    async def _update_order_entry_impl(self, session: AsyncSession, entry_id: int, entry_data: Dict[str, Any]) -> None:
+        """Internal implementation of update_order_entry."""
+        set_clauses: List[str] = []
+        params: Dict[str, Any] = {"entry_id": entry_id}
+
+        for key, value in entry_data.items():
+            if key != "id":
+                # Map snake_case to PascalCase for RMS
+                db_column = self.ORDER_ENTRY_COLUMN_MAP.get(key, key)
+                set_clauses.append(f"{db_column} = :{key}")
+                params[key] = value
+
+        if set_clauses:
+            query = f"""
+            UPDATE OrderEntry
+            SET {', '.join(set_clauses)}
+            WHERE ID = :entry_id
+            """
+            await session.execute(text(query), params)
+            logger.info(f"Updated order entry {entry_id}")
+
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def delete_order_entry(self, entry_id: int, session: Optional[AsyncSession] = None) -> None:
+        """
+        Delete a specific order entry (line item) from RMS.
+
+        This method is used when a product is removed from a Shopify order
+        during order edits, ensuring RMS stays in sync with Shopify.
+
+        Args:
+            entry_id: RMS OrderEntry ID to delete
+            session: Optional shared session for atomic transactions
+
+        Raises:
+            RMSConnectionException: If deletion fails
+        """
+        if not self.is_initialized():
+            raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
+
+        try:
+            if session:
+                await self._delete_order_entry_impl(session, entry_id)
+            else:
+                async with self.get_session() as new_session:
+                    await self._delete_order_entry_impl(new_session, entry_id)
+                    await new_session.commit()
+        except Exception as e:
+            logger.error(f"❌ Error deleting order entry {entry_id}: {e}")
+            raise RMSConnectionException(
+                message=f"Failed to delete order entry: {str(e)}",
+                db_host=settings.RMS_DB_HOST,
+                connection_type="order_entry_deletion",
+            ) from e
+
+    async def _delete_order_entry_impl(self, session: AsyncSession, entry_id: int) -> None:
+        """Internal implementation of delete_order_entry."""
+        query = """
+        DELETE FROM OrderEntry
+        WHERE ID = :entry_id
+        """
+
+        result = await session.execute(text(query), {"entry_id": entry_id})
+
+        # Note: rowcount may not be available for all dialects, log optimistically
+        logger.info(f"✅ Deleted order entry {entry_id} from RMS")
+
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def mark_order_cancelled(self, order_id: int, cancel_reason: str | None = None) -> None:
+        """
+        Mark an order as cancelled in RMS (SOLID best practice).
+
+        This method encapsulates the business logic for marking an order as cancelled,
+        following Single Responsibility Principle.
+
+        Args:
+            order_id: RMS order ID
+            cancel_reason: Optional cancellation reason from Shopify
+
+        Raises:
+            RMSConnectionException: If update fails
+        """
+        if not self.is_initialized():
+            raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
+
+        try:
+            async with self.get_session() as session:
+                # Build comment with cancellation reason
+                comment = "CANCELADA EN SHOPIFY"
+                if cancel_reason:
+                    comment += f": {cancel_reason}"
+
+                query = """
+                UPDATE [Order]
+                SET Closed = 1, Comment = :comment
+                WHERE ID = :order_id
+                """
+
+                await session.execute(text(query), {"order_id": order_id, "comment": comment})
+                await session.commit()
+                logger.info(f"✅ Marked order {order_id} as cancelled in RMS")
+
+        except Exception as e:
+            logger.error(f"❌ Error marking order {order_id} as cancelled: {e}")
+            raise RMSConnectionException(
+                message=f"Failed to mark order as cancelled: {str(e)}",
+                db_host=settings.RMS_DB_HOST,
+                connection_type="order_cancellation",
+            ) from e
