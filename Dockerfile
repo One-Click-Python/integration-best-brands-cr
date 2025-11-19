@@ -32,11 +32,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el código de la aplicación
 COPY app ./app
 
+# Copiar el dashboard de Streamlit
+COPY dashboard ./dashboard
+COPY .streamlit ./.streamlit
+
 # Crear directorio para logs
 RUN mkdir -p logs
 
-# Exponer puerto
-EXPOSE 8000
+# Exponer puertos (8000 para API, 8501 para Dashboard)
+EXPOSE 8000 8501
 
 # Variables de entorno por defecto
 ENV PYTHONUNBUFFERED=1

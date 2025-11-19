@@ -5,27 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="23ce2184-49df-4e73-be08-62ed2470a4a0" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CHECKPOINT_SYSTEMS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FASE1_RESULTADOS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/FIX_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/GUIA_CLIENTE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ORDEN_POLLING_TEST_RESULTS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/endpoints/reverse_stock_sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/endpoints/reverse_stock_sync.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/v1/schemas/rms_schemas.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/scheduler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/rms/order_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms/order_repository.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/db/rms/query_executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/db/rms/query_executor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/domain/models/order_entry.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/domain/models/order_entry.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/orders/converters/order_converter.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/orders/converters/order_converter.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/orders/managers/order_creator.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/orders/managers/order_creator.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/checkpoint/checkpoint.json" beforeDir="false" afterPath="$PROJECT_DIR$/checkpoint/checkpoint.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/example_checkpoint_sync.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/poetry.lock" beforeDir="false" afterPath="$PROJECT_DIR$/poetry.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dashboard/utils/api_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/utils/api_client.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

@@ -41,7 +41,7 @@ st.markdown("## 📍 Gestión de Checkpoints")
 checkpoint_data = api_client.get_checkpoint_list()
 
 if checkpoint_data and checkpoint_data.get("status") == "success":
-    checkpoints = checkpoint_data.get("data", [])
+    checkpoints = checkpoint_data.get("data", {}).get("checkpoints", [])
     remder_checkpoint_manager(checkpoints)
 else:
     st.info("ℹ️ No se pudo cargar checkpoints")

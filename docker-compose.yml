@@ -77,6 +77,43 @@ services:
       retries: 3
       start_period: 40s
 
+  dashboard:
+    image: rms-shopify-integration:latest
+    container_name: rms-shopify-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      # Dashboard Configuration
+      - DASHBOARD_API_URL=http://api:8000
+      - DEBUG=${DEBUG:-False}
+
+      # Streamlit Configuration
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+
+    volumes:
+      - ./logs:/app/logs
+
+    networks:
+      - app-network
+
+    depends_on:
+      - api
+      - redis
+
+    restart: unless-stopped
+
+    command: ["streamlit", "run", "dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
   redis:
     image: redis:7-alpine
     container_name: rms-shopify-redis

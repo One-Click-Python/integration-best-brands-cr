@@ -340,6 +340,93 @@ rms-shopify-api  | INFO:     Uvicorn running on http://0.0.0.0:8080
 
 Para salir de los logs, presione `Ctrl + C`
 
+### 🎨 Acceso al Panel Web (Dashboard)
+
+El sistema incluye un **panel web interactivo** desarrollado con Streamlit que se inicia automáticamente junto con los demás servicios.
+
+#### Acceder al Dashboard
+
+Una vez los servicios estén corriendo, abra su navegador web y visite:
+
+**Si accede desde el mismo servidor:**
+```
+http://localhost:8501
+```
+
+**Si accede desde otra computadora en la red:**
+```
+http://[IP-DEL-SERVIDOR]:8501
+```
+
+Por ejemplo: `http://192.168.1.100:8501`
+
+#### ¿Qué puede hacer en el Dashboard?
+
+El dashboard le permite:
+
+1. **🏠 Inicio** → Vista general del sistema
+   - Estado de salud (RMS, Shopify, Redis)
+   - Métricas clave de sincronización
+   - Acciones rápidas
+
+2. **🔄 Gestión de Sincronización** → Control del motor automático
+   - Ejecutar sincronización manual
+   - Configurar intervalos
+   - Ver y gestionar checkpoints
+   - Estadísticas de sincronización
+
+3. **📦 Pedidos** → Monitoreo de sincronización de pedidos
+   - Estado del polling de pedidos
+   - Estadísticas de pedidos sincronizados
+   - Control del motor de pedidos
+
+4. **🖥️ Monitor del Sistema** → Recursos y rendimiento
+   - Uso de CPU y memoria
+   - Espacio en disco
+   - Estado de los servicios
+
+5. **📝 Logs** (solo en modo DEBUG) → Visualización de logs
+   - Búsqueda y filtrado de logs
+   - Errores recientes
+   - Estadísticas de logs
+
+#### Comandos del Dashboard
+
+```powershell
+# Ver estado del dashboard
+docker-compose ps dashboard
+
+# Ver logs del dashboard
+docker-compose logs -f dashboard
+
+# Reiniciar solo el dashboard
+docker-compose restart dashboard
+
+# Detener el dashboard
+docker-compose stop dashboard
+
+# Iniciar el dashboard
+docker-compose start dashboard
+```
+
+#### Configuración del Dashboard
+
+El dashboard se configura automáticamente, pero puede personalizar algunos aspectos:
+
+**Variables de entorno** (en `.env`):
+```bash
+# URL de la API (no cambiar si usa Docker)
+DASHBOARD_API_URL=http://api:8000
+
+# Habilitar visualización de logs
+DEBUG=true
+```
+
+**⚠️ Nota importante:**
+- El dashboard se conecta automáticamente a la API usando la red interna de Docker
+- No necesita configuración adicional si usa Docker Compose
+- El puerto 8501 debe estar disponible (no usado por otra aplicación)
+
 ### Opción B: Comandos Individuales para Detener/Iniciar
 
 #### Detener los Servicios
@@ -359,18 +446,31 @@ docker-compose ps
 
 ### 🎯 Verificación Final
 
-#### 1. Verificar Acceso Web
+#### 1. Verificar Acceso al Dashboard Web 🎨
 Abra su navegador y visite:
 ```
-http://localhost:8080/docs
+http://localhost:8501
+```
+
+**Debe ver:** El panel web interactivo del sistema con:
+- Estado de salud de los servicios
+- Métricas de sincronización en tiempo real
+- Botones de acciones rápidas
+
+**⭐ Recomendación:** Use el dashboard como interfaz principal para monitorear y controlar el sistema.
+
+#### 2. Verificar API REST (Opcional)
+Si prefiere usar la API directamente, visite:
+```
+http://localhost:8000/docs
 ```
 
 **Debe ver:** La interfaz Swagger UI con todos los endpoints disponibles
 
-#### 2. Verificar Salud del Sistema
+#### 3. Verificar Salud del Sistema
 En el navegador, visite:
 ```
-http://localhost:8080/api/v1/health
+http://localhost:8000/api/v1/health
 ```
 
 **Respuesta esperada:**
@@ -386,6 +486,8 @@ http://localhost:8080/api/v1/health
   }
 }
 ```
+
+**💡 Nota:** También puede ver esta información de forma visual en el dashboard (http://localhost:8501)
 
 ---
 
@@ -853,10 +955,89 @@ curl http://localhost:8080/api/v1/sync/monitor/stats
 # Buscar: "proximo_sync_completo"
 ```
 
+### Problema 9: El dashboard no carga o muestra errores
+
+#### Síntomas:
+- Navegador muestra "No se puede conectar" en `http://localhost:8501`
+- Dashboard muestra "Error de conexión con la API"
+- Página en blanco o error 500
+
+#### Soluciones:
+
+**A. Dashboard no inicia**
+```powershell
+# Verificar estado del contenedor
+docker-compose ps dashboard
+
+# Ver logs del dashboard
+docker-compose logs dashboard --tail=50
+```
+
+**Problemas comunes:**
+
+1. **Puerto 8501 ya está en uso**
+   ```powershell
+   # En Windows, verificar qué proceso usa el puerto
+   netstat -ano | findstr :8501
+
+   # Opción 1: Cerrar el proceso que usa el puerto
+   taskkill /PID [número] /F
+
+   # Opción 2: Cambiar el puerto del dashboard
+   # En docker-compose.yml, cambiar:
+   # ports:
+   #   - "8502:8501"  # Usar puerto 8502 en lugar de 8501
+   ```
+
+2. **Error "Connection error" en el dashboard**
+   - **Causa:** Dashboard no puede conectarse a la API
+   - **Verificar:** API está corriendo
+   ```powershell
+   curl http://localhost:8000/health
+   ```
+   - **Solución:** Verificar que `DASHBOARD_API_URL=http://api:8000` en docker-compose.yml
+
+3. **Datos vacíos / Sin métricas**
+   - **Causa:** API no está retornando datos
+   - **Verificar:** Motor de sincronización activo
+   ```powershell
+   curl http://localhost:8000/api/v1/sync/monitor/status
+   ```
+   - **Solución:** Verificar que `ENABLE_SCHEDULED_SYNC=true` en `.env`
+
+4. **Página "Logs" muestra "DEBUG mode required"**
+   - **Causa:** Modo DEBUG no está habilitado
+   - **Solución:** En `.env`, cambiar `DEBUG=true` y reiniciar:
+   ```powershell
+   docker-compose restart api
+   ```
+
+**B. Dashboard lento o no responde**
+```powershell
+# Verificar recursos del contenedor
+docker stats rms-shopify-dashboard
+
+# Reiniciar el dashboard
+docker-compose restart dashboard
+```
+
+**C. Acceso desde otra computadora no funciona**
+```powershell
+# Verificar firewall de Windows
+# Abrir puerto 8501 en Windows Firewall
+
+# Verificar IP del servidor
+ipconfig
+# Buscar "Dirección IPv4"
+
+# Acceder desde otro dispositivo usando:
+# http://[IP-del-servidor]:8501
+```
+
 ### 🆘 Comandos de Diagnóstico Rápido
 
 ```powershell
-# 1. Ver estado general
+# 1. Ver estado general (API + Dashboard + Redis)
 docker-compose ps
 
 # 2. Ver últimos logs

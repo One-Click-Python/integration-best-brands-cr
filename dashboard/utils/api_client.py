@@ -98,6 +98,10 @@ class APIClient:
         """Get sync statistics (cached for 10s)."""
         return _self._make_request("GET", "/api/v1/sync/monitor/stats")
 
+    def get_sync_config(_self) -> dict[str, Any] | None:
+        """Get sync configuration (no cache - realtime)."""
+        return _self._make_request("GET", "/api/v1/sync/monitor/config")
+
     def trigger_sync(_self, sync_type: str = "incremental") -> dict[str, Any] | None:
         """
         Trigger a manual sync.
@@ -113,6 +117,25 @@ class APIClient:
     def update_sync_interval(_self, interval_minutes: int) -> dict[str, Any] | None:
         """Update sync interval."""
         return _self._make_request("PUT", "/api/v1/sync/monitor/interval", json={"interval_minutes": interval_minutes})
+
+    # ==================== CHECKPOINTS ====================
+
+    @st.cache_data(ttl=10)
+    def get_checkpoint_list(_self) -> dict[str, Any] | None:
+        """Get list of active checkpoints (cached for 10s)."""
+        return _self._make_request("GET", "/api/v1/sync/monitor/checkpoint/list")
+
+    def get_checkpoint_status(_self, sync_id: str) -> dict[str, Any] | None:
+        """Get specific checkpoint status (no cache)."""
+        return _self._make_request("GET", f"/api/v1/sync/monitor/checkpoint/{sync_id}")
+
+    def resume_checkpoint(_self, sync_id: str) -> dict[str, Any] | None:
+        """Resume sync from checkpoint."""
+        return _self._make_request("POST", f"/api/v1/sync/monitor/checkpoint/resume/{sync_id}")
+
+    def delete_checkpoint(_self, sync_id: str) -> dict[str, Any] | None:
+        """Delete a checkpoint."""
+        return _self._make_request("DELETE", f"/api/v1/sync/monitor/checkpoint/{sync_id}")
 
     # ==================== ORDER POLLING ====================
 

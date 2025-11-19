@@ -26,8 +26,10 @@ st.markdown("## 🏥 Estado Detallado de Salud")
 health_detailed = api_client.get_health_detailed()
 
 if health_detailed:
-    overall = health_detailed.get("overall", False)
-    services = health_detailed.get("services", {})
+    # Check for "overall_status" (detailed endpoint) or "status" (fast endpoint)
+    overall_status = health_detailed.get("overall_status", health_detailed.get("status", "unhealthy"))
+    overall = overall_status == "healthy"
+    services = health_detailed.get("components", health_detailed.get("services", {}))
     uptime_info = health_detailed.get("uptime", {})
 
     # Overall Status

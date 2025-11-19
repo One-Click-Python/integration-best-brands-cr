@@ -18,7 +18,8 @@ def remder_system_health_card(health_data: dict | None) -> None:
         st.error("❌ No se pudo obtener información de salud del sistema")
         return
 
-    overall = health_data.get("overall", False)
+    # Check both "overall" (detailed endpoint) and "status" (fast endpoint)
+    overall = health_data.get("overall", health_data.get("status") == "healthy")
     services = health_data.get("services", {})
 
     # Overall status
@@ -28,7 +29,7 @@ def remder_system_health_card(health_data: dict | None) -> None:
 
     st.markdown(
         f"### {status_icon} {status_text}",
-        help="Estado general de todos os serviços del sistema",
+        help="Estado general de todos los servicios del sistema",
     )
 
     # Services status in columns
