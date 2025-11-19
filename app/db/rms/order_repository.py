@@ -6,6 +6,7 @@ and order entries. Extracted from the legacy RMSHandler to comply with SRP.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -41,6 +42,7 @@ class OrderRepository(BaseRepository):
         "channel_type": "ChannelType",
         "closed": "Closed",
         "shipping_charge_on_order": "ShippingChargeOnOrder",
+        "last_updated": "LastUpdated",  # Auto-update timestamp on modifications
     }
 
     # Mapping for OrderEntry columns
@@ -60,6 +62,9 @@ class OrderRepository(BaseRepository):
         "taxable": "Taxable",
         "is_add_money": "IsAddMoney",
         "voucher_id": "VoucherID",
+        "comment": "Comment",  # "Shipping Item" para envíos
+        "price_source": "PriceSource",  # 10 para envíos, 1 para productos
+        "last_updated": "LastUpdated",  # Auto-update timestamp on modifications
     }
 
     @with_retry(max_attempts=3, delay=1.0)
@@ -91,19 +96,24 @@ class OrderRepository(BaseRepository):
             raise RMSConnectionException(message="OrderRepository not initialized", db_host=settings.RMS_DB_HOST)
         try:
             async with self.get_session() as session:
+                # ✨ Set LastUpdated for new order creation
+                last_updated = datetime.now(UTC)
+
                 query = """
                 INSERT INTO [Order] (
                     StoreID, Time, Type, CustomerID, Deposit, Tax, Total,
                     SalesRepID, ShippingServiceID, ShippingTrackingNumber,
                     Comment, ShippingNotes,
-                    ReferenceNumber, ChannelType, Closed, ShippingChargeOnOrder
+                    ReferenceNumber, ChannelType, Closed, ShippingChargeOnOrder,
+                    LastUpdated
                 )
                 OUTPUT INSERTED.ID
                 VALUES (
                     :store_id, :time, :type, :customer_id, :deposit, :tax, :total,
                     :sales_rep_id, :shipping_service_id, :shipping_tracking_number,
                     :comment, :shipping_notes,
-                    :reference_number, :channel_type, :closed, :shipping_charge_on_order
+                    :reference_number, :channel_type, :closed, :shipping_charge_on_order,
+                    :last_updated
                 )
                 """
 
@@ -126,6 +136,7 @@ class OrderRepository(BaseRepository):
                     "shipping_charge_on_order": (
                         float(order.shipping_charge_on_order) if order.shipping_charge_on_order else 0.0
                     ),
+                    "last_updated": last_updated,
                 }
 
                 # 🔍 Logging de depuración - valores antes del INSERT
@@ -203,19 +214,24 @@ class OrderRepository(BaseRepository):
 
     async def _create_order_entry_impl(self, session: AsyncSession, entry: RMSOrderEntry) -> int:
         """Internal implementation of create_order_entry."""
+        # ✨ Set LastUpdated for new entry creation
+        last_updated = datetime.now(UTC)
+
         query = """
         INSERT INTO OrderEntry (
             OrderID, ItemID, StoreId, Price, FullPrice, Cost,
             QuantityOnOrder, QuantityRTD, SalesRepID,
             DiscountReasonCodeID, ReturnReasonCodeID,
-            Description, Taxable, IsAddMoney, VoucherID
+            Description, Taxable, IsAddMoney, VoucherID,
+            Comment, PriceSource, LastUpdated
         )
         OUTPUT INSERTED.ID
         VALUES (
             :order_id, :item_id, :store_id, :price, :full_price, :cost,
             :quantity_on_order, :quantity_rtd, :sales_rep_id,
             :discount_reason_code_id, :return_reason_code_id,
-            :description, :taxable, :is_add_money, :voucher_id
+            :description, :taxable, :is_add_money, :voucher_id,
+            :comment, :price_source, :last_updated
         )
         """
 
@@ -235,6 +251,9 @@ class OrderRepository(BaseRepository):
             "taxable": entry.taxable,
             "is_add_money": entry.is_add_money,
             "voucher_id": entry.voucher_id,
+            "comment": entry.comment,  # "Shipping Item" for shipping entries
+            "price_source": entry.price_source,  # 10 for shipping, 1 for products
+            "last_updated": last_updated,
         }
 
         result = await session.execute(text(query), params)
@@ -399,6 +418,10 @@ class OrderRepository(BaseRepository):
                 set_clauses.append(f"{db_column} = :{key}")
                 params[key] = value
 
+        # ✨ ALWAYS update LastUpdated timestamp on any order modification
+        set_clauses.append("LastUpdated = :last_updated")
+        params["last_updated"] = datetime.now(UTC)
+
         if not set_clauses:
             logger.warning("No fields to update in order")
             return {"id": order_id}
@@ -410,7 +433,7 @@ class OrderRepository(BaseRepository):
         """
 
         await session.execute(text(query), params)
-        logger.info(f"Updated order {order_id}")
+        logger.info(f"Updated order {order_id} (LastUpdated={params['last_updated'].isoformat()})")
         return {"id": order_id, **order_data}
 
     @with_retry(max_attempts=3, delay=1.0)
@@ -479,6 +502,10 @@ class OrderRepository(BaseRepository):
                 set_clauses.append(f"{db_column} = :{key}")
                 params[key] = value
 
+        # ✨ ALWAYS update LastUpdated timestamp on any entry modification
+        set_clauses.append("LastUpdated = :last_updated")
+        params["last_updated"] = datetime.now(UTC)
+
         if set_clauses:
             query = f"""
             UPDATE OrderEntry
@@ -486,7 +513,7 @@ class OrderRepository(BaseRepository):
             WHERE ID = :entry_id
             """
             await session.execute(text(query), params)
-            logger.info(f"Updated order entry {entry_id}")
+            logger.info(f"Updated order entry {entry_id} (LastUpdated={params['last_updated'].isoformat()})")
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
@@ -560,15 +587,20 @@ class OrderRepository(BaseRepository):
                 if cancel_reason:
                     comment += f": {cancel_reason}"
 
+                # ✨ Update LastUpdated when marking as cancelled
+                last_updated = datetime.now(UTC)
+
                 query = """
                 UPDATE [Order]
-                SET Closed = 1, Comment = :comment
+                SET Closed = 1, Comment = :comment, LastUpdated = :last_updated
                 WHERE ID = :order_id
                 """
 
-                await session.execute(text(query), {"order_id": order_id, "comment": comment})
+                await session.execute(
+                    text(query), {"order_id": order_id, "comment": comment, "last_updated": last_updated}
+                )
                 await session.commit()
-                logger.info(f"✅ Marked order {order_id} as cancelled in RMS")
+                logger.info(f"✅ Marked order {order_id} as cancelled in RMS (LastUpdated={last_updated.isoformat()})")
 
         except Exception as e:
             logger.error(f"❌ Error marking order {order_id} as cancelled: {e}")

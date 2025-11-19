@@ -150,21 +150,75 @@ class OrderCreator:
                         created_count += 1
                         logger.debug(f"Created new order entry for item {item_id}")
 
+                # ✅ DEFENSIVE CHECK: Verify shipping entry exists if order has shipping charge
+                from app.core.config import settings
+
+                if order.shipping_charge_on_order.amount > 0:
+                    shipping_item_id = settings.SHIPPING_ITEM_ID
+                    order_item_ids = {entry.item_id for entry in order.entries}
+
+                    if shipping_item_id not in order_item_ids:
+                        logger.warning(
+                            f"⚠️ DEFENSIVE CHECK: Order {existing_order_id} has shipping charge "
+                            f"₡{order.shipping_charge_on_order.amount:.2f} but no shipping entry "
+                            f"(ItemID={shipping_item_id}) found in order.entries. "
+                            f"This should not happen if OrderConverter worked correctly. "
+                            f"The shipping entry should have been added by OrderConverter._create_shipping_entry()."
+                        )
+                    else:
+                        logger.debug(
+                            f"✅ Shipping entry verified: ItemID={shipping_item_id} present in order entries "
+                            f"(shipping charge=₡{order.shipping_charge_on_order.amount:.2f})"
+                        )
+
                 # 4. Delete orphaned entries (products removed from Shopify order)
+                # SPECIAL CASE: Shipping entry should be updated to 0, not deleted
                 deleted_count = 0
                 shopify_item_ids = {entry.item_id for entry in order.entries}
 
                 for existing_entry in existing_entries:
                     item_id = existing_entry["ItemID"]
                     if item_id not in shopify_item_ids:
-                        # This entry exists in RMS but not in Shopify → delete it
-                        entry_id = existing_entry["ID"]
-                        await self.order_repo.delete_order_entry(entry_id, session=session)
-                        deleted_count += 1
-                        logger.info(
-                            f"🗑️ Deleted orphaned order entry {entry_id} for item {item_id} "
-                            f"(product removed from Shopify order)"
-                        )
+                        # SPECIAL: Shipping entry handling (update to 0, don't delete)
+                        if item_id == settings.SHIPPING_ITEM_ID:
+                            # Shipping entry exists but no shipping in Shopify → update to 0
+                            entry_id = existing_entry["ID"]
+
+                            # Create update data with zeros
+                            zero_entry_data = {
+                                "order_id": existing_order_id,
+                                "item_id": item_id,
+                                "store_id": existing_entry["StoreID"],
+                                "price": 0.0,
+                                "full_price": 0.0,
+                                "cost": existing_entry["Cost"],  # Keep original cost
+                                "quantity_on_order": 0.0,  # Both quantities to 0
+                                "quantity_rtd": 0.0,
+                                "description": existing_entry["Description"],  # Keep description
+                                "taxable": existing_entry["Taxable"],
+                                "sales_rep_id": existing_entry["SalesRepID"],
+                                "discount_reason_code_id": existing_entry.get("DiscountReasonCodeID", 0),
+                                "return_reason_code_id": existing_entry.get("ReturnReasonCodeID", 0),
+                                "is_add_money": existing_entry.get("IsAddMoney", False),
+                                "voucher_id": existing_entry.get("VoucherID", 0),
+                                "comment": existing_entry.get("Comment", "Shipping Item"),
+                                "price_source": existing_entry.get("PriceSource", 10),
+                            }
+
+                            await self.order_repo.update_order_entry(entry_id, zero_entry_data, session=session)
+                            logger.info(
+                                f"📦 Updated shipping entry {entry_id} to ₡0 (shipping removed from Shopify order, "
+                                f"ItemID={item_id}, QuantityOnOrder=0, QuantityRTD=0)"
+                            )
+                        else:
+                            # NORMAL: Other items → delete as orphaned
+                            entry_id = existing_entry["ID"]
+                            await self.order_repo.delete_order_entry(entry_id, session=session)
+                            deleted_count += 1
+                            logger.info(
+                                f"🗑️ Deleted orphaned order entry {entry_id} for item {item_id} "
+                                f"(product removed from Shopify order)"
+                            )
 
                 # 5. Commit transaction (all or nothing)
                 await session.commit()

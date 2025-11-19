@@ -84,8 +84,7 @@ async def get_reverse_stock_synchronizer(
     product_repository: ProductRepository = Depends(get_product_repository),
 ) -> ReverseStockSynchronizer:
     """Dependency para obtener el sincronizador de stock reverso."""
-    primary_location = await shopify_client.get_primary_location()
-    primary_location_id = primary_location.get("id")
+    primary_location_id = await shopify_client.get_primary_location_id()
 
     if not primary_location_id:
         raise HTTPException(

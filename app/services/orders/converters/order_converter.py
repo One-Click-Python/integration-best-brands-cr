@@ -124,6 +124,30 @@ class OrderConverter:
         # Convert line items first - necesitamos los datos de RMS para calcular correctamente
         entries_with_tax_info = await self._convert_line_items(shopify_order)
 
+        # Get shipping charge
+        shipping_charge = self._extract_shipping_charge(shopify_order)
+
+        # ✨ CONDITIONAL: Create shipping entry ONLY if shipping cost > 0
+        # Import settings here to get SHIPPING_ITEM_ID
+        from app.core.config import settings
+
+        if shipping_charge.amount > 0:
+            shipping_entry_tuple = await self._create_shipping_entry(shipping_charge, settings.SHIPPING_ITEM_ID)
+            if shipping_entry_tuple:
+                entries_with_tax_info.append(shipping_entry_tuple)
+                logger.info(
+                    f"✅ Created shipping OrderEntry: shipping=₡{shipping_charge.amount:.2f}, "
+                    f"ItemID={settings.SHIPPING_ITEM_ID}"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Failed to create shipping OrderEntry "
+                    f"(ItemID={settings.SHIPPING_ITEM_ID} not found in VIEW_Items). "
+                    f"Shipping charge: ₡{shipping_charge.amount:.2f}"
+                )
+        else:
+            logger.info("⏭️ Skipping shipping OrderEntry creation (shipping=₡0)")
+
         # Calcular Order.Total y Order.Tax desde los line items (datos de RMS)
         # OrderEntry.price AHORA incluye IVA, necesitamos discriminarlo para calcular Order.Tax
         # Order.Total = suma de (OrderEntry.price * quantity) [YA incluye impuestos]
@@ -133,7 +157,12 @@ class OrderConverter:
 
         for entry, tax_percentage in entries_with_tax_info:
             # entry.price AHORA incluye IVA, calcular subtotal con IVA
-            subtotal_with_tax = entry.price.amount * Decimal(str(entry.quantity_on_order))
+            # SPECIAL CASE: Shipping entries have quantity_on_order=0, use quantity_rtd=1 instead
+            # This is the RMS pattern for shipping: QuantityOnOrder=0, QuantityRTD=1
+            is_shipping = entry.quantity_on_order == 0 and entry.quantity_rtd > 0
+            quantity_for_calc = entry.quantity_rtd if is_shipping else entry.quantity_on_order
+
+            subtotal_with_tax = entry.price.amount * Decimal(str(quantity_for_calc))
 
             # Discriminar para obtener base sin impuestos
             tax_divisor = Decimal("1") + (tax_percentage / Decimal("100"))
@@ -146,7 +175,9 @@ class OrderConverter:
             total_tax += tax_item
 
             logger.debug(
-                f"  Line item calculation: price_with_tax={entry.price.amount}, qty={entry.quantity_on_order}, "
+                f"  Line item calculation: price_with_tax={entry.price.amount}, "
+                f"qty_on_order={entry.quantity_on_order}, qty_rtd={entry.quantity_rtd}, "
+                f"qty_for_calc={quantity_for_calc} {'(shipping)' if is_shipping else '(product)'}, "
                 f"tax%={tax_percentage}, subtotal_with_tax={subtotal_with_tax}, "
                 f"subtotal_without_tax={subtotal_without_tax:.2f}, tax={tax_item:.2f}"
             )
@@ -178,8 +209,8 @@ class OrderConverter:
         order_date = datetime.fromisoformat(shopify_order["createdAt"].replace("Z", "+00:00"))
         shopify_id_numeric = shopify_order["id"].split("/")[-1]
 
-        # Get shipping charge
-        shipping_charge = self._extract_shipping_charge(shopify_order)
+        # shipping_charge already extracted above (line 128)
+        # and used for creating shipping OrderEntry if needed
 
         # Get customer info for comment (payment_status will be added later in orchestrator)
         customer_info = self.customer_fetcher.fetch_customer_info(shopify_order)
@@ -393,3 +424,124 @@ class OrderConverter:
             )
 
         return line_items_data
+
+    async def _create_shipping_entry(
+        self, shipping_charge: Money, shipping_item_id: int
+    ) -> tuple[OrderEntryDomain, Decimal] | None:
+        """
+        Create shipping cost OrderEntry (ONLY if shipping > 0, using VIEW_Items price).
+
+        This method creates an OrderEntry record for shipping costs ONLY when the order
+        has shipping charges (shipping_charge.amount > 0). The entry price comes from
+        VIEW_Items (typically ItemID=481461), NOT from Shopify's shipping charge.
+
+        IMPORTANT:
+        - This entry is created ONLY when shipping_charge.amount > 0
+        - Price comes from VIEW_Items configuration (consistent pricing)
+        - shipping_charge parameter is kept for backward compatibility but NOT used for price
+        - Caller (OrderConverter) must check shipping_charge > 0 before calling this method
+
+        Args:
+            shipping_charge: Shopify shipping amount (kept for compatibility, not used for price)
+            shipping_item_id: ItemID from config (SHIPPING_ITEM_ID, default: 481461)
+
+        Returns:
+            Tuple of (OrderEntryDomain, tax_percentage_whole) or None if:
+                - Shipping item not found in VIEW_Items
+
+        Price Calculation Logic:
+            1. Get base price from VIEW_Items (e.g., ₡5,000.00 WITHOUT tax)
+            2. Get tax_percentage from VIEW_Items (e.g., 13)
+            3. Calculate: price_with_tax = 5,000 * (1 + 0.13) = 5,000 * 1.13 = ₡5,650.00
+            4. Use price_with_tax for both OrderEntry.Price and OrderEntry.FullPrice
+            5. Money class auto-rounds to 2 decimals
+
+        Example:
+            >>> # Shipping entry from VIEW_Items (Price=5000, Tax=13%)
+            >>> shipping_charge = Money.zero("CRC")  # Not used for price
+            >>> shipping_item_id = 481461
+            >>> entry, tax_pct = await converter._create_shipping_entry(shipping_charge, shipping_item_id)
+            >>> entry.item_id
+            481461
+            >>> entry.price.amount
+            Decimal('5650.00')  # ₡5,000 * 1.13 = ₡5,650.00 (2 decimals)
+            >>> entry.full_price.amount
+            Decimal('5650.00')  # Same as price (no discount for shipping)
+            >>> tax_pct
+            Decimal('13')  # Tax percentage for Order.Tax calculation
+
+        Raises:
+            None - Errors are logged, returns None on failure
+        """
+        # Get shipping item from VIEW_Items (with caching)
+        shipping_item = await self.query_executor.get_shipping_item_cached(shipping_item_id)
+
+        if not shipping_item:
+            logger.warning(
+                f"⚠️ Shipping item {shipping_item_id} not found in VIEW_Items. "
+                f"Skipping shipping OrderEntry creation. Order will sync WITHOUT shipping entry."
+            )
+            return None
+
+        # Extract tax percentage (e.g., 13 → 0.13 decimal)
+        tax_percentage = Decimal(str(shipping_item["tax_percentage"])) / Decimal("100")
+
+        # ✨ CORRECTED: Use price from VIEW_Items, NOT Shopify shipping_charge
+        # The shipping entry price comes from the configured shipping item in RMS,
+        # NOT from the Shopify order's shipping cost.
+        # This ensures consistent pricing regardless of Shopify's shipping method.
+
+        # Get base price from VIEW_Items (WITHOUT tax)
+        # Example: VIEW_Items.Price = 5000.00
+        price_from_view_items = Decimal(str(shipping_item["price"]))
+
+        # Calculate price WITH tax using VIEW_Items tax percentage
+        # Formula: price_with_tax = price * (1 + tax_percentage)
+        # Example: ₡5,000 * 1.13 = ₡5,650.00
+        price_with_tax = price_from_view_items * (Decimal("1") + tax_percentage)
+
+        # Create Money objects (auto-rounds to 2 decimals via Money.__post_init__)
+        price_money = Money(price_with_tax, shipping_charge.currency)
+        full_price_money = Money(price_with_tax, shipping_charge.currency)  # Same as price (no discount)
+        cost_money = Money(Decimal(str(shipping_item.get("cost", 0))), shipping_charge.currency)
+
+        # Create shipping OrderEntry domain model
+        # IMPORTANT: Shipping entries use a special pattern in RMS:
+        # - quantity_on_order = 0 (not a product quantity)
+        # - quantity_rtd = 1 (indicator that it's a shipping entry)
+        # - comment = "Shipping Item" (identifies shipping)
+        # - price_source = 10 (charges Price*(1+tax%))
+        shipping_entry = OrderEntryDomain(
+            item_id=shipping_item["item_id"],
+            store_id=40,  # Default store ID for virtual store
+            price=price_money,  # Price WITH tax from VIEW_Items (auto-rounded to 2 decimals)
+            full_price=full_price_money,  # Same as price for shipping (no discount, 2 decimals)
+            cost=cost_money,  # Usually ₡0.00 for shipping
+            quantity_on_order=0.0,  # ← 0 for shipping (not a product quantity)
+            quantity_rtd=1.0,  # ← 1 for shipping (indicates it's a shipping entry)
+            description=shipping_item["Description"],  # e.g., "ENVÍO"
+            taxable=bool(shipping_item["taxable"]),  # Usually True (shipping is taxable in Costa Rica)
+            sales_rep_id=1000,  # Standard sales rep for Shopify orders
+            discount_reason_code_id=0,
+            return_reason_code_id=0,
+            is_add_money=False,
+            voucher_id=0,
+            comment="Shipping Item",  # ← Identifies this as a shipping entry
+            price_source=10,  # ← 10 for shipping (charges Price*(1+tax%))
+        )
+
+        # Return tuple for tax calculation (tax_percentage as whole number for Order.Tax)
+        # Convert 0.13 → 13
+        tax_percentage_whole = tax_percentage * Decimal("100")
+
+        logger.info(
+            f"✅ Created shipping OrderEntry: ItemID={shipping_item['item_id']}, "
+            f"Description='{shipping_item['Description']}', "
+            f"Price=₡{price_money.amount:.2f} (WITH {tax_percentage_whole}% tax), "
+            f"Base price from VIEW_Items=₡{price_from_view_items:.2f}, "
+            f"QuantityOnOrder=0.0, QuantityRTD=1.0, "
+            f"Comment='Shipping Item', PriceSource=10, "
+            f"Taxable={bool(shipping_item['taxable'])}"
+        )
+
+        return (shipping_entry, tax_percentage_whole)

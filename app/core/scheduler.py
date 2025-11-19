@@ -311,14 +311,10 @@ async def _check_reverse_stock_sync():
         from app.services.reverse_stock_sync import ReverseStockSynchronizer
 
         # Initialize clients
-        shopify_client = ShopifyGraphQLClient(
-            shop_url=settings.SHOPIFY_SHOP_URL,
-            access_token=settings.SHOPIFY_ACCESS_TOKEN,
-            api_version=settings.SHOPIFY_API_VERSION,
-        )
+        shopify_client = ShopifyGraphQLClient()
+        await shopify_client.initialize()
 
-        primary_location = await shopify_client.get_primary_location()
-        primary_location_id = primary_location.get("id")
+        primary_location_id = await shopify_client.get_primary_location_id()
 
         conn_db = ConnDB()
         await conn_db.initialize()
@@ -357,6 +353,7 @@ async def _check_reverse_stock_sync():
 
         finally:
             await conn_db.close()
+            await shopify_client.close()
 
     except Exception as e:
         logger.error(f"Error en reverse stock sync: {e}", exc_info=True)

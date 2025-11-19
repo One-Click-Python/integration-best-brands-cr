@@ -29,6 +29,8 @@ class QueryExecutor(BaseRepository):
         # Track query performance metrics
         self._query_metrics: Dict[str, List[float]] = {}
         self._slow_query_threshold = 5.0  # seconds
+        # Cache for shipping item data (populated on first query)
+        self._shipping_item_cache: Optional[Dict[str, Any]] = None
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation("verify_table_access_query_executor")
@@ -320,6 +322,115 @@ class QueryExecutor(BaseRepository):
         except Exception as e:
             logger.error(f"Error finding item by SKU {sku}: {e}", exc_info=True)
             return None
+
+    @with_retry(max_attempts=3, delay=1.0)
+    @log_operation()
+    async def get_shipping_item(self, shipping_item_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get shipping item data from VIEW_Items.
+
+        This method queries the shipping item (typically ItemID=481461) to retrieve
+        its details including price, tax percentage, cost, and taxable status.
+        Used for creating automatic shipping cost OrderEntry records.
+
+        Args:
+            shipping_item_id: ItemID for shipping (from config SHIPPING_ITEM_ID)
+
+        Returns:
+            Dict with shipping item data:
+                - item_id: ItemID
+                - Description: Item description ("ENVÍO")
+                - price: Base price (WITHOUT tax)
+                - tax_percentage: Tax percentage (e.g., 13 for 13%)
+                - cost: Item cost
+                - taxable: Whether item is taxable (0 or 1)
+            Returns None if item not found
+
+        Example:
+            {
+                'item_id': 481461,
+                'Description': 'ENVÍO',
+                'price': Decimal('5000.00'),
+                'tax_percentage': Decimal('13'),
+                'cost': Decimal('0.00'),
+                'taxable': 1
+            }
+        """
+        try:
+            logger.info(f"Querying shipping item with ItemID: {shipping_item_id}")
+
+            query = """
+            SELECT
+                vi.ItemID as item_id,
+                vi.Description,
+                vi.Price as price,
+                vi.Tax as tax_percentage,
+                i.Cost as cost,
+                i.Taxable as taxable
+            FROM View_Items vi
+            INNER JOIN Item i ON vi.ItemID = i.ID
+            WHERE vi.ItemID = :item_id
+            """
+
+            results = await self.execute_custom_query(query, {"item_id": shipping_item_id})
+
+            if results:
+                shipping_item = results[0]
+                logger.info(
+                    f"✅ Found shipping item: ItemID={shipping_item['item_id']}, "
+                    f"Description='{shipping_item['Description']}', "
+                    f"Price={shipping_item['price']}, "
+                    f"Tax={shipping_item['tax_percentage']}%"
+                )
+                return shipping_item
+            else:
+                logger.warning(
+                    f"⚠️ Shipping item with ItemID={shipping_item_id} not found in VIEW_Items. "
+                    f"Shipping OrderEntry creation will be skipped for orders."
+                )
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Error querying shipping item {shipping_item_id}: {e}", exc_info=True)
+            return None
+
+    async def get_shipping_item_cached(self, shipping_item_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get shipping item data with caching to avoid repeated database queries.
+
+        The shipping item data (e.g., ItemID=481461) is queried once and cached
+        for the lifetime of the QueryExecutor instance. This improves performance
+        since shipping item data rarely changes.
+
+        Args:
+            shipping_item_id: ItemID for shipping (from config SHIPPING_ITEM_ID)
+
+        Returns:
+            Cached shipping item dict or None if not found
+
+        Notes:
+            - Cache is populated on first call
+            - Cache persists for QueryExecutor instance lifetime
+            - Returns None if item not found (also cached to avoid repeated failures)
+        """
+        # Return cached data if available
+        if self._shipping_item_cache is not None:
+            logger.debug(f"Using cached shipping item data for ItemID={shipping_item_id}")
+            return self._shipping_item_cache
+
+        # Query and cache the result
+        logger.info(f"Caching shipping item data for ItemID={shipping_item_id}")
+        self._shipping_item_cache = await self.get_shipping_item(shipping_item_id)
+
+        if self._shipping_item_cache:
+            logger.info("✅ Shipping item data cached successfully")
+        else:
+            logger.warning(
+                "⚠️ Shipping item not found - None cached. "
+                "Subsequent order syncs will skip shipping OrderEntry creation."
+            )
+
+        return self._shipping_item_cache
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()

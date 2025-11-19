@@ -187,7 +187,7 @@ class RMSOrderEntry(BaseModel):
     cost: Decimal = Field(..., decimal_places=2, description="Costo del producto (requerido para facturación)")
 
     # Cantidades
-    quantity_on_order: float = Field(..., gt=0, description="Cantidad pedida")
+    quantity_on_order: float = Field(..., ge=0, description="Cantidad pedida (0 para shipping items)")
     quantity_rtd: float = Field(default=0, description="Cantidad despachada")
 
     # Información adicional
@@ -200,6 +200,12 @@ class RMSOrderEntry(BaseModel):
     # Campos especiales
     is_add_money: bool = Field(default=False, description="Indica si es un cargo adicional")
     voucher_id: Optional[int] = Field(None, description="ID de cupón o voucher si aplica")
+    comment: Optional[str] = Field(
+        None, max_length=255, description="Comentario de la entrada (e.g., 'Shipping Item' para envíos)"
+    )
+    price_source: int = Field(
+        default=1, description="Fuente de precio (1=estándar, 10=envío con impuesto incluido)"
+    )
 
 
 class RMSOrderHistory(BaseModel):

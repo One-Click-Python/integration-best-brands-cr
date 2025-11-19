@@ -13,7 +13,7 @@ services:
       # RMS Database Configuration
       - RMS_DB_HOST=${RMS_DB_HOST:-host.docker.internal}
       - RMS_DB_PORT=${RMS_DB_PORT:-1438}
-      - RMS_DB_NAME=${RMS_DB_NAME:-BB57}
+      - RMS_DB_NAME=${RMS_DB_NAME:-bb57}
       - RMS_DB_USER=${RMS_DB_USER:-Shop1fy5428}
       - RMS_DB_PASSWORD=${RMS_DB_PASSWORD:-sh0pqfy10736!}
       - RMS_DB_DRIVER=${RMS_DB_DRIVER:-ODBC Driver 17 for SQL Server}
@@ -46,6 +46,7 @@ services:
       - ORDER_POLLING_LOOKBACK_MINUTES=${ORDER_POLLING_LOOKBACK_MINUTES:-15}
       - ORDER_POLLING_BATCH_SIZE=${ORDER_POLLING_BATCH_SIZE:-50}
       - ORDER_POLLING_MAX_PAGES=${ORDER_POLLING_MAX_PAGES:-10}
+      - SHIPPING_ITEM_ID=${SHIPPING_ITEM_ID:-481461}
 
       # Webhooks (OPTIONAL BACKUP - disabled by default)
       - ENABLE_WEBHOOKS=${ENABLE_WEBHOOKS:-False}

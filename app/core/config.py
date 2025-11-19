@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     SYNC_CHECKPOINT_INTERVAL: int = Field(default=100, env="SYNC_CHECKPOINT_INTERVAL")
     SYNC_PARALLEL_WORKERS: int = Field(default=3, env="SYNC_PARALLEL_WORKERS")
     SYNC_HANDLE_BATCH_SIZE: int = Field(default=25, env="SYNC_HANDLE_BATCH_SIZE")
-    
+
     # === CONFIGURACIÓN DE UPDATE CHECKPOINT ===
     USE_UPDATE_CHECKPOINT: bool = Field(default=False, env="USE_UPDATE_CHECKPOINT")
     CHECKPOINT_SUCCESS_THRESHOLD: float = Field(default=0.95, env="CHECKPOINT_SUCCESS_THRESHOLD")
@@ -89,19 +89,19 @@ class Settings(BaseSettings):
     ENABLE_ZERO_STOCK_CLEANUP: bool = Field(
         default=True,
         env="ENABLE_ZERO_STOCK_CLEANUP",
-        description="Habilitar limpieza automática de variantes con stock 0 en RMS durante sincronización"
+        description="Habilitar limpieza automática de variantes con stock 0 en RMS durante sincronización",
     )
 
     # === CONFIGURACIÓN DE CATEGORÍAS Y COLLECTIONS ===
     SYNC_INCLUDE_CATEGORY_TAGS: bool = Field(
         default=False,
         env="SYNC_INCLUDE_CATEGORY_TAGS",
-        description="Si True, agrega tags de categoría mapeados y tags de género para collections automáticas"
+        description="Si True, agrega tags de categoría mapeados y tags de género para collections automáticas",
     )
     SYNC_ENABLE_COLLECTIONS: bool = Field(
         default=False,
         env="SYNC_ENABLE_COLLECTIONS",
-        description="Si True, habilita la sincronización de collections basadas en género y categoría"
+        description="Si True, habilita la sincronización de collections basadas en género y categoría",
     )
 
     # === CONFIGURACIÓN DE SINCRONIZACIÓN COMPLETA PROGRAMADA ===
@@ -125,46 +125,49 @@ class Settings(BaseSettings):
     GUEST_CUSTOMER_ACCOUNT_NUMBER: str = Field(
         default="SHOPIFY-GUEST",
         env="GUEST_CUSTOMER_ACCOUNT_NUMBER",
-        description="Account number for auto-created guest customer in RMS"
+        description="Account number for auto-created guest customer in RMS",
     )
 
     # === CONFIGURACIÓN DE ESTADOS FINANCIEROS DE PEDIDOS ===
-    ALLOWED_ORDER_FINANCIAL_STATUSES: list[str] = Field(
+    ALLOWED_ORDER_FINANCIAL_STATUSES: str | list[str] = Field(
         default=["PAID", "PARTIALLY_PAID", "AUTHORIZED", "PENDING"],
         env="ALLOWED_ORDER_FINANCIAL_STATUSES",
-        description="Lista de estados financieros permitidos para sincronizar pedidos de Shopify a RMS"
+        description="Lista de estados financieros permitidos para sincronizar pedidos de Shopify a RMS",
     )
 
     # === CONFIGURACIÓN DE ORDER POLLING (MÉTODO PRIMARY PARA SINCRONIZACIÓN DE ÓRDENES) ===
     ENABLE_ORDER_POLLING: bool = Field(
         default=True,
         env="ENABLE_ORDER_POLLING",
-        description="Habilita polling de órdenes de Shopify (MÉTODO PRIMARY: más confiable que webhooks)"
+        description="Habilita polling de órdenes de Shopify (MÉTODO PRIMARY: más confiable que webhooks)",
     )
     ENABLE_WEBHOOKS: bool = Field(
         default=False,
         env="ENABLE_WEBHOOKS",
-        description="Habilita procesamiento de webhooks de Shopify (OPCIONAL: puede usarse como complemento a polling)"
+        description="Habilita procesamiento de webhooks de Shopify (OPCIONAL: puede usarse como complemento a polling)",
     )
     ORDER_POLLING_INTERVAL_MINUTES: int = Field(
         default=10,
         env="ORDER_POLLING_INTERVAL_MINUTES",
-        description="Intervalo en minutos para polling de órdenes (default: 10 minutos)"
+        description="Intervalo en minutos para polling de órdenes (default: 10 minutos)",
     )
     ORDER_POLLING_LOOKBACK_MINUTES: int = Field(
         default=15,
         env="ORDER_POLLING_LOOKBACK_MINUTES",
-        description="Ventana de tiempo en minutos para buscar órdenes (default: 15 minutos)"
+        description="Ventana de tiempo en minutos para buscar órdenes (default: 15 minutos)",
     )
     ORDER_POLLING_BATCH_SIZE: int = Field(
-        default=50,
-        env="ORDER_POLLING_BATCH_SIZE",
-        description="Número de órdenes por página en GraphQL (max 250)"
+        default=50, env="ORDER_POLLING_BATCH_SIZE", description="Número de órdenes por página en GraphQL (max 250)"
     )
     ORDER_POLLING_MAX_PAGES: int = Field(
-        default=10,
-        env="ORDER_POLLING_MAX_PAGES",
-        description="Máximo número de páginas a consultar en cada polling"
+        default=10, env="ORDER_POLLING_MAX_PAGES", description="Máximo número de páginas a consultar en cada polling"
+    )
+
+    # === CONFIGURACIÓN DE ORDERENTRY PARA ENVÍOS ===
+    SHIPPING_ITEM_ID: int = Field(
+        default=481461,
+        env="SHIPPING_ITEM_ID",
+        description="ItemID de VIEW_Items para costos de envío (OrderEntry automático)",
     )
 
     # === CONFIGURACIÓN DE RATE LIMITING ===
@@ -209,27 +212,27 @@ class Settings(BaseSettings):
     ENABLE_REVERSE_STOCK_SYNC: bool = Field(
         default=True,
         env="ENABLE_REVERSE_STOCK_SYNC",
-        description="Habilita sincronización complementaria de inventario Shopify → RMS"
+        description="Habilita sincronización complementaria de inventario Shopify → RMS",
     )
     REVERSE_SYNC_DELAY_MINUTES: int = Field(
         default=5,
         env="REVERSE_SYNC_DELAY_MINUTES",
-        description="Minutos de espera después de RMS→Shopify antes de ejecutar reverse sync"
+        description="Minutos de espera después de RMS→Shopify antes de ejecutar reverse sync",
     )
     REVERSE_SYNC_DELETE_ZERO_STOCK: bool = Field(
         default=True,
         env="REVERSE_SYNC_DELETE_ZERO_STOCK",
-        description="Si True, elimina variantes con stock 0 durante reverse sync"
+        description="Si True, elimina variantes con stock 0 durante reverse sync",
     )
     REVERSE_SYNC_BATCH_SIZE: int = Field(
         default=50,
         env="REVERSE_SYNC_BATCH_SIZE",
-        description="Número de productos a procesar por batch en reverse sync"
+        description="Número de productos a procesar por batch en reverse sync",
     )
     REVERSE_SYNC_PRESERVE_SINGLE_VARIANT: bool = Field(
         default=True,
         env="REVERSE_SYNC_PRESERVE_SINGLE_VARIANT",
-        description="Si True, no elimina la última variante de un producto"
+        description="Si True, no elimina la última variante de un producto",
     )
 
     # === CONFIGURACIÓN DE RETRIES ===
@@ -287,7 +290,7 @@ class Settings(BaseSettings):
         if not 0 <= v <= 59:
             raise ValueError("FULL_SYNC_MINUTE debe estar entre 0 y 59")
         return v
-    
+
     @field_validator("CHECKPOINT_SUCCESS_THRESHOLD")
     @classmethod
     def validate_checkpoint_threshold(cls, v):
@@ -295,7 +298,7 @@ class Settings(BaseSettings):
         if not 0.0 <= v <= 1.0:
             raise ValueError("CHECKPOINT_SUCCESS_THRESHOLD debe estar entre 0.0 y 1.0")
         return v
-    
+
     @field_validator("CHECKPOINT_DEFAULT_DAYS")
     @classmethod
     def validate_checkpoint_days(cls, v):
@@ -329,14 +332,18 @@ class Settings(BaseSettings):
 
             # Validar que los estados sean válidos
             valid_statuses = {
-                "PENDING", "AUTHORIZED", "PARTIALLY_PAID", "PAID",
-                "PARTIALLY_REFUNDED", "REFUNDED", "VOIDED"
+                "PENDING",
+                "AUTHORIZED",
+                "PARTIALLY_PAID",
+                "PAID",
+                "PARTIALLY_REFUNDED",
+                "REFUNDED",
+                "VOIDED",
             }
             invalid = [s for s in statuses if s not in valid_statuses]
             if invalid:
                 raise ValueError(
-                    f"Estados financieros inválidos: {invalid}. "
-                    f"Estados válidos: {sorted(valid_statuses)}"
+                    f"Estados financieros inválidos: {invalid}. " f"Estados válidos: {sorted(valid_statuses)}"
                 )
 
             return statuses
@@ -516,8 +523,8 @@ class Settings(BaseSettings):
         preventing system-level environment variables from accidentally
         overriding the application's configuration.
         """
-        import os
         import logging
+        import os
 
         logger = logging.getLogger(__name__)
 
@@ -555,10 +562,7 @@ class Settings(BaseSettings):
                     cleared_vars.append(var)
 
         if cleared_vars:
-            logger.info(
-                f"✅ Sanitized {len(cleared_vars)} environment variables: "
-                f"{', '.join(cleared_vars)}"
-            )
+            logger.info(f"✅ Sanitized {len(cleared_vars)} environment variables: " f"{', '.join(cleared_vars)}")
 
         # Log database being used (for verification)
         logger.info(f"🗄️  Using RMS database: {self.RMS_DB_NAME} @ {self.RMS_DB_HOST}:{self.RMS_DB_PORT}")
