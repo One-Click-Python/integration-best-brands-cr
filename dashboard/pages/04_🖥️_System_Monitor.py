@@ -4,10 +4,10 @@ System Monitor Page - Detailed system health and performance monitoring.
 
 import streamlit as st
 
-from dashboard.components.charts import remder_resource_usage_bars
-from dashboard.components.health_cards import remder_service_status_grid
-from dashboard.utils.api_client import get_api_client
-from dashboard.utils.formatters import format_bytes, format_number, format_percentage, time_ago
+from ..components.charts import remder_resource_usage_bars
+from ..components.health_cards import remder_service_status_grid
+from ..utils.api_client import get_api_client
+from ..utils.formatters import format_bytes, format_number, format_percentage, time_ago
 
 st.set_page_config(
     page_title="System Monitor - RMS-Shopify Dashboard",

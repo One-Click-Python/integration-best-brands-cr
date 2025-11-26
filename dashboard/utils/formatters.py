@@ -5,7 +5,7 @@ Formatting utilities for dashboard display.
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from dashboard.utils.constants import DATETIME_FORMATS, STATUS_ICONS, THRESHOLDS
+from .constants import DATETIME_FORMATS, STATUS_ICONS, THRESHOLDS
 
 
 def format_datetime(dt: str | datetime | None, format_type: str = "display") -> str:

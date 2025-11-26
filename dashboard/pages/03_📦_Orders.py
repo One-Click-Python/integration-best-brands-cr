@@ -4,10 +4,10 @@ Orders Management Page - Order polling status and controls.
 
 import streamlit as st
 
-from dashboard.components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
-from dashboard.components.sync_controls import remder_order_polling_controls
-from dashboard.utils.api_client import get_api_client
-from dashboard.utils.formatters import format_number, format_percentage, time_ago
+from ..components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
+from ..components.sync_controls import remder_order_polling_controls
+from ..utils.api_client import get_api_client
+from ..utils.formatters import format_number, format_percentage, time_ago
 
 st.set_page_config(
     page_title="Orders - RMS-Shopify Dashboard",
@@ -128,7 +128,7 @@ if polling_status and polling_status.get("status") == "success":
     with col3:
         seconds_until = data.get("seconds_until_next_poll", 0)
         if seconds_until is not None and seconds_until > 0:
-            from dashboard.utils.formatters import format_timedelta
+            from ..utils.formatters import format_timedelta
 
             st.metric("Tiempo hasta el Próximo Poll", format_timedelta(seconds_until))
         else:

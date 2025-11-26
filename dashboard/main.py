@@ -9,17 +9,17 @@ from datetime import datetime
 
 import streamlit as st
 
-from dashboard.components.health_cards import remder_health_indicators, remder_system_health_card, remder_uptime_card
-from dashboard.components.metrics_display import (
+from .components.health_cards import remder_health_indicators, remder_system_health_card, remder_uptime_card
+from .components.metrics_display import (
     remder_order_polling_metrics_card,
     remder_reverse_sync_status,
     remder_sync_metrics_card,
     remder_system_resources_card,
 )
-from dashboard.components.sync_controls import remder_quick_actions
-from dashboard.utils.api_client import get_api_client
-from dashboard.utils.constants import DEFAULT_CONFIG, REFRESH_INTERVALS
-from dashboard.utils.formatters import format_datetime
+from .components.sync_controls import remder_quick_actions
+from .utils.api_client import get_api_client
+from .utils.constants import DEFAULT_CONFIG, REFRESH_INTERVALS
+from .utils.formatters import format_datetime
 
 # Page configuration
 st.set_page_config(

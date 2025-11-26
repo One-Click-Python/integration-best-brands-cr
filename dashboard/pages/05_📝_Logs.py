@@ -5,10 +5,10 @@ Logs Page - View and search application logs (DEBUG mode required).
 import pandas as pd
 import streamlit as st
 
-from dashboard.components.charts import remder_log_level_distribution
-from dashboard.utils.api_client import get_api_client
-from dashboard.utils.constants import LOG_LEVEL_COLORS, LOG_LEVELS
-from dashboard.utils.formatters import format_datetime, format_number
+from ..components.charts import remder_log_level_distribution
+from ..utils.api_client import get_api_client
+from ..utils.constants import LOG_LEVEL_COLORS, LOG_LEVELS
+from ..utils.formatters import format_datetime, format_number
 
 st.set_page_config(
     page_title="Logs - RMS-Shopify Dashboard",

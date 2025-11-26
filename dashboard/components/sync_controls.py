@@ -4,8 +4,8 @@ Sync control buttons and forms for manual operations.
 
 import streamlit as st
 
-from dashboard.utils.api_client import get_api_client
-from dashboard.utils.constants import SYNC_TYPES
+from ..utils.api_client import get_api_client
+from ..utils.constants import SYNC_TYPES
 
 
 def remder_sync_trigger_buttons() -> None:

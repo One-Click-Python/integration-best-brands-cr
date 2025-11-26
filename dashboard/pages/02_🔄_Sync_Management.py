@@ -4,13 +4,13 @@ Sync Management Page - Manual sync controls and checkpoint management.
 
 import streamlit as st
 
-from dashboard.components.sync_controls import (
+from ..components.sync_controls import (
     remder_checkpoint_manager,
     remder_collection_sync_controls,
     remder_sync_interval_config,
     remder_sync_trigger_buttons,
 )
-from dashboard.utils.api_client import get_api_client
+from ..utils.api_client import get_api_client
 
 st.set_page_config(
     page_title="Sync Management - RMS-Shopify Dashboard",
@@ -117,7 +117,7 @@ if sync_status and sync_status.get("status") == "success":
         with col4:
             last_check = change_detector.get("last_check_time")
             if last_check:
-                from dashboard.utils.formatters import time_ago
+                from ..utils.formatters import time_ago
 
                 st.metric("Última Verificación", time_ago(last_check))
             else:

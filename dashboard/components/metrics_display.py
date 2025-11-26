@@ -4,7 +4,7 @@ Metrics display components for the dashboard.
 
 import streamlit as st
 
-from dashboard.utils.formatters import (
+from ..utils.formatters import (
     format_datetime,
     format_number,
     format_percentage,
