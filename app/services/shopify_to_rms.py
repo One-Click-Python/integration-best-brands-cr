@@ -219,19 +219,32 @@ class ShopifyToRMSSync:
             is_cancelled = shopify_order.get("cancelledAt") is not None
             cancel_reason = shopify_order.get("cancelReason", "")
 
-            # 3. Verificar si ya existe para determinar acción
+            # 3. Verificar si ya existe para determinar acción (CRITICAL: deduplication check)
             shopify_id_numeric = order_id.split("/")[-1]
-            existing_order = await self.order_repo.find_order_by_shopify_id(shopify_id_numeric)
+            try:
+                existing_order = await self.order_repo.find_order_by_shopify_id(shopify_id_numeric)
+            except Exception as dedup_error:
+                # FAIL SAFE: If deduplication check fails after all retries, DON'T create
+                # a potentially duplicate order. This prevents data integrity issues.
+                logger.error(
+                    f"⚠️ DEDUPLICATION CHECK FAILED for order {order_id} after all retries: {dedup_error}. "
+                    f"Refusing to create potentially duplicate order."
+                )
+                return {
+                    "order_id": order_id,
+                    "action": "deduplication_failed",
+                    "status": "error",
+                    "rms_order_id": None,
+                    "shopify_order_number": shopify_order.get("name", ""),
+                    "error": f"Could not verify if order exists in RMS: {dedup_error}",
+                }
 
             # 4. Manejar orden cancelada
             if is_cancelled:
                 if existing_order:
                     # Marcar orden existente como cancelada en RMS
                     logger.info(f"Order {order_id} is CANCELLED in Shopify, marking as closed in RMS")
-                    await self._mark_order_cancelled(
-                        existing_order["ID"],
-                        cancel_reason or "Cancelled in Shopify"
-                    )
+                    await self._mark_order_cancelled(existing_order["ID"], cancel_reason or "Cancelled in Shopify")
                     return {
                         "order_id": order_id,
                         "action": "cancelled",
@@ -292,10 +305,7 @@ class ShopifyToRMSSync:
             if cancel_reason:
                 comment += f": {cancel_reason}"
 
-            await self.order_repo.update_order(rms_order_id, {
-                "closed": True,
-                "comment": comment
-            })
+            await self.order_repo.update_order(rms_order_id, {"closed": True, "comment": comment})
             logger.info(f"✅ Marked RMS order {rms_order_id} as cancelled")
 
         except Exception as e:

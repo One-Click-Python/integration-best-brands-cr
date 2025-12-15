@@ -269,26 +269,32 @@ class OrderRepository(BaseRepository):
         return int(entry_id)
 
     # ------------------------- Retrieval and updates -------------------------
-    @with_retry(max_attempts=3, delay=1.0)
+    @with_retry(max_attempts=3, delay=1.0, exceptions=(RMSConnectionException, Exception))
     @log_operation()
     async def find_order_by_shopify_id(self, shopify_order_id: str) -> Optional[Dict[str, Any]]:
-        """Find an RMS order by Shopify order ID via ReferenceNumber and ChannelType."""
-        try:
-            async with self.get_session() as session:
-                reference_number = f"SHOPIFY-{shopify_order_id}"
-                query = """
-                SELECT * FROM [Order]
-                WHERE ReferenceNumber = :reference_number
-                  AND ChannelType = 2
-                """
-                result = await session.execute(text(query), {"reference_number": reference_number})
-                row = result.fetchone()
-                return row._asdict() if row else None
-        except Exception as e:
-            logger.error(f"Error finding order by Shopify ID {shopify_order_id}: {e}")
-            return None
+        """
+        Find an RMS order by Shopify order ID via ReferenceNumber and ChannelType.
 
-    @with_retry(max_attempts=3, delay=1.0)
+        CRITICAL for deduplication: This method MUST raise exceptions on DB errors
+        so that @with_retry can retry transient failures. Swallowing exceptions
+        and returning None would cause duplicate orders to be created.
+
+        Raises:
+            Exception: On database errors (triggers @with_retry)
+        """
+        async with self.get_session() as session:
+            reference_number = f"SHOPIFY-{shopify_order_id}"
+            query = """
+            SELECT * FROM [Order]
+            WHERE ReferenceNumber = :reference_number
+              AND ChannelType = 2
+            """
+            result = await session.execute(text(query), {"reference_number": reference_number})
+            row = result.fetchone()
+            return row._asdict() if row else None
+        # Let exceptions propagate → @with_retry handles retries
+
+    @with_retry(max_attempts=3, delay=1.0, exceptions=(RMSConnectionException, Exception))
     @log_operation()
     async def order_exists_by_shopify_id(self, shopify_order_id: str) -> bool:
         """
@@ -297,86 +303,91 @@ class OrderRepository(BaseRepository):
         This method is optimized for deduplication checks in the polling system.
         It only checks existence without retrieving the full order data.
 
+        CRITICAL for deduplication: This method MUST raise exceptions on DB errors
+        so that @with_retry can retry transient failures. Returning False on error
+        would cause duplicate orders to be created.
+
         Args:
             shopify_order_id: Shopify order ID (e.g., "5678901234")
 
         Returns:
-            bool: True if order exists, False otherwise
+            bool: True if order exists, False if it does not exist
+
+        Raises:
+            Exception: On database errors (triggers @with_retry)
         """
-        try:
-            async with self.get_session() as session:
-                reference_number = f"SHOPIFY-{shopify_order_id}"
-                query = """
-                SELECT COUNT(*) as order_count
-                FROM [Order]
-                WHERE ReferenceNumber = :reference_number
-                  AND ChannelType = 2
-                """
-                result = await session.execute(text(query), {"reference_number": reference_number})
-                count = result.scalar()
-                exists = (count or 0) > 0
+        async with self.get_session() as session:
+            reference_number = f"SHOPIFY-{shopify_order_id}"
+            query = """
+            SELECT COUNT(*) as order_count
+            FROM [Order]
+            WHERE ReferenceNumber = :reference_number
+              AND ChannelType = 2
+            """
+            result = await session.execute(text(query), {"reference_number": reference_number})
+            count = result.scalar()
+            exists = (count or 0) > 0
 
-                if exists:
-                    logger.debug(f"Order with Shopify ID {shopify_order_id} already exists in RMS")
+            if exists:
+                logger.debug(f"Order with Shopify ID {shopify_order_id} already exists in RMS")
 
-                return exists
-        except Exception as e:
-            logger.error(f"Error checking order existence for Shopify ID {shopify_order_id}: {e}")
-            # Return False to allow retry instead of blocking the order
-            return False
+            return exists
+        # Let exceptions propagate → @with_retry handles retries
 
-    @with_retry(max_attempts=3, delay=1.0)
+    @with_retry(max_attempts=3, delay=1.0, exceptions=(RMSConnectionException, Exception))
     @log_operation()
     async def check_orders_exist_batch(self, shopify_order_ids: list[str]) -> dict[str, bool]:
         """
         Check existence of multiple orders in batch for efficient deduplication.
+
+        CRITICAL for deduplication: This method MUST raise exceptions on DB errors
+        so that @with_retry can retry transient failures. Returning empty dict on error
+        would cause duplicate orders to be created.
 
         Args:
             shopify_order_ids: List of Shopify order IDs to check
 
         Returns:
             Dict mapping Shopify order ID to existence boolean
+
+        Raises:
+            Exception: On database errors (triggers @with_retry)
         """
-        try:
-            if not shopify_order_ids:
-                return {}
-
-            async with self.get_session() as session:
-                # Build reference numbers
-                reference_numbers = [f"SHOPIFY-{order_id}" for order_id in shopify_order_ids]
-
-                # Use IN clause for batch query
-                placeholders = ", ".join([f":ref{i}" for i in range(len(reference_numbers))])
-                query = f"""
-                SELECT ReferenceNumber
-                FROM [Order]
-                WHERE ReferenceNumber IN ({placeholders})
-                  AND ChannelType = 2
-                """
-
-                # Build params dict
-                params = {f"ref{i}": ref for i, ref in enumerate(reference_numbers)}
-
-                result = await session.execute(text(query), params)
-                existing_refs = {row.ReferenceNumber for row in result.fetchall()}
-
-                # Map back to original Shopify IDs
-                existence_map = {}
-                for order_id in shopify_order_ids:
-                    ref_number = f"SHOPIFY-{order_id}"
-                    existence_map[order_id] = ref_number in existing_refs
-
-                existing_count = sum(existence_map.values())
-                logger.info(
-                    f"Batch existence check: {existing_count}/{len(shopify_order_ids)} " f"orders already exist in RMS"
-                )
-
-                return existence_map
-
-        except Exception as e:
-            logger.error(f"Error in batch order existence check: {e}")
-            # Return empty dict to allow fallback to individual checks
+        if not shopify_order_ids:
             return {}
+
+        async with self.get_session() as session:
+            # Build reference numbers
+            reference_numbers = [f"SHOPIFY-{order_id}" for order_id in shopify_order_ids]
+
+            # Use IN clause for batch query
+            placeholders = ", ".join([f":ref{i}" for i in range(len(reference_numbers))])
+            query = f"""
+            SELECT ReferenceNumber
+            FROM [Order]
+            WHERE ReferenceNumber IN ({placeholders})
+              AND ChannelType = 2
+            """
+
+            # Build params dict
+            params = {f"ref{i}": ref for i, ref in enumerate(reference_numbers)}
+
+            result = await session.execute(text(query), params)
+            existing_refs = {row.ReferenceNumber for row in result.fetchall()}
+
+            # Map back to original Shopify IDs
+            existence_map = {}
+            for order_id in shopify_order_ids:
+                ref_number = f"SHOPIFY-{order_id}"
+                existence_map[order_id] = ref_number in existing_refs
+
+            existing_count = sum(existence_map.values())
+            logger.info(
+                f"Batch existence check: {existing_count}/{len(shopify_order_ids)} " f"orders already exist in RMS"
+            )
+
+            return existence_map
+        # Let exceptions propagate → @with_retry handles retries
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()

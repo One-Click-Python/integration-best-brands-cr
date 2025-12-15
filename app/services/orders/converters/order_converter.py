@@ -400,7 +400,7 @@ class OrderConverter:
                 cost=item_cost,
                 quantity_on_order=float(item["quantity"]),
                 quantity_rtd=0.0,
-                description=item["title"][:255],
+                description=(rms_item.get("Description") or item["title"])[:255],
                 taxable=is_taxable,
                 sales_rep_id=1000,  # Valor estándar para Shopify
                 discount_reason_code_id=0,
