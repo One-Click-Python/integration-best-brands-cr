@@ -303,6 +303,43 @@ python scripts/test_order_polling.py --reset-stats
 - Decrease: `ORDER_POLLING_MAX_PAGES` (e.g., 5 instead of 10)
 - Increase: `ORDER_POLLING_INTERVAL_MINUTES` (e.g., 15 or 30)
 
+## Shipping Method Detection
+
+Orders are automatically classified as pickup or delivery based on the Shopify shipping line:
+
+### ShippingServiceID Values
+
+- **ShippingServiceID = 0 (Pickup/In-Store)**: Orders with shipping methods containing pickup keywords
+- **ShippingServiceID = 4 (Home Delivery)**: All other shipping methods
+
+### Pickup Detection Keywords
+
+The system detects pickup orders using the following case-insensitive keywords in the shipping line title or code:
+- `retiro`
+- `pick up`
+- `pickup`
+- `sucursal`
+- `recoger`
+- `tienda`
+
+### Examples
+
+| Shopify Shipping Method | ShippingServiceID | RMS Interpretation |
+|------------------------|-------------------|-------------------|
+| "Retiro en Tienda" | 0 | Pickup/In-Store |
+| "Pick up at Store" | 0 | Pickup/In-Store |
+| "Envío Express" | 4 | Home Delivery |
+| "Standard Shipping" | 4 | Home Delivery |
+| (No shipping line) | 0 | Pickup/In-Store (default) |
+
+### Customization
+
+To add or modify pickup keywords, update the `pickup_keywords` list in `app/services/orders/converters/order_converter.py:_determine_shipping_service_id()`:
+
+```python
+pickup_keywords = ["retiro", "pick up", "pickup", "sucursal", "recoger", "tienda"]
+```
+
 ## Best Practices
 
 1. **Polling + Webhooks**: Enable both for maximum reliability
@@ -310,3 +347,4 @@ python scripts/test_order_polling.py --reset-stats
 3. **Financial Filters**: Only sync orders in desired states (avoid TEST, VOIDED)
 4. **Monitor Statistics**: Check success rates and error counts regularly
 5. **Test First**: Always dry-run before production changes
+6. **Shipping Methods**: Configure Shopify shipping methods with clear names matching pickup keywords

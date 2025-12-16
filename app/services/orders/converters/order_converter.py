@@ -157,10 +157,9 @@ class OrderConverter:
 
         for entry, tax_percentage in entries_with_tax_info:
             # entry.price AHORA incluye IVA, calcular subtotal con IVA
-            # SPECIAL CASE: Shipping entries have quantity_on_order=0, use quantity_rtd=1 instead
-            # This is the RMS pattern for shipping: QuantityOnOrder=0, QuantityRTD=1
-            is_shipping = entry.quantity_on_order == 0 and entry.quantity_rtd > 0
-            quantity_for_calc = entry.quantity_rtd if is_shipping else entry.quantity_on_order
+            # All entries (products and shipping) now use quantity_on_order for calculation
+            # This follows the "open order" logic: OnOrder=1.0, RTD=0.0 (pending fulfillment)
+            quantity_for_calc = entry.quantity_on_order
 
             subtotal_with_tax = entry.price.amount * Decimal(str(quantity_for_calc))
 
@@ -173,6 +172,9 @@ class OrderConverter:
 
             total_without_tax += subtotal_without_tax
             total_tax += tax_item
+
+            # Detect if shipping based on comment field (for logging)
+            is_shipping = entry.comment == "Shipping Item"
 
             logger.debug(
                 f"  Line item calculation: price_with_tax={entry.price.amount}, "
@@ -218,6 +220,9 @@ class OrderConverter:
             customer_info, order_name=shopify_order.get("name"), payment_status=None
         )
 
+        # Determine shipping service ID based on shipping method
+        shipping_service_id = self._determine_shipping_service_id(shopify_order)
+
         # Create order domain model with calculated totals from RMS
         order = OrderDomain(
             store_id=40,
@@ -233,7 +238,7 @@ class OrderConverter:
             comment=order_comment,
             shipping_notes="",
             sales_rep_id=1000,
-            shipping_service_id=0,
+            shipping_service_id=shipping_service_id,
             shipping_tracking_number="",
         )
 
@@ -242,6 +247,37 @@ class OrderConverter:
             order.add_entry(entry)
 
         return order
+
+    def _determine_shipping_service_id(self, shopify_order: dict[str, Any]) -> int:
+        """
+        Determine ShippingServiceID based on Shopify shipping method.
+
+        Returns:
+            0 = Pickup/In-Store (Retiro en tienda)
+            4 = Home Delivery (Envío a domicilio)
+        """
+        shipping_lines = shopify_order.get("shippingLines", {}).get("nodes", [])
+
+        # No shipping line = pickup/in-store
+        if not shipping_lines:
+            logger.info("No shipping line found, defaulting to ShippingServiceID=0 (pickup)")
+            return 0
+
+        # Check first shipping line (typically only one)
+        shipping_line = shipping_lines[0]
+        title = (shipping_line.get("title") or "").lower()
+        code = (shipping_line.get("code") or "").lower()
+
+        # Pickup indicators (case-insensitive)
+        pickup_keywords = ["retiro", "pick up", "pickup", "sucursal", "recoger", "tienda"]
+        for keyword in pickup_keywords:
+            if keyword in title or keyword in code:
+                logger.info(f"Detected pickup shipping: '{shipping_line.get('title')}', " f"ShippingServiceID=0")
+                return 0
+
+        # Default: if shipping line exists and no pickup keywords, it's delivery
+        logger.info(f"Detected delivery shipping: '{shipping_line.get('title')}', " f"ShippingServiceID=4")
+        return 4
 
     def _extract_shipping_charge(self, shopify_order: dict[str, Any]) -> Money:
         """Extract shipping charge from order."""
@@ -313,13 +349,29 @@ class OrderConverter:
             item_cost = Money.from_string(str(rms_item.get("cost") or 0.0), "CRC")
 
             # PASO 3: Determinar precio efectivo de RMS según promoción vigente en la fecha de pago
+            base_price_decimal = Decimal(str(rms_item.get("price") or 0))
             rms_price_decimal = get_effective_price(
-                base_price=Decimal(str(rms_item.get("price") or 0)),
+                base_price=base_price_decimal,
                 sale_price=Decimal(str(rms_item.get("sale_price") or 0)) if rms_item.get("sale_price") else None,
                 sale_start=rms_item.get("sale_start"),
                 sale_end=rms_item.get("sale_end"),
                 reference_date=order_date,
             )
+
+            # PASO 3.5: Detectar si hay promoción activa (descuento oculto)
+            # Promoción activa = SalePrice > 0 Y fecha de orden dentro de SaleStartDate/SaleEndDate
+            # Se marca con PriceSource=10 y DiscountReasonCodeId=26 (ThirtyBees compatibility)
+            sale_price_raw = rms_item.get("sale_price")
+            sale_start = rms_item.get("sale_start")
+            sale_end = rms_item.get("sale_end")
+
+            has_active_promotion = False
+            if sale_price_raw and Decimal(str(sale_price_raw)) > 0 and sale_start and sale_end:
+                sale_start_utc = _ensure_utc_datetime(sale_start)
+                sale_end_utc = _ensure_utc_datetime(sale_end)
+                order_date_utc = _ensure_utc_datetime(order_date)
+                if sale_start_utc and sale_end_utc and order_date_utc:
+                    has_active_promotion = sale_start_utc <= order_date_utc <= sale_end_utc
 
             # PASO 4: Calcular precio de Shopify discriminado (sin IVA) para validación
             discounted_price_set = item.get("discountedUnitPriceSet", item.get("originalUnitPriceSet"))
@@ -358,40 +410,57 @@ class OrderConverter:
             final_price_with_tax = final_price * (Decimal("1") + tax_percentage)
             unit_price = Money(final_price_with_tax, "CRC")
 
-            # PASO 6: Calcular full_price usando precio base de RMS (View_Items.Price) + IVA
-            base_price_decimal = Decimal(str(rms_item.get("price") or 0))
+            # PASO 6: Use the same transactional price for both Price and FullPrice
+            # Client confirmed: "Podemos usar FullPrice y Price iguales"
+            # This simplifies accounting and avoids discrepancies between RMS base price and Shopify promotional price
+            final_full_price = final_price_with_tax  # ✅ Already calculated above
 
+            # Validation: warn if RMS base price differs significantly from Shopify price
+            # (base_price_decimal ya definido en PASO 3)
             if base_price_decimal > 0:
-                # Aplicar impuesto al precio base de RMS
-                final_full_price = base_price_decimal * (Decimal("1") + tax_percentage)
-                logger.debug(
-                    f"FullPrice calculado desde View_Items.Price: "
-                    f"base={base_price_decimal}, tax={tax_percentage*100:.0f}%, "
-                    f"final={final_full_price}"
-                )
+                expected_full_from_base = base_price_decimal * (Decimal("1") + tax_percentage)
+                price_diff_pct = abs(final_full_price - expected_full_from_base) / expected_full_from_base * 100
+                if price_diff_pct > 10:
+                    logger.warning(
+                        f"SKU {item_sku}: FullPrice from Shopify (₡{final_full_price}) differs {price_diff_pct:.1f}% "
+                        f"from RMS base (₡{expected_full_from_base}). Using Shopify price as agreed."
+                    )
+                else:
+                    logger.debug(
+                        f"FullPrice = Price from Shopify: ₡{final_full_price:.2f} "
+                        f"(RMS base: ₡{expected_full_from_base:.2f}, diff: {price_diff_pct:.1f}%)"
+                    )
             else:
-                logger.error(f"❌ View_Items.Price es 0 o nulo para SKU {item_sku}. " f"FullPrice se establecerá en 0.")
-                final_full_price = Decimal("0")
+                logger.debug(f"FullPrice = Price from Shopify: ₡{final_full_price:.2f} (no RMS base price)")
 
             full_price = Money(final_full_price, "CRC")
 
             # PASO 7: Obtener taxable desde RMS
             is_taxable = bool(rms_item.get("taxable", True))
 
-            # PASO 8: Logging detallado de la decisión final
+            # PASO 8: Determinar PriceSource y DiscountReasonCodeId según promoción
+            # - Con promoción activa (descuento oculto): PriceSource=10, DiscountReasonCodeId=26
+            # - Sin promoción: PriceSource=1, DiscountReasonCodeId=0
+            # ThirtyBees compatibility: replica el comportamiento anterior
+            price_source = 10 if has_active_promotion else 1
+            discount_reason_code_id = 26 if has_active_promotion else 0
+
+            # PASO 9: Logging detallado de la decisión final
             logger.info(
                 f"📦 Line item procesado - SKU: {item_sku}, "
-                f"Precio final: ₡{final_price_with_tax:.2f} (CON IVA), "
-                f"Full price: ₡{final_full_price:.2f} (CON IVA desde View_Items.Price), "
+                f"Price: ₡{final_price_with_tax:.2f} (CON IVA), "
+                f"FullPrice: ₡{final_full_price:.2f} (CON IVA, same as Price), "
                 f"Precio base (sin IVA): ₡{final_price:.2f}, "
                 f"Precio RMS base: ₡{base_price_decimal:.2f}, "
                 f"Precio RMS efectivo: ₡{rms_price_decimal:.2f}, "
                 f"Tax: {tax_percentage*100:.0f}%, "
                 f"Taxable: {is_taxable}, "
-                f"Promoción aplicada: {rms_price_decimal != base_price_decimal}"
+                f"Promoción RMS activa: {has_active_promotion}, "
+                f"PriceSource: {price_source}, "
+                f"DiscountReasonCodeId: {discount_reason_code_id}"
             )
 
-            # PASO 9: Crear domain entry - Price CON IVA, FullPrice=View_Items.Price con IVA
+            # PASO 10: Crear domain entry - Price CON IVA, FullPrice=Price (same transactional value)
             entry = OrderEntryDomain(
                 item_id=item_id,
                 store_id=40,
@@ -403,10 +472,11 @@ class OrderConverter:
                 description=(rms_item.get("Description") or item["title"])[:255],
                 taxable=is_taxable,
                 sales_rep_id=1000,  # Valor estándar para Shopify
-                discount_reason_code_id=0,
+                discount_reason_code_id=discount_reason_code_id,
                 return_reason_code_id=0,
                 is_add_money=False,
                 voucher_id=0,
+                price_source=price_source,
             )
 
             # Guardar tax_percentage original (sin dividir por 100) para cálculos de Order
@@ -506,9 +576,9 @@ class OrderConverter:
         cost_money = Money(Decimal(str(shipping_item.get("cost", 0))), shipping_charge.currency)
 
         # Create shipping OrderEntry domain model
-        # IMPORTANT: Shipping entries use a special pattern in RMS:
-        # - quantity_on_order = 0 (not a product quantity)
-        # - quantity_rtd = 1 (indicator that it's a shipping entry)
+        # IMPORTANT: Shipping entries use "open order" logic (same as products):
+        # - quantity_on_order = 1.0 (reserved for order, pending fulfillment)
+        # - quantity_rtd = 0.0 (not yet ready to deliver)
         # - comment = "Shipping Item" (identifies shipping)
         # - price_source = 10 (charges Price*(1+tax%))
         shipping_entry = OrderEntryDomain(
@@ -517,8 +587,8 @@ class OrderConverter:
             price=price_money,  # Price WITH tax from VIEW_Items (auto-rounded to 2 decimals)
             full_price=full_price_money,  # Same as price for shipping (no discount, 2 decimals)
             cost=cost_money,  # Usually ₡0.00 for shipping
-            quantity_on_order=0.0,  # ← 0 for shipping (not a product quantity)
-            quantity_rtd=1.0,  # ← 1 for shipping (indicates it's a shipping entry)
+            quantity_on_order=1.0,  # ← 1.0 for shipping (reserved for order)
+            quantity_rtd=0.0,  # ← 0.0 for shipping (pending fulfillment)
             description=shipping_item["Description"],  # e.g., "ENVÍO"
             taxable=bool(shipping_item["taxable"]),  # Usually True (shipping is taxable in Costa Rica)
             sales_rep_id=1000,  # Standard sales rep for Shopify orders
@@ -539,7 +609,7 @@ class OrderConverter:
             f"Description='{shipping_item['Description']}', "
             f"Price=₡{price_money.amount:.2f} (WITH {tax_percentage_whole}% tax), "
             f"Base price from VIEW_Items=₡{price_from_view_items:.2f}, "
-            f"QuantityOnOrder=0.0, QuantityRTD=1.0, "
+            f"QuantityOnOrder=1.0, QuantityRTD=0.0 (open order logic), "
             f"Comment='Shipping Item', PriceSource=10, "
             f"Taxable={bool(shipping_item['taxable'])}"
         )

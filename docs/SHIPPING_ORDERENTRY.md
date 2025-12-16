@@ -66,7 +66,7 @@ price_money = Money(calculated_with_tax, "CRC")  # 11,300.00
 ```
 
 ### 3. OrderEntry Fields
-**Created Entry** (RMS Special Pattern for Shipping):
+**Created Entry** (Open Order Pattern for Shipping):
 ```python
 OrderEntryDomain(
     item_id=481461,              # Shipping item from VIEW_Items
@@ -74,8 +74,8 @@ OrderEntryDomain(
     price=Money("11300.00"),     # Price WITH 13% tax
     full_price=Money("11300.00"), # Same as price (no promotion for shipping)
     cost=Money("0.00"),          # Usually 0 for shipping
-    quantity_on_order=0.0,       # 0 for shipping (not a product quantity)
-    quantity_rtd=1.0,            # 1 for shipping (indicates it's a shipping entry)
+    quantity_on_order=1.0,       # 1.0 for shipping (reserved for order)
+    quantity_rtd=0.0,            # 0.0 for shipping (pending fulfillment)
     description="ENVIO",         # From VIEW_Items.Description
     taxable=True,                # Usually True (shipping taxable in CR)
     sales_rep_id=1000,
@@ -85,26 +85,34 @@ OrderEntryDomain(
 )
 ```
 
+## Inventory Reservation Logic
+
+Shipping entries now use the same **"open order" logic** as product entries:
+
+- **QuantityOnOrder = 1.0**: Reserved for order (pending fulfillment)
+- **QuantityRTD = 0.0**: Not yet ready to deliver
+- **Previous behavior**: Used POS logic (OnOrder=0, RTD=1) for immediate pickup
+
+This change aligns shipping entries with product entries, ensuring consistent order processing workflow across all items.
+
 **Important RMS Pattern**:
-- `quantity_on_order=0.0` - Shipping is NOT a product, so quantity is 0
-- `quantity_rtd=1.0` - Used as indicator that it's a shipping entry
+- `quantity_on_order=1.0` - Reserved for order (pending fulfillment)
+- `quantity_rtd=0.0` - Not yet ready to deliver
 - `comment="Shipping Item"` - Text identifier for shipping entries
 - `price_source=10` - Tells RMS to charge `Price*(1+(Tax/100))`
 
-### 4. Tax Calculation with Shipping (Quantity=0 Handling)
-**File**: `app/services/orders/converters/order_converter.py:152-177`
+### 4. Tax Calculation with Shipping
+**File**: `app/services/orders/converters/order_converter.py:158-189`
 
-The tax calculation loop handles shipping entries specially:
+The tax calculation loop now treats all entries (products and shipping) uniformly:
 
 ```python
 for entry, tax_percentage in entries_with_tax_info:
-    # Detect shipping: quantity_on_order=0, quantity_rtd>0
-    is_shipping = entry.quantity_on_order == 0 and entry.quantity_rtd > 0
+    # All entries (products and shipping) now use quantity_on_order for calculation
+    # This follows the "open order" logic: OnOrder=1.0, RTD=0.0 (pending fulfillment)
+    quantity_for_calc = entry.quantity_on_order
 
-    # Use quantity_rtd (1.0) for shipping, quantity_on_order for products
-    quantity_for_calc = entry.quantity_rtd if is_shipping else entry.quantity_on_order
-
-    # Calculate: 2350.00 * 1.0 = 2350.00 (not 2350.00 * 0 = 0)
+    # Calculate: 11,300.00 * 1.0 = 11,300.00
     subtotal_with_tax = entry.price.amount * Decimal(str(quantity_for_calc))
 
     # Discriminate tax and add to Order.Tax
@@ -114,8 +122,7 @@ for entry, tax_percentage in entries_with_tax_info:
     total_tax += tax_item  # Shipping tax INCLUDED
 ```
 
-**Without this fix**: Shipping would contribute 0 tax (2350 * 0 = 0)
-**With this fix**: Shipping contributes correct tax (2350 * 1 = 2350, then discriminated)
+**Simplified Logic**: Both products and shipping use `quantity_on_order=1.0`, so no special handling needed
 
 ## Update Scenarios
 
@@ -185,11 +192,11 @@ WHERE vi.ItemID = 481461
 
 ## Logs & Monitoring
 
-**Success Log - Created** (`order_converter.py:532`):
+**Success Log - Created** (`order_converter.py:537-545`):
 ```
 Created shipping OrderEntry: ItemID=481461,
 Description='ENVIO', Price=5,650.00 (WITH 13% tax),
-Base price (without tax)=5,000.00, QuantityOnOrder=0.0, QuantityRTD=1.0,
+Base price from VIEW_Items=5,000.00, QuantityOnOrder=1.0, QuantityRTD=0.0 (open order logic),
 Comment='Shipping Item', PriceSource=10, Taxable=True
 ```
 
