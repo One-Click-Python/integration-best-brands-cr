@@ -4,7 +4,7 @@ Health status cards for the dashboard.
 
 import streamlit as st
 
-from ..utils.formatters import format_number, get_status_icon, time_ago
+from dashboard.utils.formatters import format_number, get_status_icon, time_ago
 
 
 def remder_system_health_card(health_data: dict | None) -> None:

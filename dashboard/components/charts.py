@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from ..utils.constants import CHART_COLORS
+from dashboard.utils.constants import CHART_COLORS
 
 
 def remder_success_rate_gauge(success_rate: float, title: str = "Tasa de Éxito") -> None:

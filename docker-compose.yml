@@ -83,6 +83,9 @@ services:
     ports:
       - "8501:8501"
     environment:
+      # Python Path (required for absolute imports)
+      - PYTHONPATH=/app
+
       # Dashboard Configuration
       - DASHBOARD_API_URL=http://api:8000
       - DEBUG=${DEBUG:-False}

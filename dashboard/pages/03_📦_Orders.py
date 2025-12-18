@@ -4,10 +4,10 @@ Orders Management Page - Order polling status and controls.
 
 import streamlit as st
 
-from ..components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
-from ..components.sync_controls import remder_order_polling_controls
-from ..utils.api_client import get_api_client
-from ..utils.formatters import format_number, format_percentage, time_ago
+from dashboard.components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
+from dashboard.components.sync_controls import remder_order_polling_controls
+from dashboard.utils.api_client import get_api_client
+from dashboard.utils.formatters import format_number, format_percentage, time_ago
 
 st.set_page_config(
     page_title="Orders - RMS-Shopify Dashboard",

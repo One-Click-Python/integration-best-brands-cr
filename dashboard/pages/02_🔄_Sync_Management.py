@@ -4,13 +4,13 @@ Sync Management Page - Manual sync controls and checkpoint management.
 
 import streamlit as st
 
-from ..components.sync_controls import (
+from dashboard.components.sync_controls import (
     remder_checkpoint_manager,
     remder_collection_sync_controls,
     remder_sync_interval_config,
     remder_sync_trigger_buttons,
 )
-from ..utils.api_client import get_api_client
+from dashboard.utils.api_client import get_api_client
 
 st.set_page_config(
     page_title="Sync Management - RMS-Shopify Dashboard",
