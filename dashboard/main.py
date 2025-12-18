@@ -4,6 +4,14 @@ RMS-Shopify Integration Dashboard - Main Entry Point
 This is the home page of the dashboard showing an overview of the system.
 """
 
+import sys
+from pathlib import Path
+
+# Ensure dashboard module is importable (required for Streamlit in Docker)
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import time
 from datetime import datetime
 

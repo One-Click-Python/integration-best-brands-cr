@@ -2,6 +2,14 @@
 Logs Page - View and search application logs (DEBUG mode required).
 """
 
+import sys
+from pathlib import Path
+
+# Ensure dashboard module is importable (required for Streamlit in Docker)
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import pandas as pd
 import streamlit as st
 

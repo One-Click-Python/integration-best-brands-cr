@@ -2,6 +2,14 @@
 Orders Management Page - Order polling status and controls.
 """
 
+import sys
+from pathlib import Path
+
+# Ensure dashboard module is importable (required for Streamlit in Docker)
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import streamlit as st
 
 from dashboard.components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
