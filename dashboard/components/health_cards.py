@@ -81,7 +81,7 @@ def remder_uptime_card(health_data: dict | None) -> None:
         value=uptime_human,
         delta=f"Iniciado: {time_ago(start_time)}",
         delta_color="off",
-        help="Tiempo desde la última reinicialização del sistema",
+        help="Tiempo desde la última reinicialización del sistema",
     )
 
 
@@ -117,16 +117,16 @@ def remder_service_status_grid(services: dict) -> None:
             with col3:
                 latency = service_data.get("latency_ms")
                 if latency is not None:
-                    st.markdown(f"Latência: **{latency:.0f}ms**")
+                    st.markdown(f"Latencia: **{latency:.0f}ms**")
                 else:
-                    st.markdown("Latência: **N/A**")
+                    st.markdown("Latencia: **N/A**")
 
             with col4:
                 # Additional service info if available
                 if "error" in service_data:
                     st.markdown(f":red[⚠️ {service_data['error']}]")
                 elif "last_check" in service_data:
-                    st.markdown(f"Última verificação: {time_ago(service_data['last_check'])}")
+                    st.markdown(f"Última verificación: {time_ago(service_data['last_check'])}")
 
             st.divider()
 
@@ -189,7 +189,7 @@ def remder_connection_test_results(test_results: dict) -> None:
     Args:
         test_results: Dictionary with test results for each service
     """
-    st.markdown("#### Resultados do Teste de Conexão")
+    st.markdown("#### Resultados del Test de Conexión")
 
     for service_name, result in test_results.items():
         success = result.get("success", False)
@@ -205,9 +205,9 @@ def remder_connection_test_results(test_results: dict) -> None:
             with col2:
                 if success:
                     latency = result.get("latency_ms", 0)
-                    st.markdown(f"✅ Conexão exitosa ({latency:.0f}ms)")
+                    st.markdown(f"✅ Conexión exitosa ({latency:.0f}ms)")
                 else:
-                    error = result.get("error", "Erro desconhecido")
+                    error = result.get("error", "Error desconocido")
                     st.markdown(f":red[❌ Falla: {error}]")
 
             st.divider()

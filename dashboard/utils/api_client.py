@@ -10,6 +10,10 @@ from typing import Any
 import requests
 import streamlit as st
 
+# Timeout constants
+DEFAULT_TIMEOUT = 10  # For quick operations (health, status, etc.)
+SYNC_TIMEOUT = 120  # For sync operations (2 minutes - RMS + Shopify API calls)
+
 
 class APIClient:
     """Client for interacting with the RMS-Shopify Integration API."""
@@ -27,7 +31,12 @@ class APIClient:
         self.session = requests.Session()
 
     def _make_request(
-        self, method: str, endpoint: str, params: dict[str, Any] | None = None, json: dict[str, Any] | None = None
+        self,
+        method: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any] | None:
         """
         Make an HTTP request to the API.
@@ -37,6 +46,7 @@ class APIClient:
             endpoint: API endpoint (e.g., "/api/v1/health")
             params: Query parameters
             json: JSON body for POST/PUT requests
+            timeout: Optional timeout override (default: self.timeout)
 
         Returns:
             Response JSON data or None if error
@@ -45,14 +55,15 @@ class APIClient:
             requests.exceptions.RequestException: If request fails
         """
         url = f"{self.base_url}{endpoint}"
+        request_timeout = timeout if timeout is not None else self.timeout
 
         try:
-            response = self.session.request(method=method, url=url, params=params, json=json, timeout=self.timeout)
+            response = self.session.request(method=method, url=url, params=params, json=json, timeout=request_timeout)
             response.raise_for_status()
             return response.json()
 
         except requests.exceptions.Timeout:
-            st.error(f"⏱️ Timeout de solicitud: La API no respondió en {self.timeout}s")
+            st.error(f"⏱️ Timeout de solicitud: La API no respondió en {request_timeout}s")
             return None
         except requests.exceptions.ConnectionError:
             st.error(f"🔌 Error de conexión: No se pudo conectar a la API en {self.base_url}")
@@ -110,9 +121,9 @@ class APIClient:
             sync_type: "incremental" or "full"
         """
         if sync_type == "full":
-            return _self._make_request("POST", "/api/v1/sync/monitor/force-full-sync")
+            return _self._make_request("POST", "/api/v1/sync/monitor/force-full-sync", timeout=SYNC_TIMEOUT)
         else:
-            return _self._make_request("POST", "/api/v1/sync/monitor/trigger")
+            return _self._make_request("POST", "/api/v1/sync/monitor/trigger", timeout=SYNC_TIMEOUT)
 
     def update_sync_interval(_self, interval_minutes: int) -> dict[str, Any] | None:
         """Update sync interval."""
@@ -168,7 +179,7 @@ class APIClient:
         if dry_run:
             payload["dry_run"] = dry_run
 
-        return _self._make_request("POST", "/api/v1/orders/polling/trigger", json=payload)
+        return _self._make_request("POST", "/api/v1/orders/polling/trigger", json=payload, timeout=SYNC_TIMEOUT)
 
     def reset_order_polling_stats(_self) -> dict[str, Any] | None:
         """Reset order polling statistics."""
@@ -196,12 +207,12 @@ class APIClient:
             dry_run: Test without making changes
         """
         params = {"dry_run": str(dry_run).lower()}
-        return _self._make_request("POST", "/api/v1/reverse-stock-sync", params=params)
+        return _self._make_request("POST", "/api/v1/sync/reverse-stock-sync", params=params, timeout=SYNC_TIMEOUT)
 
     @st.cache_data(ttl=10)
     def get_reverse_stock_sync_status(_self) -> dict[str, Any] | None:
         """Get reverse stock sync status (cached for 10s)."""
-        return _self._make_request("GET", "/api/v1/reverse-stock-sync/status")
+        return _self._make_request("GET", "/api/v1/sync/reverse-stock-sync/status")
 
     # ==================== COLLECTIONS ====================
 
@@ -214,7 +225,7 @@ class APIClient:
             "sync_main": str(sync_main).lower(),
             "sync_subcategories": str(sync_subcategories).lower(),
         }
-        return _self._make_request("POST", "/api/v1/collections/sync", params=params)
+        return _self._make_request("POST", "/api/v1/collections/sync", params=params, timeout=SYNC_TIMEOUT)
 
     @st.cache_data(ttl=30)
     def get_collections_status(_self) -> dict[str, Any] | None:

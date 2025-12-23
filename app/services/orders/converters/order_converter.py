@@ -136,14 +136,14 @@ class OrderConverter:
             if shipping_entry_tuple:
                 entries_with_tax_info.append(shipping_entry_tuple)
                 logger.info(
-                    f"✅ Created shipping OrderEntry: shipping=₡{shipping_charge.amount:.2f}, "
+                    f"✅ Created shipping OrderEntry: shipping=₡{shipping_charge.amount:.0f}, "
                     f"ItemID={settings.SHIPPING_ITEM_ID}"
                 )
             else:
                 logger.warning(
                     f"⚠️ Failed to create shipping OrderEntry "
                     f"(ItemID={settings.SHIPPING_ITEM_ID} not found in VIEW_Items). "
-                    f"Shipping charge: ₡{shipping_charge.amount:.2f}"
+                    f"Shipping charge: ₡{shipping_charge.amount:.0f}"
                 )
         else:
             logger.info("⏭️ Skipping shipping OrderEntry creation (shipping=₡0)")
@@ -181,7 +181,7 @@ class OrderConverter:
                 f"qty_on_order={entry.quantity_on_order}, qty_rtd={entry.quantity_rtd}, "
                 f"qty_for_calc={quantity_for_calc} {'(shipping)' if is_shipping else '(product)'}, "
                 f"tax%={tax_percentage}, subtotal_with_tax={subtotal_with_tax}, "
-                f"subtotal_without_tax={subtotal_without_tax:.2f}, tax={tax_item:.2f}"
+                f"subtotal_without_tax={subtotal_without_tax:.0f}, tax={tax_item:.0f}"
             )
 
         # Calcular total CON impuestos (subtotal + tax)
@@ -427,11 +427,11 @@ class OrderConverter:
                     )
                 else:
                     logger.debug(
-                        f"FullPrice = Price from Shopify: ₡{final_full_price:.2f} "
-                        f"(RMS base: ₡{expected_full_from_base:.2f}, diff: {price_diff_pct:.1f}%)"
+                        f"FullPrice = Price from Shopify: ₡{final_full_price:.0f} "
+                        f"(RMS base: ₡{expected_full_from_base:.0f}, diff: {price_diff_pct:.1f}%)"
                     )
             else:
-                logger.debug(f"FullPrice = Price from Shopify: ₡{final_full_price:.2f} (no RMS base price)")
+                logger.debug(f"FullPrice = Price from Shopify: ₡{final_full_price:.0f} (no RMS base price)")
 
             full_price = Money(final_full_price, "CRC")
 
@@ -448,11 +448,11 @@ class OrderConverter:
             # PASO 9: Logging detallado de la decisión final
             logger.info(
                 f"📦 Line item procesado - SKU: {item_sku}, "
-                f"Price: ₡{final_price_with_tax:.2f} (CON IVA), "
-                f"FullPrice: ₡{final_full_price:.2f} (CON IVA, same as Price), "
-                f"Precio base (sin IVA): ₡{final_price:.2f}, "
-                f"Precio RMS base: ₡{base_price_decimal:.2f}, "
-                f"Precio RMS efectivo: ₡{rms_price_decimal:.2f}, "
+                f"Price: ₡{final_price_with_tax:.0f} (CON IVA), "
+                f"FullPrice: ₡{final_full_price:.0f} (CON IVA, same as Price), "
+                f"Precio base (sin IVA): ₡{final_price:.0f}, "
+                f"Precio RMS base: ₡{base_price_decimal:.0f}, "
+                f"Precio RMS efectivo: ₡{rms_price_decimal:.0f}, "
                 f"Tax: {tax_percentage*100:.0f}%, "
                 f"Taxable: {is_taxable}, "
                 f"Promoción RMS activa: {has_active_promotion}, "
@@ -607,8 +607,8 @@ class OrderConverter:
         logger.info(
             f"✅ Created shipping OrderEntry: ItemID={shipping_item['item_id']}, "
             f"Description='{shipping_item['Description']}', "
-            f"Price=₡{price_money.amount:.2f} (WITH {tax_percentage_whole}% tax), "
-            f"Base price from VIEW_Items=₡{price_from_view_items:.2f}, "
+            f"Price=₡{price_money.amount:.0f} (WITH {tax_percentage_whole}% tax), "
+            f"Base price from VIEW_Items=₡{price_from_view_items:.0f}, "
             f"QuantityOnOrder=1.0, QuantityRTD=0.0 (open order logic), "
             f"Comment='Shipping Item', PriceSource=10, "
             f"Taxable={bool(shipping_item['taxable'])}"

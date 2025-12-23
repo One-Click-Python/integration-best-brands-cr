@@ -96,7 +96,7 @@ def remder_resource_usage_bars(cpu: float, memory: float, disk: float) -> None:
 
     fig.update_layout(
         title="Uso de Recursos del Sistema",
-        xaxis_title="Percentual (%)",
+        xaxis_title="Porcentaje (%)",
         xaxis=dict(range=[0, 100]),
         height=300,
         margin=dict(l=20, r=20, t=50, b=20),
@@ -113,7 +113,7 @@ def remder_sync_activity_timeline(activity_data: list[dict]) -> None:
         activity_data: List of activity records with timestamp and status
     """
     if not activity_data:
-        st.info("📊 Ningúna atividade recente para exibir")
+        st.info("📊 Ninguna actividad reciente para mostrar")
         return
 
     # Extract data
@@ -156,7 +156,7 @@ def remder_error_distribution_pie(error_counts: dict[str, int]) -> None:
         error_counts: Dictionary of error type -> count
     """
     if not error_counts or sum(error_counts.values()) == 0:
-        st.info("📊 Ningún erro registrado")
+        st.info("📊 Ningún error registrado")
         return
 
     labels = list(error_counts.keys())
@@ -165,7 +165,7 @@ def remder_error_distribution_pie(error_counts: dict[str, int]) -> None:
     fig = px.pie(
         names=labels,
         values=values,
-        title="Distribuição de Erros por Tipo",
+        title="Distribución de Errores por Tipo",
         color_discrete_sequence=px.colors.qualitative.Set3,
     )
 
@@ -188,7 +188,7 @@ def remder_sync_stats_comparison(
         already_synced: Itens already in sync
         errors: Sync errors
     """
-    categories = ["Total Consultado", "Nuevos", "Actualizados", "Ya Sincronizados", "Erros"]
+    categories = ["Total Consultado", "Nuevos", "Actualizados", "Ya Sincronizados", "Errores"]
     values = [total_polled, newly_synced, updated, already_synced, errors]
 
     colors = [
@@ -213,8 +213,8 @@ def remder_sync_stats_comparison(
 
     fig.update_layout(
         title="Estadísticas de Sincronización",
-        xaxis_title="Categoria",
-        yaxis_title="Quantidade",
+        xaxis_title="Categoría",
+        yaxis_title="Cantidad",
         height=400,
         margin=dict(l=20, r=20, t=50, b=80),
         xaxis_tickangle=-15,
@@ -326,9 +326,9 @@ def remder_log_level_distribution(log_stats: dict[str, int]) -> None:
     )
 
     fig.update_layout(
-        title="Distribuição de Logs por Nível",
-        xaxis_title="Nível",
-        yaxis_title="Quantidade",
+        title="Distribución de Logs por Nivel",
+        xaxis_title="Nivel",
+        yaxis_title="Cantidad",
         height=350,
         margin=dict(l=20, r=20, t=50, b=50),
     )

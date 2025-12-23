@@ -19,6 +19,7 @@ from dashboard.components.sync_controls import (
     remder_sync_trigger_buttons,
 )
 from dashboard.utils.api_client import get_api_client
+from dashboard.utils.formatters import time_ago
 
 st.set_page_config(
     page_title="Sync Management - RMS-Shopify Dashboard",
@@ -64,12 +65,12 @@ with st.expander("ℹ️ Sobre Sincronización de Colecciones"):
         """
         Las colecciones de Shopify son creadas automáticamente basadas en las categorías de RMS.
 
-        **Opções:**
-        - **Coleções Principais**: Crea colecciones para familias principais (ex: Zapatos, Ropa)
-        - **Subcategorias**: Crea colecciones para subcategorias (ex: Tenis, Botas, Sandalias)
-        - **Dry-run**: Executa sin hacer cambios (apenas para teste)
+        **Opciones:**
+        - **Colecciones Principales**: Crea colecciones para familias principales (ej: Zapatos, Ropa)
+        - **Subcategorías**: Crea colecciones para subcategorías (ej: Tenis, Botas, Sandalias)
+        - **Dry-run**: Ejecuta sin hacer cambios (solo para pruebas)
 
-        **Nota**: Asegúrese de que `SYNC_ENABLE_COLLECTIONS=true` no `.env`
+        **Nota**: Asegúrese de que `SYNC_ENABLE_COLLECTIONS=true` en el `.env`
         """
     )
 
@@ -125,8 +126,6 @@ if sync_status and sync_status.get("status") == "success":
         with col4:
             last_check = change_detector.get("last_check_time")
             if last_check:
-                from ..utils.formatters import time_ago
-
                 st.metric("Última Verificación", time_ago(last_check))
             else:
                 st.metric("Última Verificación", "N/A")

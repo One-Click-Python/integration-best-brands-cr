@@ -65,7 +65,7 @@ if health_detailed:
     remder_service_status_grid(services)
 
 else:
-    st.warning("⚠️ No se pudo cargar información detalhadas de salud")
+    st.warning("⚠️ No se pudo cargar información detallada de salud")
 
 st.markdown("---")
 
@@ -98,7 +98,7 @@ if performance:
     # CPU Details
     with col1:
         st.markdown("#### 🖥️ CPU")
-        st.metric("Uso Atual", format_percentage(cpu_percent))
+        st.metric("Uso Actual", format_percentage(cpu_percent))
 
     # Memory Details
     with col2:
@@ -110,7 +110,7 @@ if performance:
         st.metric("Uso", format_percentage(memory_percent))
         st.write(f"**Total**: {format_bytes(total)}")
         st.write(f"**Usado**: {format_bytes(used)}")
-        st.write(f"**Disponível**: {format_bytes(available)}")
+        st.write(f"**Disponible**: {format_bytes(available)}")
 
     # Disk Details
     with col3:
@@ -122,7 +122,7 @@ if performance:
         st.metric("Uso", format_percentage(disk_percent))
         st.write(f"**Total**: {format_bytes(total)}")
         st.write(f"**Usado**: {format_bytes(used)}")
-        st.write(f"**Livre**: {format_bytes(free)}")
+        st.write(f"**Libre**: {format_bytes(free)}")
 
 else:
     st.warning("⚠️ No se pudo cargar métricas de performance")
@@ -143,7 +143,7 @@ with tab1:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("Total de Tentativas", format_number(data.get("total_retries", 0)))
+            st.metric("Total de Intentos", format_number(data.get("total_retries", 0)))
 
         with col2:
             st.metric("Éxitos", format_number(data.get("successful_retries", 0)))
@@ -187,7 +187,7 @@ with tab3:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.metric("Atualizações Totais", format_number(data.get("total_updates", 0)))
+            st.metric("Actualizaciones Totales", format_number(data.get("total_updates", 0)))
 
         with col2:
             st.metric("Éxitos", format_number(data.get("successful_updates", 0)))
@@ -207,7 +207,7 @@ with st.expander("🗄️ Salud de la Base de Datos"):
     if db_health and "data" in db_health:
         data = db_health["data"]
 
-        st.markdown("### Conexões RMS Database")
+        st.markdown("### Conexiones RMS Database")
 
         col1, col2, col3 = st.columns(3)
 
@@ -215,13 +215,13 @@ with st.expander("🗄️ Salud de la Base de Datos"):
             st.metric("Pool Size", data.get("pool_size", "N/A"))
 
         with col2:
-            st.metric("Conexões Ativas", data.get("active_connections", "N/A"))
+            st.metric("Conexiones Activas", data.get("active_connections", "N/A"))
 
         with col3:
-            st.metric("Conexões Ociosas", data.get("idle_connections", "N/A"))
+            st.metric("Conexiones Ociosas", data.get("idle_connections", "N/A"))
 
     else:
-        st.info("ℹ️ Información de banco de dados no disponibles (requer DEBUG mode)")
+        st.info("ℹ️ Información de base de datos no disponible (requiere DEBUG mode)")
 
 # Refresh button
 if st.button("🔄 Actualizar Página", use_container_width=True):

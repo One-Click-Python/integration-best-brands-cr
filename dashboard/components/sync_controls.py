@@ -17,7 +17,7 @@ def remder_sync_trigger_buttons() -> None:
     api_client = get_api_client()
 
     with col1:
-        if st.button("🔄 Sincronización Incremental", help="Sincroniza apenas items modificados", use_container_width=True):
+        if st.button("🔄 Sincronización Incremental", help="Sincroniza solo ítems modificados", use_container_width=True):
             with st.spinner("Ejecutando sincronización incremental..."):
                 result = api_client.trigger_sync(sync_type="incremental")
 
@@ -28,7 +28,7 @@ def remder_sync_trigger_buttons() -> None:
                     st.error("❌ Error al iniciar sincronización")
 
     with col2:
-        if st.button("🔄 Sincronización Completa", help="Sincroniza todos os items", use_container_width=True, type="primary"):
+        if st.button("🔄 Sincronización Completa", help="Sincroniza todos los ítems", use_container_width=True, type="primary"):
             # Add confirmation
             if "confirm_full_sync" not in st.session_state:
                 st.session_state.confirm_full_sync = False
@@ -84,12 +84,12 @@ def remder_order_polling_controls() -> None:
                     with col_b:
                         st.metric("Nuevos Sincronizados", stats.get("newly_synced", 0))
                     with col_c:
-                        st.metric("Erros", stats.get("sync_errors", 0))
+                        st.metric("Errores", stats.get("sync_errors", 0))
                 else:
-                    st.error("❌ Falla no polling de pedidos")
+                    st.error("❌ Falla en el polling de pedidos")
 
     with col2:
-        if st.button("🧪 Dry-Run Polling", help="Testar sin hacer cambios", use_container_width=True):
+        if st.button("🧪 Dry-Run Polling", help="Probar sin hacer cambios", use_container_width=True):
             with st.spinner("Ejecutando dry-run..."):
                 result = api_client.trigger_order_polling(dry_run=True)
 
@@ -97,7 +97,7 @@ def remder_order_polling_controls() -> None:
                     st.info("ℹ️ Dry-run ejecutado (sin cambios)")
                     st.json(result.get("data", {}))
                 else:
-                    st.error("❌ Falla no dry-run")
+                    st.error("❌ Falla en el dry-run")
 
     with col3:
         if st.button("🔄 Reiniciar Estadísticas", help="Limpiar estadísticas de polling", use_container_width=True):
@@ -124,7 +124,7 @@ def remder_sync_interval_config() -> None:
         current_interval = config["data"].get("sync_interval_minutes", 15)
 
     with st.form("sync_interval_form"):
-        st.write(f"**Intervalo atual**: {current_interval} minutos")
+        st.write(f"**Intervalo actual**: {current_interval} minutos")
 
         new_interval = st.slider(
             "Nuevo intervalo (minutos)",
@@ -132,7 +132,7 @@ def remder_sync_interval_config() -> None:
             max_value=60,
             value=current_interval,
             step=1,
-            help="Intervalo entre sincronizações automáticas",
+            help="Intervalo entre sincronizaciones automáticas",
         )
 
         submitted = st.form_submit_button("💾 Actualizar Intervalo", use_container_width=True)
@@ -147,7 +147,7 @@ def remder_sync_interval_config() -> None:
                 else:
                     st.error("❌ Error al actualizar intervalo")
             else:
-                st.info("ℹ️ Intervalo no fue alterado")
+                st.info("ℹ️ Intervalo no fue modificado")
 
 
 def remder_checkpoint_manager(checkpoints: list[dict]) -> None:
@@ -158,10 +158,10 @@ def remder_checkpoint_manager(checkpoints: list[dict]) -> None:
         checkpoints: List of checkpoint data
     """
     if not checkpoints:
-        st.info("ℹ️ Ningún checkpoint ativo no momento")
+        st.info("ℹ️ Ningún checkpoint activo en este momento")
         return
 
-    st.markdown("#### Geremciar Checkpoints")
+    st.markdown("#### Gestionar Checkpoints")
 
     api_client = get_api_client()
 
@@ -184,7 +184,7 @@ def remder_checkpoint_manager(checkpoints: list[dict]) -> None:
                 st.metric("Estado", status)
 
             with col3:
-                st.metric("Progresso", f"{processed}/{total}")
+                st.metric("Progreso", f"{processed}/{total}")
 
             with col4:
                 sub_col1, sub_col2 = st.columns(2)
@@ -197,10 +197,10 @@ def remder_checkpoint_manager(checkpoints: list[dict]) -> None:
                             st.rerun()
 
                 with sub_col2:
-                    if st.button("🗑️ Excluir", key=f"delete_{sync_id}"):
+                    if st.button("🗑️ Eliminar", key=f"delete_{sync_id}"):
                         result = api_client.delete_checkpoint(sync_id)
                         if result:
-                            st.success("✅ Checkpoint excluído!")
+                            st.success("✅ Checkpoint eliminado!")
                             st.rerun()
 
             st.divider()
@@ -216,13 +216,13 @@ def remder_collection_sync_controls() -> None:
         col1, col2 = st.columns(2)
 
         with col1:
-            sync_main = st.checkbox("Sincronizar colecciones principais", value=True)
-            dry_run = st.checkbox("Dry-run (testar sin hacer cambios)", value=False)
+            sync_main = st.checkbox("Sincronizar colecciones principales", value=True)
+            dry_run = st.checkbox("Dry-run (probar sin hacer cambios)", value=False)
 
         with col2:
             sync_subcategories = st.checkbox("Sincronizar subcategorias", value=True)
 
-        submitted = st.form_submit_button("🔄 Sincronizar Coleções", use_container_width=True)
+        submitted = st.form_submit_button("🔄 Sincronizar Colecciones", use_container_width=True)
 
         if submitted:
             with st.spinner("Sincronizando colecciones..."):
@@ -232,7 +232,7 @@ def remder_collection_sync_controls() -> None:
                     if dry_run:
                         st.info("ℹ️ Dry-run ejecutado (sin cambios)")
                     else:
-                        st.success("✅ Coleções sincronizadas con éxito!")
+                        st.success("✅ Colecciones sincronizadas con éxito!")
 
                     st.json(result.get("data", {}))
                 else:
@@ -241,14 +241,14 @@ def remder_collection_sync_controls() -> None:
 
 def remder_quick_actions() -> None:
     """Render quick action buttons for common operations."""
-    st.markdown("#### Ações Rápidas")
+    st.markdown("#### Acciones Rápidas")
 
     api_client = get_api_client()
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("🔄 Reiniciar Métricas", help="Limpiar todas as métricas", use_container_width=True):
+        if st.button("🔄 Reiniciar Métricas", help="Limpiar todas las métricas", use_container_width=True):
             result = api_client.reset_metrics()
             if result and result.get("status") == "success":
                 st.success("✅ Métricas resetadas!")
@@ -256,7 +256,7 @@ def remder_quick_actions() -> None:
                 st.error("❌ Error al resetar métricas")
 
     with col2:
-        if st.button("🔧 Reiniciar Circuit Breakers", help="Reiniciar proteções de circuit breaker", use_container_width=True):
+        if st.button("🔧 Reiniciar Circuit Breakers", help="Reiniciar protecciones de circuit breaker", use_container_width=True):
             result = api_client.reset_circuit_breakers()
             if result and result.get("status") == "success":
                 st.success("✅ Circuit breakers resetados!")

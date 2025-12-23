@@ -15,7 +15,7 @@ import streamlit as st
 from dashboard.components.charts import remder_success_rate_gauge, remder_sync_stats_comparison
 from dashboard.components.sync_controls import remder_order_polling_controls
 from dashboard.utils.api_client import get_api_client
-from dashboard.utils.formatters import format_number, format_percentage, time_ago
+from dashboard.utils.formatters import format_number, format_percentage, format_timedelta, time_ago
 
 st.set_page_config(
     page_title="Orders - RMS-Shopify Dashboard",
@@ -91,7 +91,7 @@ if polling_status and polling_status.get("status") == "success":
 
     with col5:
         errors = stats.get("sync_errors", 0)
-        st.metric("Erros", format_number(errors), delta="⚠️" if errors > 0 else "✓")
+        st.metric("Errores", format_number(errors), delta="⚠️" if errors > 0 else "✓")
 
     # Success Rate Gauge
     success_rate = stats.get("success_rate", 0)
@@ -136,8 +136,6 @@ if polling_status and polling_status.get("status") == "success":
     with col3:
         seconds_until = data.get("seconds_until_next_poll", 0)
         if seconds_until is not None and seconds_until > 0:
-            from ..utils.formatters import format_timedelta
-
             st.metric("Tiempo hasta el Próximo Poll", format_timedelta(seconds_until))
         else:
             st.metric("Tiempo hasta el Próximo Poll", "Esperando")
@@ -164,7 +162,7 @@ if polling_status and polling_status.get("status") == "success":
                     min_value=5,
                     max_value=120,
                     value=lookback,
-                    help="Tiempo retroativo para buscar pedidos",
+                    help="Tiempo retroactivo para buscar pedidos",
                 )
 
             submitted = st.form_submit_button("💾 Actualizar Configuración", use_container_width=True)
@@ -175,10 +173,10 @@ if polling_status and polling_status.get("status") == "success":
                 )
 
                 if result and result.get("status") == "success":
-                    st.success(f"✅ Configuración atualizada!")
+                    st.success("✅ Configuración actualizada!")
                     st.rerun()
                 else:
-                    st.error("❌ Error al actualizar configuração")
+                    st.error("❌ Error al actualizar configuración")
 
 else:
     st.error("❌ No se pudo cargar estado de polling de pedidos")

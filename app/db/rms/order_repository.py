@@ -167,10 +167,10 @@ class OrderRepository(BaseRepository):
                         f"Actual DB: Total={verify_data.Total}, Tax={verify_data.Tax}"
                     )
 
-                    # Alertar si hay discrepancia
-                    if abs(float(verify_data.Total) - params["total"]) > 0.01:
+                    # Alertar si hay discrepancia (tolerancia de 1 para valores enteros)
+                    if abs(float(verify_data.Total) - params["total"]) > 1:
                         logger.error(f"❌ Order.Total mismatch! Expected {params['total']}, got {verify_data.Total}")
-                    if abs(float(verify_data.Tax) - params["tax"]) > 0.01:
+                    if abs(float(verify_data.Tax) - params["tax"]) > 1:
                         logger.error(f"❌ Order.Tax mismatch! Expected {params['tax']}, got {verify_data.Tax}")
 
                 await session.commit()

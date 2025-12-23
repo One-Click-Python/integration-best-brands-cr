@@ -51,7 +51,7 @@ class VariantManager:
             all_variants = []
             has_next_page = True
             cursor = None
-            
+
             while has_next_page:
                 if cursor:
                     query = """
@@ -112,25 +112,25 @@ class VariantManager:
                     variants_response = result["product"].get("variants", {})
                     variants = variants_response.get("edges", [])
                     all_variants.extend([variant["node"] for variant in variants])
-                    
+
                     page_info = variants_response.get("pageInfo", {})
                     has_next_page = page_info.get("hasNextPage", False)
                     cursor = page_info.get("endCursor")
-                    
+
                     logger.info(f"📄 Fetched page with {len(variants)} variants (total so far: {len(all_variants)})")
                 else:
                     has_next_page = False
 
             logger.info(f"🔍 Found {len(all_variants)} total existing variants in product")
-            
+
             # Log details of existing variants for debugging
             for variant in all_variants[:5]:  # Show first 5 for debugging
                 options_str = " / ".join([opt["value"] for opt in variant.get("selectedOptions", [])])
                 logger.debug(f"   Existing: SKU={variant.get('sku', 'N/A')}, Options={options_str}")
-            
+
             if len(all_variants) > 5:
                 logger.debug(f"   ... and {len(all_variants) - 5} more variants")
-            
+
             return all_variants
 
         except Exception as e:
@@ -177,11 +177,11 @@ class VariantManager:
                     for i, option_value in enumerate(new_variant.options):
                         option_name = "Color" if i == 0 else "Size" if i == 1 else f"Option{i+1}"
                         option_pairs.append((option_name, str(option_value)))
-                    
+
                     # Sort by option name for consistent comparison
                     option_pairs.sort(key=lambda x: x[0])
                     variant_combo = " / ".join([f"{name}:{value}" for name, value in option_pairs])
-                    
+
                     # Check if this exact combination exists in Shopify
                     existing_match = existing_combinations.get(variant_combo)
 
@@ -242,7 +242,7 @@ class VariantManager:
                 # Verificar si esta variante ya existe
                 existing_match = None
                 variant_combo = ""
-                
+
                 if hasattr(variant, "options") and variant.options:
                     # Create normalized option representation
                     # Assume first option is Color, second is Size (as per RMS convention)
@@ -250,13 +250,13 @@ class VariantManager:
                     for i, option_value in enumerate(variant.options):
                         option_name = "Color" if i == 0 else "Size" if i == 1 else f"Option{i+1}"
                         option_pairs.append((option_name, str(option_value)))
-                    
+
                     # Sort by option name for consistent comparison
                     option_pairs.sort(key=lambda x: x[0])
                     variant_combo = " / ".join([f"{name}:{value}" for name, value in option_pairs])
-                    
+
                     logger.debug(f"   Checking variant: SKU={variant.sku}, Combo={variant_combo}")
-                    
+
                     # Check if this exact combination exists in Shopify
                     if variant_combo in existing_combinations:
                         # Find the matching existing variant for update
@@ -380,7 +380,7 @@ class VariantManager:
                 try:
                     existing_price_float = float(existing_price_str)
                     price_difference = abs(existing_price_float - new_price_float)
-                    
+
                     # Si el precio existente es significativamente más alto (posible doble IVA)
                     if existing_price_float > new_price_float and price_difference > 1000:
                         # Verificar si parece ser doble aplicación de IVA (13%)
@@ -521,9 +521,9 @@ class VariantManager:
                         logger.info(f"✅ Precio válido a enviar: ₡{price_float:,.2f}")
 
                         # SOLUCIÓN CRÍTICA: Formato específico para Shopify REST API
-                        # Shopify espera precios en formato string con máximo 2 decimales
-                        # y usando punto como separador decimal (no coma)
-                        formatted_price = f"{price_float:.2f}"
+                        # Shopify espera precios en formato string usando punto como separador
+                        # CRC no usa decimales - enviamos enteros
+                        formatted_price = f"{price_float:.0f}"
                         logger.info(f"🔧 Precio formateado para Shopify: '{formatted_price}'")
                         update_data["price"] = formatted_price
 
@@ -536,7 +536,7 @@ class VariantManager:
                 try:
                     compare_price_float = float(update_data["compare_at_price"])
                     if compare_price_float <= 1000000:  # Solo si es válido
-                        formatted_compare_price = f"{compare_price_float:.2f}"
+                        formatted_compare_price = f"{compare_price_float:.0f}"
                         logger.info(f"🔧 Compare price formateado: '{formatted_compare_price}'")
                         update_data["compare_at_price"] = formatted_compare_price
                     else:
@@ -574,7 +574,7 @@ class VariantManager:
                             logger.info(f"📤 Precio enviado: ₡{sent_price:,.2f}")
                             logger.info(f"📥 Precio confirmado por Shopify: ₡{returned_price:,.2f}")
 
-                            if abs(returned_price - sent_price) > 0.01:  # Diferencia mayor a 1 centavo
+                            if abs(returned_price - sent_price) > 1:  # Diferencia mayor a 1 colon
                                 logger.error("🚨 DISCREPANCIA DE PRECIO DETECTADA!")
                                 logger.error(f"   Enviado: ₡{sent_price:,.2f}")
                                 logger.error(f"   Recibido: ₡{returned_price:,.2f}")

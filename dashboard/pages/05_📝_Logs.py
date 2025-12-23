@@ -30,9 +30,9 @@ st.markdown("---")
 # Warning about DEBUG mode
 st.info(
     """
-    ℹ️ **Nota**: Os endpoints de logs requerem que o sistema esteja rodando en modo DEBUG.
+    ℹ️ **Nota**: Los endpoints de logs requieren que el sistema esté ejecutándose en modo DEBUG.
 
-    Para habilitar, configure: `DEBUG=true` no arquivo `.env`
+    Para habilitar, configure: `DEBUG=true` en el archivo `.env`
     """
 )
 
@@ -52,7 +52,7 @@ if log_stats and "data" in log_stats:
         st.metric("Total de Registros", format_number(stats.get("total_logs", 0)))
 
     with col2:
-        st.metric("Erros", format_number(stats.get("error_count", 0)), delta="⚠️")
+        st.metric("Errores", format_number(stats.get("error_count", 0)), delta="⚠️")
 
     with col3:
         st.metric("Avisos", format_number(stats.get("warning_count", 0)), delta="⚠️")
@@ -100,24 +100,24 @@ else:
 st.markdown("---")
 
 # Log Search and Filter
-st.markdown("## 🔍 Buscar e Filtrar Logs")
+st.markdown("## 🔍 Buscar y Filtrar Logs")
 
 with st.form("log_search_form"):
     col1, col2, col3 = st.columns(3)
 
     with col1:
         log_level = st.selectbox(
-            "Nível",
+            "Nivel",
             options=list(LOG_LEVELS.keys()),
             index=0,
-            help="Filtrar por nível de log",
+            help="Filtrar por nivel de log",
         )
 
     with col2:
-        search_term = st.text_input("Buscar en la mensagen", placeholder="Digite um termo de busca...", help="Buscar texto nas mensagens de log")
+        search_term = st.text_input("Buscar en el mensaje", placeholder="Escriba un término de búsqueda...", help="Buscar texto en los mensajes de log")
 
     with col3:
-        limit = st.number_input("Limite de resultados", min_value=10, max_value=500, value=100, step=10, help="Número máximo de logs a exibir")
+        limit = st.number_input("Límite de resultados", min_value=10, max_value=500, value=100, step=10, help="Número máximo de logs a mostrar")
 
     search_submitted = st.form_submit_button("🔍 Buscar", use_container_width=True)
 
@@ -159,7 +159,7 @@ if search_submitted:
             )
 
         else:
-            st.info("ℹ️ Ningún log encontrado con os filtros especificados")
+            st.info("ℹ️ Ningún log encontrado con los filtros especificados")
 
     else:
         st.warning("⚠️ No se pudo buscar logs (verifique si DEBUG mode está habilitado)")
@@ -167,7 +167,7 @@ if search_submitted:
 st.markdown("---")
 
 # Recent Logs (Auto-refresh)
-st.markdown("## 📜 Logs Recentes (Últimos 50)")
+st.markdown("## 📜 Logs Recientes (Últimos 50)")
 
 recent_logs = api_client.get_recent_logs(limit=50)
 
@@ -201,10 +201,10 @@ if recent_logs and "data" in recent_logs:
                 st.divider()
 
     else:
-        st.info("ℹ️ Ningún log recente disponible")
+        st.info("ℹ️ Ningún log reciente disponible")
 
 else:
-    st.info("ℹ️ Logs recentes no disponibles (DEBUG mode requerido)")
+    st.info("ℹ️ Logs recientes no disponibles (DEBUG mode requerido)")
 
 # Refresh button
 if st.button("🔄 Actualizar Logs", use_container_width=True):

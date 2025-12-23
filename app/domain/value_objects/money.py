@@ -35,9 +35,9 @@ class Money:
             # Convert to Decimal if needed
             object.__setattr__(self, "amount", Decimal(str(self.amount)))
 
-        # Normalizar a 2 decimales para valores monetarios
-        # Esto previene errores de precisión excesiva en cálculos acumulativos
-        normalized_amount = self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        # Normalizar a 0 decimales para valores monetarios (CRC colones)
+        # CRC no usa decimales - todos los montos deben ser enteros
+        normalized_amount = self.amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         object.__setattr__(self, "amount", normalized_amount)
 
         if self.amount < 0:
@@ -75,7 +75,7 @@ class Money:
 
     def __str__(self) -> str:
         """String representation of Money."""
-        return f"{self.currency} {self.amount:.2f}"
+        return f"{self.currency} {self.amount:.0f}"
 
     def __repr__(self) -> str:
         """Developer-friendly representation."""

@@ -33,24 +33,43 @@ def remder_sync_metrics_card(sync_data: dict | None) -> None:
     # Main metrics in columns
     col1, col2, col3, col4 = st.columns(4)
 
-    # Last sync
+    # Last sync check
     with col1:
         last_check = change_detector.get("last_check_time")
         last_check_display = time_ago(last_check) if last_check else "N/A"
 
+        # Determine if this is the initial checkpoint value or actual last run
+        total_checks = change_detector.get("total_checks", 0)
+        is_initial = total_checks == 0
+
+        help_text = (
+            f"Timestamp: {format_datetime(last_check)}\n\n"
+            "Cuándo el sistema verificó por última vez si hay cambios en RMS. "
+            "El sistema verifica automáticamente cada intervalo configurado."
+        ) if last_check else "El Change Detector aún no ha ejecutado ninguna verificación"
+
+        if is_initial and last_check:
+            help_text += (
+                "\n\n⚠️ Nota: Este valor viene del checkpoint inicial. "
+                "Se actualizará después de la primera verificación automática."
+            )
+
         st.metric(
-            label="Última Sincronización",
+            label="Última Verificación",
             value=last_check_display,
-            help=f"Timestamp: {format_datetime(last_check)}" if last_check else "Ninguna sincronización registrada",
+            help=help_text,
         )
 
-    # Itens synced
+    # Items synced
     with col2:
         items_synced = change_detector.get("items_synced", 0)
         st.metric(
             label="Ítems Sincronizados",
             value=format_number(items_synced),
-            help="Total de items sincronizados desde o inicio",
+            help=(
+                "Total de productos/variantes enviados a Shopify desde que inició el servidor. "
+                "Se resetea cuando reinicia la aplicación."
+            ),
         )
 
     # Changes detected
@@ -59,7 +78,10 @@ def remder_sync_metrics_card(sync_data: dict | None) -> None:
         st.metric(
             label="Cambios Detectados",
             value=format_number(changes_detected),
-            help="Total de cambios detectados no RMS",
+            help=(
+                "Total de productos modificados encontrados en RMS. "
+                "Cada 15 min el sistema busca items con LastUpdated > última verificación."
+            ),
         )
 
     # Next sync
@@ -129,7 +151,7 @@ def remder_order_polling_metrics_card(polling_data: dict | None) -> None:
         st.metric(
             label="Nuevos Sincronizados",
             value=format_number(newly_synced),
-            help="Pedidos novos sincronizados con éxito",
+            help="Pedidos nuevos sincronizados con éxito",
         )
 
     with col3:
@@ -170,7 +192,7 @@ def remder_order_polling_metrics_card(polling_data: dict | None) -> None:
     with col3:
         errors = stats.get("sync_errors", 0)
         icon = "⚠️" if errors > 0 else "✅"
-        st.markdown(f"**Erros**: {icon} {format_number(errors)}")
+        st.markdown(f"**Errores**: {icon} {format_number(errors)}")
 
 
 def remder_system_resources_card(metrics_data: dict | None) -> None:
@@ -266,17 +288,20 @@ def remder_reverse_sync_status(sync_data: dict | None) -> None:
 
     # Time until next execution
     if enabled:
-        seconds_until = reverse_sync.get("seconds_until_eligible", 0)
-        # Fix: Handle None case to prevent comparison error
-        if seconds_until is not None and seconds_until > 0:
+        seconds_until = reverse_sync.get("seconds_until_eligible")
+        sync_status = reverse_sync.get("status", "unknown")
+
+        if sync_status == "waiting_for_rms_sync":
+            st.warning("⏳ Esperando sincronización RMS → Shopify exitosa")
+        elif sync_status == "blocked_by_failed_rms_sync":
+            st.error("❌ Bloqueado por falla en la sincronización RMS")
+        elif sync_status == "ready_to_execute":
+            st.success("✅ Listo para ejecutar en el próximo ciclo")
+        elif seconds_until is not None and seconds_until > 0:
             time_until = format_timedelta(seconds_until)
-            st.info(f"⏳ Próxima ejecución en: **{time_until}**")
-        else:
-            sync_status = reverse_sync.get("status", "unknown")
-            if sync_status == "ready_to_execute":
-                st.success("✅ Listo para ejecutar")
-            elif sync_status == "blocked_by_failed_rms_sync":
-                st.error("❌ Bloqueado por falla en la sincronización RMS")
+            st.info(f"⏳ Se ejecutará en: **{time_until}** (después del delay de 5 min post-sync)")
+        elif sync_status == "waiting_for_delay":
+            st.info("⏳ Esperando delay post-sincronización")
 
 
 def remder_metric_card(

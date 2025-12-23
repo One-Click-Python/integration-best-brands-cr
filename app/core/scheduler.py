@@ -350,6 +350,10 @@ async def _check_reverse_stock_sync():
 
             # Reset sync time to prevent re-execution
             _last_rms_sync_time = None
+            _last_rms_sync_success = False
+
+            # Persist reset state to Redis
+            await _save_scheduler_state()
 
         finally:
             await conn_db.close()
