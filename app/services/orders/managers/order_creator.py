@@ -22,20 +22,64 @@ class OrderCreator:
         """
         self.order_repo = order_repo
 
+    def _extract_shopify_id(self, reference_number: str) -> str | None:
+        """
+        Extract Shopify ID from reference number format SHOPIFY-123456.
+
+        Args:
+            reference_number: Order reference (e.g., "SHOPIFY-6283579359292")
+
+        Returns:
+            Numeric Shopify ID or None if not a Shopify order
+        """
+        if reference_number and reference_number.startswith("SHOPIFY-"):
+            return reference_number.replace("SHOPIFY-", "")
+        return None
+
     async def create(self, order: OrderDomain) -> int:
         """
         Create order in RMS and return order ID.
+
+        Includes a defensive duplicate check as a final safeguard against
+        race conditions. If the lock mechanism fails, this check prevents
+        duplicate order creation.
 
         Args:
             order: Domain model with all order data
 
         Returns:
-            int: Created order ID
+            int: Created order ID (may be existing ID if duplicate detected)
 
         Raises:
             SyncException: If creation fails
         """
         try:
+            # DEFENSIVE: Final check before creation to prevent duplicates
+            # This is a last-resort safeguard if the lock mechanism fails
+            shopify_id = self._extract_shopify_id(order.reference_number)
+            if shopify_id:
+                try:
+                    exists = await self.order_repo.order_exists_by_shopify_id(shopify_id)
+                    if exists:
+                        logger.error(
+                            f"DEFENSIVE CHECK TRIGGERED: Order {order.reference_number} already exists in RMS! "
+                            f"This indicates a race condition was NOT properly prevented by the lock. "
+                            f"Returning existing order ID instead of creating duplicate."
+                        )
+                        existing = await self.order_repo.find_order_by_shopify_id(shopify_id)
+                        if existing:
+                            logger.warning(
+                                f"Returning existing RMS order ID {existing['ID']} for Shopify order {shopify_id}"
+                            )
+                            return existing["ID"]
+                except Exception as check_error:
+                    # If defensive check fails, log but continue with creation
+                    # The repository's retry mechanism should handle transient errors
+                    logger.warning(
+                        f"Defensive duplicate check failed for {order.reference_number}: {check_error}. "
+                        f"Proceeding with creation (lock should have prevented duplicates)."
+                    )
+
             # Convert domain model to RMS schema
             order_data = order.to_dict()
 

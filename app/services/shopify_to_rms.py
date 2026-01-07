@@ -13,11 +13,13 @@ from app.core.config import get_settings
 from app.core.logging_config import LogContext
 from app.services.orders.converters.customer_fetcher import CustomerDataFetcher
 from app.services.orders.orchestrator import create_orchestrator
+from app.utils.distributed_lock import LockAcquisitionError
 from app.utils.error_handler import (
     ErrorAggregator,
     SyncException,
     ValidationException,
 )
+from app.utils.order_lock import OrderLock
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -198,6 +200,9 @@ class ShopifyToRMSSync:
         """
         Sincroniza un pedido individual usando el orchestrator (SOLID).
 
+        Uses distributed lock to prevent race conditions when multiple triggers
+        (polling, webhooks, manual API) try to sync the same order simultaneously.
+
         Args:
             order_id: ID del pedido de Shopify
             skip_validation: Omitir validaciones
@@ -215,72 +220,114 @@ class ShopifyToRMSSync:
                     message=f"Order {order_id} not found in Shopify", field="order_id", invalid_value=order_id
                 )
 
-            # 2. Detectar si orden está cancelada en Shopify
-            is_cancelled = shopify_order.get("cancelledAt") is not None
-            cancel_reason = shopify_order.get("cancelReason", "")
-
-            # 3. Verificar si ya existe para determinar acción (CRITICAL: deduplication check)
+            # 2. Extract numeric ID for lock
             shopify_id_numeric = order_id.split("/")[-1]
+
+            # 3. CRITICAL: Acquire distributed lock BEFORE any check or creation
+            # This prevents race conditions between polling, webhooks, and manual API
             try:
-                existing_order = await self.order_repo.find_order_by_shopify_id(shopify_id_numeric)
-            except Exception as dedup_error:
-                # FAIL SAFE: If deduplication check fails after all retries, DON'T create
-                # a potentially duplicate order. This prevents data integrity issues.
-                logger.error(
-                    f"⚠️ DEDUPLICATION CHECK FAILED for order {order_id} after all retries: {dedup_error}. "
-                    f"Refusing to create potentially duplicate order."
+                async with OrderLock(shopify_id_numeric, timeout_seconds=120):
+                    logger.debug(f"Lock acquired for Shopify order {shopify_id_numeric}")
+                    return await self._sync_order_within_lock(
+                        order_id, shopify_order, shopify_id_numeric, skip_validation
+                    )
+            except LockAcquisitionError as e:
+                # Another process is already handling this order
+                logger.warning(
+                    f"Could not acquire lock for order {order_id} after {e.waited:.2f}s - "
+                    f"order is being processed by another request"
                 )
                 return {
                     "order_id": order_id,
-                    "action": "deduplication_failed",
-                    "status": "error",
+                    "action": "skipped",
+                    "status": "locked",
                     "rms_order_id": None,
                     "shopify_order_number": shopify_order.get("name", ""),
-                    "error": f"Could not verify if order exists in RMS: {dedup_error}",
+                    "reason": "Order being processed by another request",
                 }
 
-            # 4. Manejar orden cancelada
-            if is_cancelled:
-                if existing_order:
-                    # Marcar orden existente como cancelada en RMS
-                    logger.info(f"Order {order_id} is CANCELLED in Shopify, marking as closed in RMS")
-                    await self._mark_order_cancelled(existing_order["ID"], cancel_reason or "Cancelled in Shopify")
-                    return {
-                        "order_id": order_id,
-                        "action": "cancelled",
-                        "rms_order_id": existing_order["ID"],
-                        "shopify_order_number": shopify_order.get("name", ""),
-                    }
-                else:
-                    # Orden cancelada que no existe en RMS → skip (no crear órdenes canceladas)
-                    logger.info(f"Order {order_id} is CANCELLED and doesn't exist in RMS - skipping")
-                    return {
-                        "order_id": order_id,
-                        "action": "skipped",
-                        "rms_order_id": None,
-                        "shopify_order_number": shopify_order.get("name", ""),
-                        "reason": "Order cancelled in Shopify",
-                    }
+        except ValidationException:
+            raise
+        except Exception as e:
+            logger.error(f"Error syncing order {order_id}: {e}")
+            raise
 
-            # 5. Actualizar orden existente (no cancelada)
+    async def _sync_order_within_lock(
+        self,
+        order_id: str,
+        shopify_order: Dict[str, Any],
+        shopify_id_numeric: str,
+        skip_validation: bool,
+    ) -> Dict[str, Any]:
+        """
+        Synchronize order while holding the distributed lock.
+
+        This method performs the actual sync logic within the safety of the
+        OrderLock to prevent duplicate order creation.
+
+        Args:
+            order_id: Full Shopify order ID (GID format)
+            shopify_order: Shopify order data
+            shopify_id_numeric: Numeric Shopify order ID
+            skip_validation: Whether to skip order validation
+
+        Returns:
+            Dict: Sync result
+        """
+        # 1. Detectar si orden está cancelada en Shopify
+        is_cancelled = shopify_order.get("cancelledAt") is not None
+        cancel_reason = shopify_order.get("cancelReason", "")
+
+        # 2. Verificar si ya existe para determinar acción (CRITICAL: deduplication check)
+        # Now safe from race conditions because we hold the lock
+        try:
+            existing_order = await self.order_repo.find_order_by_shopify_id(shopify_id_numeric)
+        except Exception as dedup_error:
+            # FAIL SAFE: If deduplication check fails after all retries, DON'T create
+            # a potentially duplicate order. This prevents data integrity issues.
+            logger.error(
+                f"DEDUPLICATION CHECK FAILED for order {order_id} after all retries: {dedup_error}. "
+                f"Refusing to create potentially duplicate order."
+            )
+            return {
+                "order_id": order_id,
+                "action": "deduplication_failed",
+                "status": "error",
+                "rms_order_id": None,
+                "shopify_order_number": shopify_order.get("name", ""),
+                "error": f"Could not verify if order exists in RMS: {dedup_error}",
+            }
+
+        # 3. Manejar orden cancelada
+        if is_cancelled:
             if existing_order:
-                logger.info(f"Order {order_id} already exists in RMS (ID: {existing_order.get('ID')}), updating...")
-                result = await self.orchestrator.update_order(
-                    existing_order["ID"], shopify_order, skip_validation=skip_validation
-                )
-                logger.info(f"Successfully updated order {order_id} using orchestrator")
+                # Marcar orden existente como cancelada en RMS
+                logger.info(f"Order {order_id} is CANCELLED in Shopify, marking as closed in RMS")
+                await self._mark_order_cancelled(existing_order["ID"], cancel_reason or "Cancelled in Shopify")
                 return {
                     "order_id": order_id,
-                    "action": result["action"],
-                    "rms_order_id": result["rms_order_id"],
+                    "action": "cancelled",
+                    "rms_order_id": existing_order["ID"],
                     "shopify_order_number": shopify_order.get("name", ""),
                 }
+            else:
+                # Orden cancelada que no existe en RMS → skip (no crear órdenes canceladas)
+                logger.info(f"Order {order_id} is CANCELLED and doesn't exist in RMS - skipping")
+                return {
+                    "order_id": order_id,
+                    "action": "skipped",
+                    "rms_order_id": None,
+                    "shopify_order_number": shopify_order.get("name", ""),
+                    "reason": "Order cancelled in Shopify",
+                }
 
-            # 6. Crear nueva orden usando orchestrator (SOLID approach)
-            logger.info(f"Creating new order {order_id} using SOLID orchestrator")
-            result = await self.orchestrator.sync_order(shopify_order, skip_validation=skip_validation)
-
-            logger.info(f"Successfully created order {order_id} using orchestrator")
+        # 4. Actualizar orden existente (no cancelada)
+        if existing_order:
+            logger.info(f"Order {order_id} already exists in RMS (ID: {existing_order.get('ID')}), updating...")
+            result = await self.orchestrator.update_order(
+                existing_order["ID"], shopify_order, skip_validation=skip_validation
+            )
+            logger.info(f"Successfully updated order {order_id} using orchestrator")
             return {
                 "order_id": order_id,
                 "action": result["action"],
@@ -288,9 +335,18 @@ class ShopifyToRMSSync:
                 "shopify_order_number": shopify_order.get("name", ""),
             }
 
-        except Exception as e:
-            logger.error(f"Error syncing order {order_id}: {e}")
-            raise
+        # 5. Crear nueva orden usando orchestrator (SOLID approach)
+        # Now safe from duplicates because we hold the lock
+        logger.info(f"Creating new order {order_id} using SOLID orchestrator (lock held)")
+        result = await self.orchestrator.sync_order(shopify_order, skip_validation=skip_validation)
+
+        logger.info(f"Successfully created order {order_id} using orchestrator")
+        return {
+            "order_id": order_id,
+            "action": result["action"],
+            "rms_order_id": result["rms_order_id"],
+            "shopify_order_number": shopify_order.get("name", ""),
+        }
 
     async def _mark_order_cancelled(self, rms_order_id: int, cancel_reason: str) -> None:
         """
@@ -301,7 +357,7 @@ class ShopifyToRMSSync:
             cancel_reason: Razón de cancelación desde Shopify
         """
         try:
-            comment = f"CANCELADA EN SHOPIFY"
+            comment = "CANCELADA EN SHOPIFY"
             if cancel_reason:
                 comment += f": {cancel_reason}"
 
