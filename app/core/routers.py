@@ -18,9 +18,11 @@ from app.api.v1.endpoints.order_polling import router as order_polling_router
 from app.api.v1.endpoints.reverse_stock_sync import router as reverse_stock_sync_router
 from app.api.v1.endpoints.sync import router as sync_router
 from app.api.v1.endpoints.sync_monitor import router as sync_monitor_router
+from app.api.v1.endpoints.version import router as version_router
 from app.api.v1.endpoints.webhooks import router as webhooks_router
 from app.core.config import get_settings
 from app.core.health import get_health_status, get_health_status_fast
+from app.version import VERSION
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -52,6 +54,7 @@ def create_root_endpoints(app: FastAPI) -> None:
             "endpoints": {
                 "health": "/health",
                 "api_v1": "/api/v1",
+                "version": "/api/v1/version",
                 "sync": "/api/v1/sync",
                 "sync_monitor": "/api/v1/sync/monitor",
                 "webhooks": "/api/v1/webhooks",
@@ -97,7 +100,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 status_code=status_code,
                 content={
                     "status": "healthy" if health_status["overall"] else "unhealthy",
-                    "version": settings.APP_VERSION,
+                    "version": VERSION,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "uptime": health_status.get("uptime"),
                     "services": health_status["services"],
@@ -115,7 +118,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                     "status": "unhealthy",
                     "error": str(e),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "version": settings.APP_VERSION,
+                    "version": VERSION,
                 },
             )
 
@@ -137,7 +140,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                 status_code=status_code,
                 content={
                     "status": "healthy" if health_status["overall"] else "unhealthy",
-                    "version": settings.APP_VERSION,
+                    "version": VERSION,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "uptime": health_status.get("uptime"),
                     "services": health_status["services"],
@@ -156,7 +159,7 @@ def create_health_endpoints(app: FastAPI) -> None:
                     "status": "unhealthy",
                     "error": str(e),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "version": settings.APP_VERSION,
+                    "version": VERSION,
                     "check_type": "complete",
                 },
             )
@@ -234,7 +237,7 @@ def create_info_endpoints(app: FastAPI) -> None:
             Dict con información de versión
         """
         return {
-            "version": settings.APP_VERSION,
+            "version": VERSION,
             "name": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
             "debug": settings.DEBUG,
@@ -358,6 +361,17 @@ def configure_api_v1_routers(app: FastAPI) -> None:
     )
     logger.info("✅ Router de order polling configurado")
 
+    # Router de versión
+    app.include_router(
+        version_router,
+        prefix="/api/v1/version",
+        tags=["Version"],
+        responses={
+            500: {"description": "Version info error"},
+        },
+    )
+    logger.info("✅ Router de versión configurado")
+
 
 def configure_optional_routers(app: FastAPI) -> None:
     """
@@ -463,10 +477,12 @@ def get_router_info() -> Dict[str, Any]:
         "base_paths": {
             "root": "/",
             "health": "/health",
+            "version": "/api/v1/version",
             "sync": "/api/v1/sync",
             "sync_monitor": "/api/v1/sync/monitor",
             "webhooks": "/api/v1/webhooks",
             "collections": "/api/v1/collections",
+            "order_polling": "/api/v1/orders/polling",
             "metrics": "/api/v1/metrics" if settings.METRICS_ENABLED else None,
             "admin": "/api/v1/admin" if settings.DEBUG else None,
             "logs": "/api/v1/logs" if settings.DEBUG else None,

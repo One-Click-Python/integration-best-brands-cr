@@ -8,7 +8,7 @@ Este archivo actúa como el punto de entrada principal de la aplicación,
 orquestando todos los componentes de manera modular y mantenible.
 
 Autor: Enzo Leonardo Illanez (enzo@oneclick.cr)
-Versión: 0.1.0
+Versión: Definida en pyproject.toml (ver app.version.VERSION)
 """
 
 import logging

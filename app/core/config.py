@@ -11,6 +11,8 @@ from typing import List, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
+from app.version import VERSION
+
 
 class Settings(BaseSettings):
     """
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
 
     # === CONFIGURACIÓN BÁSICA DE LA APP ===
     APP_NAME: str = "RMS-Shopify Integration"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = VERSION
     ENVIRONMENT: str = Field(default="development", env="ENV")
     DEBUG: bool = Field(default=True, env="DEBUG")
 

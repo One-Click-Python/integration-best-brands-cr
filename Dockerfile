@@ -1,6 +1,12 @@
 # Usar imagen base de Python 3.12 slim
 FROM python:3.12-slim
 
+# Build arguments for version metadata
+ARG GIT_COMMIT=unknown
+ARG GIT_BRANCH=unknown
+ARG BUILD_DATE=unknown
+ARG BUILD_NUMBER=unknown
+
 # Establecer directorio de trabajo
 WORKDIR /app
 
@@ -45,6 +51,12 @@ EXPOSE 8000 8501
 # Variables de entorno por defecto
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
+
+# Version metadata (from build args)
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV BUILD_DATE=${BUILD_DATE}
+ENV BUILD_NUMBER=${BUILD_NUMBER}
 
 # Comando para ejecutar la aplicación
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -18,6 +18,7 @@ from app.services.bulk_operations import ShopifyBulkOperations
 from app.services.inventory_manager import InventoryManager
 from app.services.webhook_handler import WEBHOOK_PROCESSOR
 from app.utils.retry_handler import get_all_metrics
+from app.version import VERSION
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ async def get_system_metrics() -> Dict[str, Any]:
             "system": {
                 "status": "operational",
                 "uptime_seconds": 0,  # Implementar si es necesario
-                "version": "1.0.0",  # Obtener de settings
+                "version": VERSION,
             },
             "retry_handlers": retry_metrics,
             "webhook_processor": webhook_metrics,

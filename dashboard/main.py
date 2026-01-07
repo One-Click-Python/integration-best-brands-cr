@@ -17,6 +17,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from app.version import VERSION, check_for_updates_sync, version_string
 from dashboard.components.health_cards import remder_health_indicators, remder_system_health_card, remder_uptime_card
 from dashboard.components.metrics_display import (
     remder_order_polling_metrics_card,
@@ -75,6 +76,26 @@ def main():
     # Sidebar configuration
     with st.sidebar:
         st.markdown("## ⚙️ Configuraciones")
+
+        # Version badge in sidebar
+        st.markdown("### 📦 Versión")
+        st.info(f"**{version_string()}**")
+
+        # Check for updates
+        update_info = check_for_updates_sync()
+        if update_info.get("update_available"):
+            st.warning(
+                f"🔄 **Actualización disponible**\n\n"
+                f"Nueva versión: **v{update_info.get('latest_version')}**\n\n"
+                f"[Ver release notes]({update_info.get('release_url')})"
+            )
+        elif update_info.get("error"):
+            # Silently skip if error (GitHub not configured)
+            pass
+        else:
+            st.success("✅ Versión actual")
+
+        st.markdown("---")
 
         # Auto-refresh settings
         st.markdown("### 🔄 Auto-Refresh")
@@ -177,7 +198,7 @@ with col1:
     st.markdown("**Desarrollado por**: OneClick")
 
 with col2:
-    st.markdown("**Versión**: 1.0.0")
+    st.markdown(f"**Versión**: {VERSION}")
 
 with col3:
     st.markdown(f"**Actualizado**: {format_datetime(datetime.now(), 'display_short')}")
