@@ -24,7 +24,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class DistributedLock:
         self.token = str(uuid.uuid4())  # Unique token for this lock instance
         self.acquired = False
         self.start_time: Optional[float] = None
-        self.redis_client = None
+        self.redis_client: Any = None  # Redis client (typed as Any for dynamic methods)
 
         # File-based fallback
         self.lock_file = f"/tmp/shopify_lock_{self.lock_key}.lock"

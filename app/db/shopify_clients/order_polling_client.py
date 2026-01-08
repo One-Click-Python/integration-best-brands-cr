@@ -246,8 +246,9 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
                 lookback_minutes = settings.ORDER_POLLING_LOOKBACK_MINUTES
 
             if financial_statuses is None:
-                # Use configured allowed financial statuses (already a list)
-                financial_statuses = settings.ALLOWED_ORDER_FINANCIAL_STATUSES
+                # Use configured allowed financial statuses (parsed to list by validator)
+                statuses = settings.ALLOWED_ORDER_FINANCIAL_STATUSES
+                financial_statuses = [statuses] if isinstance(statuses, str) else statuses
 
             # Build query filter
             query_filter = self._build_query_filter(

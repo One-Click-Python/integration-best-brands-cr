@@ -6,7 +6,7 @@ Shopify → RMS stock synchronization.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -53,7 +53,7 @@ async def get_shopify_client() -> ShopifyGraphQLClient:
     )
 
 
-async def get_product_repository() -> ProductRepository:
+async def get_product_repository() -> AsyncGenerator[ProductRepository, None]:
     """Dependency para obtener el repositorio de productos RMS."""
     conn_db = ConnDB()
     await conn_db.initialize()

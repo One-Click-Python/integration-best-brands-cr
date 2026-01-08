@@ -7,7 +7,7 @@ periódicas entre RMS y Shopify, incluyendo detección de cambios automática.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
 import pytz
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _scheduler_running = False
 _scheduler_task: Optional[asyncio.Task] = None
 _change_detector = None
-_last_full_sync_date: Optional[datetime] = None
+_last_full_sync_date: Optional[date] = None
 _last_rms_sync_time: Optional[datetime] = None
 _last_rms_sync_success: bool = False
 

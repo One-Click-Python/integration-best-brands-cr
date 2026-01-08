@@ -529,6 +529,13 @@ class ErrorAggregator:
         """Verifica si hay errores."""
         return len(self.errors) > 0
 
+    def clear(self) -> None:
+        """Clear all errors and warnings, reset state."""
+        self.errors.clear()
+        self.warnings.clear()
+        self.total_processed = 0
+        self.start_time = datetime.now(timezone.utc)
+
     def get_summary(self) -> Dict[str, Any]:
         """
         Obtiene resumen de errores.
