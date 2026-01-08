@@ -186,8 +186,9 @@ class OrderConverter:
 
         # Calcular total CON impuestos (subtotal + tax)
         total_with_tax = total_without_tax + total_tax
-        total_amount = Money(total_with_tax, "CRC")
-        tax_amount = Money(total_tax, "CRC")
+        # Preservar decimales para Tax y Total (precisión fiscal)
+        total_amount = Money(total_with_tax, "CRC", round_to_integer=False)
+        tax_amount = Money(total_tax, "CRC", round_to_integer=False)
 
         # 🔍 Logging de depuración - valores calculados desde RMS
         logger.info(

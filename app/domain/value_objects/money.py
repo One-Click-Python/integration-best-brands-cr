@@ -17,6 +17,8 @@ class Money:
     Attributes:
         amount: The monetary amount as Decimal for precision
         currency: Currency code (e.g., "USD", "CRC")
+        round_to_integer: If True, rounds to 0 decimals (default for CRC).
+                          If False, preserves 2 decimals (for Tax/Total precision).
 
     Example:
         >>> price = Money(amount=Decimal("99.99"), currency="USD")
@@ -24,10 +26,16 @@ class Money:
         >>> total = price + tax
         >>> print(total.amount)
         112.99
+
+        >>> # Preservar decimales para impuestos
+        >>> tax = Money(amount=Decimal("770.80"), currency="CRC", round_to_integer=False)
+        >>> print(tax.amount)
+        770.80
     """
 
     amount: Decimal
     currency: str = "USD"
+    round_to_integer: bool = True
 
     def __post_init__(self) -> None:
         """Validate money object after initialization."""
@@ -35,9 +43,14 @@ class Money:
             # Convert to Decimal if needed
             object.__setattr__(self, "amount", Decimal(str(self.amount)))
 
-        # Normalizar a 0 decimales para valores monetarios (CRC colones)
-        # CRC no usa decimales - todos los montos deben ser enteros
-        normalized_amount = self.amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        # Normalizar según configuración de redondeo
+        if self.round_to_integer:
+            # Normalizar a 0 decimales para valores monetarios (CRC colones)
+            # CRC no usa decimales - precios unitarios deben ser enteros
+            normalized_amount = self.amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        else:
+            # Preservar 2 decimales para precisión fiscal (Tax, Total)
+            normalized_amount = self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         object.__setattr__(self, "amount", normalized_amount)
 
         if self.amount < 0:
@@ -75,7 +88,10 @@ class Money:
 
     def __str__(self) -> str:
         """String representation of Money."""
-        return f"{self.currency} {self.amount:.0f}"
+        if self.round_to_integer:
+            return f"{self.currency} {self.amount:.0f}"
+        else:
+            return f"{self.currency} {self.amount:.2f}"
 
     def __repr__(self) -> str:
         """Developer-friendly representation."""
