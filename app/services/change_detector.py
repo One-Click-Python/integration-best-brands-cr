@@ -198,6 +198,7 @@ class ChangeDetector:
                         # This triggers reverse stock sync after configured delay
                         try:
                             from app.core.scheduler import notify_rms_sync_completed
+
                             notify_rms_sync_completed(success=True)
                             logger.info("📝 Scheduler notified of successful RMS→Shopify sync")
                         except Exception as e:
@@ -213,6 +214,7 @@ class ChangeDetector:
                         # This prevents reverse sync from executing
                         try:
                             from app.core.scheduler import notify_rms_sync_completed
+
                             notify_rms_sync_completed(success=False)
                             logger.info("📝 Scheduler notified of failed RMS→Shopify sync")
                         except Exception as e:
@@ -480,6 +482,7 @@ class ChangeDetector:
             try:
                 success_rate = result.get("success_rate", 0) / 100  # Convert to decimal
                 from app.core.scheduler import notify_rms_sync_completed
+
                 notify_rms_sync_completed(success=success_rate >= 0.95)
                 logger.info(f"📝 Scheduler notified of full sync (success: {success_rate >= 0.95})")
             except Exception as notify_error:
@@ -493,6 +496,7 @@ class ChangeDetector:
             # Notify scheduler about failed sync
             try:
                 from app.core.scheduler import notify_rms_sync_completed
+
                 notify_rms_sync_completed(success=False)
             except Exception as notify_error:
                 logger.error(f"Error notifying scheduler about failed sync: {notify_error}")

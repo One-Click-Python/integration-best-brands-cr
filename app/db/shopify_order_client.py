@@ -732,4 +732,3 @@ async def sync_recent_orders(order_client: ShopifyOrderClient, hours: int = 24) 
         return await sync_service.sync_orders(order_ids)
 
     return {"total_orders": 0, "message": f"No paid orders found in the last {hours} hours"}
-

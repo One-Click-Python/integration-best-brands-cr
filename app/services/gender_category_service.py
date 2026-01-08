@@ -182,7 +182,11 @@ class GenderCategoryService:
                 "ruleSet": {
                     "appliedDisjunctively": disjunctive,
                     "rules": [
-                        {"column": rule["column"].upper(), "relation": rule["relation"].upper(), "condition": rule["condition"]}
+                        {
+                            "column": rule["column"].upper(),
+                            "relation": rule["relation"].upper(),
+                            "condition": rule["condition"],
+                        }
                         for rule in rules
                     ],
                 },
@@ -379,7 +383,9 @@ class GenderCategoryService:
 
             # Estadísticas resumen
             total_main = len(self.collections_structure["main_collections"])
-            total_subcats = sum(len(subcats) for subcats in self.collections_structure["subcategory_collections"].values())
+            total_subcats = sum(
+                len(subcats) for subcats in self.collections_structure["subcategory_collections"].values()
+            )
             total_expected = total_main + total_subcats
 
             existing_count = len(self._collections_cache)
@@ -466,7 +472,8 @@ class GenderCategoryService:
                     "category_mappings": len(self.category_mapping_config.get("mappings", {})),
                     "main_collections": len(self.collections_structure.get("main_collections", {})),
                     "subcategories": sum(
-                        len(subcats) for subcats in self.collections_structure.get("subcategory_collections", {}).values()
+                        len(subcats)
+                        for subcats in self.collections_structure.get("subcategory_collections", {}).values()
                     ),
                 },
             }

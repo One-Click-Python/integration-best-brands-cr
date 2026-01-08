@@ -333,4 +333,3 @@ class BaseShopifyGraphQLClient:
             f"api_version='{self.api_version}', "
             f"initialized={self.session is not None})"
         )
-

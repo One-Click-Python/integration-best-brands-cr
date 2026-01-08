@@ -86,4 +86,3 @@ query GetAPIVersion {
   }
 }
 """
-

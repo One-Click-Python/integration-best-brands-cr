@@ -398,17 +398,12 @@ async def get_order_polling_health() -> dict[str, Any]:
         polling_info = scheduler_status.get("order_polling", {})
 
         # Determinar estado de salud
-        is_healthy = (
-            settings.ENABLE_ORDER_POLLING
-            and polling_info.get("polling_service_initialized", False)
-        )
+        is_healthy = settings.ENABLE_ORDER_POLLING and polling_info.get("polling_service_initialized", False)
 
         health_status = {
             "status": "healthy" if is_healthy else "unhealthy",
             "enabled": settings.ENABLE_ORDER_POLLING,
-            "polling_service_initialized": polling_info.get(
-                "polling_service_initialized", False
-            ),
+            "polling_service_initialized": polling_info.get("polling_service_initialized", False),
             "last_poll_time": polling_info.get("last_poll_time"),
             "webhooks_enabled": settings.ENABLE_WEBHOOKS,
             "configuration": {

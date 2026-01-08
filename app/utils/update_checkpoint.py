@@ -253,4 +253,3 @@ def reset_checkpoint() -> bool:
 def get_checkpoint_status() -> Dict[str, Any]:
     """Get checkpoint status using default manager."""
     return get_default_manager().get_checkpoint_status()
-

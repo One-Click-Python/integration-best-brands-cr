@@ -56,8 +56,8 @@ class OrderPollingService:
         self.stats = {
             "total_polled": 0,
             "already_synced": 0,  # Orders that already existed (for backwards compat)
-            "newly_synced": 0,     # New orders created in RMS
-            "updated": 0,          # Existing orders updated in RMS
+            "newly_synced": 0,  # New orders created in RMS
+            "updated": 0,  # Existing orders updated in RMS
             "sync_errors": 0,
             "last_poll_time": None,
         }
@@ -152,15 +152,9 @@ class OrderPollingService:
             logger.info(f"📦 Fetched {total_fetched} orders from Shopify")
 
             # Step 2: Check which orders already exist in RMS (batch)
-            order_ids = [
-                self._extract_order_id(order)
-                for order in orders
-                if self._extract_order_id(order)
-            ]
+            order_ids = [self._extract_order_id(order) for order in orders if self._extract_order_id(order)]
 
-            existence_map = await self.order_repository.check_orders_exist_batch(
-                order_ids
-            )
+            existence_map = await self.order_repository.check_orders_exist_batch(order_ids)
 
             # IMPORTANT: No longer filter out existing orders
             # We sync ALL orders (new AND edited) - the sync function will handle update vs create
@@ -217,7 +211,7 @@ class OrderPollingService:
                     updated=updated_count,
                     sync_errors=sync_result["error_count"],
                     duration_seconds=(datetime.now(UTC) - start_time).total_seconds(),
-                    message=f"Polling complete: {newly_synced} created, {updated_count} updated, {sync_result['error_count']} errors",
+                    message=f"Polling: {newly_synced} created, {updated_count} updated, {sync_result['error_count']} errors",
                     sync_details=sync_result["details"],
                 )
 
@@ -259,9 +253,7 @@ class OrderPollingService:
                 error=str(e),
             )
 
-    async def _sync_orders_to_rms(
-        self, orders: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    async def _sync_orders_to_rms(self, orders: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Sync orders to RMS using existing sync_shopify_to_rms function.
 
@@ -430,11 +422,7 @@ class OrderPollingService:
 
     def __repr__(self):
         """Detailed string representation."""
-        return (
-            f"OrderPollingService("
-            f"initialized={self.polling_client is not None}, "
-            f"stats={self.stats})"
-        )
+        return f"OrderPollingService(" f"initialized={self.polling_client is not None}, " f"stats={self.stats})"
 
 
 # Singleton instance for global use

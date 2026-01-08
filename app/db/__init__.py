@@ -60,5 +60,4 @@ async def close_connection_pool():
     await close_database()
 
 
-# Alias para compatibilidad
-test_rms_connection = test_database_connection
+# Note: test_rms_connection is imported from rms_handler (line 19)

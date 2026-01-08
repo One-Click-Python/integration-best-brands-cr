@@ -1,4 +1,3 @@
-
 """
 Utilidad para cargar y gestionar mapeos desde archivos JSON.
 
@@ -11,13 +10,14 @@ import json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 # Ruta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CONFIG_FILE_PATH = BASE_DIR / "config" / "category_collection_mapping.json"
+
 
 @lru_cache(maxsize=1)
 def get_category_to_collection_map() -> Dict[str, str]:
@@ -58,6 +58,7 @@ def get_category_to_collection_map() -> Dict[str, str]:
         logger.error(f"Error cargando o procesando el archivo de mapeo de colecciones: {e}")
         return {}
 
+
 def find_collection_for_category(rms_category: str) -> Optional[str]:
     """
     Busca el nombre de la colección de Shopify para una categoría RMS dada.
@@ -70,7 +71,6 @@ def find_collection_for_category(rms_category: str) -> Optional[str]:
     """
     if not rms_category:
         return None
-    
+
     category_map = get_category_to_collection_map()
     return category_map.get(rms_category)
-

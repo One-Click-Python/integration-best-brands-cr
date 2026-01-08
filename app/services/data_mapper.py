@@ -438,10 +438,7 @@ class RMSToShopifyMapper:
         """
         # Filtrar tags antiguos de RMS-Sync (case-insensitive para capturar todas las variantes)
         # Elimina: RMS-SYNC-*, RMS-Sync, RMS-sync, rms-sync, etc.
-        cleaned_tags = [
-            tag for tag in existing_tags
-            if not tag.upper().startswith("RMS-SYNC")
-        ]
+        cleaned_tags = [tag for tag in existing_tags if not tag.upper().startswith("RMS-SYNC")]
 
         # Agregar el nuevo tag de sincronización
         cleaned_tags.append(new_sync_tag)

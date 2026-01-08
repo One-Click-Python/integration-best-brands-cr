@@ -144,9 +144,9 @@ class SyncCheckpointManager:
                     data = await self.redis_client.get(self.redis_key)
                     if data:
                         checkpoint = json.loads(data)
-                        logger.info(
-                            f"📂 [PROGRESS CHECKPOINT] Loaded from Redis: {checkpoint['processed_count']}/{checkpoint['total_count']}"
-                        )
+                        cnt = checkpoint['processed_count']
+                        total = checkpoint['total_count']
+                        logger.info(f"📂 [PROGRESS CHECKPOINT] Loaded from Redis: {cnt}/{total}")
                         return checkpoint
                 except Exception as redis_error:
                     logger.debug(f"Could not load from Redis: {redis_error}")
@@ -155,7 +155,9 @@ class SyncCheckpointManager:
             if self.checkpoint_file.exists():
                 with open(self.checkpoint_file, "r") as f:
                     checkpoint = json.load(f)
-                logger.info(f"📂 [PROGRESS CHECKPOINT] Loaded from file: {checkpoint['processed_count']}/{checkpoint['total_count']}")
+                cnt = checkpoint['processed_count']
+                total = checkpoint['total_count']
+                logger.info(f"📂 [PROGRESS CHECKPOINT] Loaded from file: {cnt}/{total}")
                 return checkpoint
 
             logger.debug(f"ℹ️ [PROGRESS CHECKPOINT] No checkpoint found for sync {self.sync_id} - Starting fresh")
@@ -264,4 +266,3 @@ class SyncCheckpointManager:
                 await self.redis_client.close()
         except Exception as e:
             logger.error(f"Error closing checkpoint manager: {e}")
-

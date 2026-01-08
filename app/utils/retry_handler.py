@@ -462,9 +462,9 @@ def create_shopify_retry_handler() -> RetryHandler:
 
     circuit_breaker = CircuitBreaker(
         failure_threshold=10,  # Increased from 3 to allow more failures before opening
-        success_threshold=3,   # Increased from 2 to ensure stability before closing
-        timeout=180.0,         # Increased to 180s for slow product creation operations
-        reset_timeout=60.0,    # Reduced from 120 to recover faster
+        success_threshold=3,  # Increased from 2 to ensure stability before closing
+        timeout=180.0,  # Increased to 180s for slow product creation operations
+        reset_timeout=60.0,  # Reduced from 120 to recover faster
     )
 
     return RetryHandler(

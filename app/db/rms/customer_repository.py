@@ -8,7 +8,7 @@ mode by returning safe defaults while logging diagnostics.
 """
 
 import logging
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
@@ -60,9 +60,7 @@ class CustomerRepository(BaseRepository):
             # Treat verification failures as non-fatal for this repository
             self._has_customer_table = False
             self._customer_table_name = None
-            logger.warning(
-                f"CustomerRepository table verification error (continuing in no-table mode): {e}"
-            )
+            logger.warning(f"CustomerRepository table verification error (continuing in no-table mode): {e}")
 
     # ------------------------- Lookups -------------------------
     @with_retry(max_attempts=3, delay=1.0)
@@ -79,9 +77,7 @@ class CustomerRepository(BaseRepository):
             )
 
         if not self._has_customer_table or not self._customer_table_name:
-            logger.debug(
-                f"Customer lookup by email {email} skipped: customer table not available"
-            )
+            logger.debug(f"Customer lookup by email {email} skipped: customer table not available")
             return None
 
         try:
@@ -95,9 +91,7 @@ class CustomerRepository(BaseRepository):
                 row = result.fetchone()
                 return row._asdict() if row else None
         except Exception as e:
-            logger.warning(
-                f"Customer lookup by email failed (schema may differ or column missing): {e}"
-            )
+            logger.warning(f"Customer lookup by email failed (schema may differ or column missing): {e}")
             return None
 
     # ------------------------- Creation -------------------------
@@ -122,17 +116,12 @@ class CustomerRepository(BaseRepository):
             return 9111  # Stub ID for compatibility
 
         # Schema unknown; safest approach is to avoid blind inserts.
-        logger.warning(
-            "Customer table detected but schema is unknown; returning stub ID to avoid schema mismatch."
-        )
+        logger.warning("Customer table detected but schema is unknown; returning stub ID to avoid schema mismatch.")
         return 9111
 
     @with_retry(max_attempts=3, delay=1.0)
     @log_operation()
-    async def find_or_create_guest_customer(
-        self,
-        account_number: str | None = None
-    ) -> int:
+    async def find_or_create_guest_customer(self, account_number: str | None = None) -> int:
         """
         Find or create a guest customer for orders without customer data.
 
@@ -141,7 +130,8 @@ class CustomerRepository(BaseRepository):
         The guest customer ID is cached to avoid repeated lookups.
 
         Args:
-            account_number: Account number for guest customer (uses GUEST_CUSTOMER_ACCOUNT_NUMBER from settings if not provided)
+            account_number: Account number for guest customer.
+                Uses GUEST_CUSTOMER_ACCOUNT_NUMBER from settings if not provided.
 
         Returns:
             int: Customer ID for guest customer
@@ -166,9 +156,7 @@ class CustomerRepository(BaseRepository):
 
         # If no customer table, return stub ID
         if not self._has_customer_table or not self._customer_table_name:
-            logger.warning(
-                "No customer table available - using stub guest customer ID=9111"
-            )
+            logger.warning("No customer table available - using stub guest customer ID=9111")
             self._guest_customer_id = 9111
             return 9111
 
@@ -179,18 +167,12 @@ class CustomerRepository(BaseRepository):
                 SELECT ID FROM [{self._customer_table_name}]
                 WHERE AccountNumber = :account_number
                 """
-                result = await session.execute(
-                    text(search_query),
-                    {"account_number": account_number}
-                )
+                result = await session.execute(text(search_query), {"account_number": account_number})
                 row = result.fetchone()
 
                 if row:
                     customer_id = row[0]
-                    logger.info(
-                        f"Found existing guest customer: ID={customer_id}, "
-                        f"AccountNumber={account_number}"
-                    )
+                    logger.info(f"Found existing guest customer: ID={customer_id}, " f"AccountNumber={account_number}")
                     self._guest_customer_id = customer_id
                     return customer_id
 
@@ -199,6 +181,7 @@ class CustomerRepository(BaseRepository):
 
                 # Get current timestamp for dates
                 from datetime import UTC, datetime
+
                 now = datetime.now(UTC)
 
                 insert_query = f"""
@@ -237,7 +220,6 @@ class CustomerRepository(BaseRepository):
                     "first_name": "Cliente",
                     "last_name": "Invitado",
                     "email": "invitado@shopify.com",
-
                     # Address
                     "address": "N/A",
                     "city": "N/A",
@@ -246,10 +228,8 @@ class CustomerRepository(BaseRepository):
                     "country": "CR",  # Costa Rica
                     "company": "",
                     "address2": "",
-
                     # Store
                     "store_id": settings.RMS_STORE_ID,
-
                     # Account settings
                     "account_type_id": 1,  # Default account type
                     "account_balance": 0.0,
@@ -258,15 +238,12 @@ class CustomerRepository(BaseRepository):
                     "total_savings": 0.0,
                     "current_discount": 0.0,
                     "last_closing_balance": 0.0,
-
                     # Dates
                     "account_opened": now,
                     "last_visit": now,
                     "last_updated": now,
-
                     # Counters
                     "total_visits": 0,
-
                     # Flags (all false/0)
                     "assess_finance_charges": 0,
                     "global_customer": 0,
@@ -275,7 +252,6 @@ class CustomerRepository(BaseRepository):
                     "layaway_customer": 0,
                     "employee": 0,
                     "primary_ship_to_id": 0,
-
                     # Custom fields (empty)
                     "custom_num1": 0.0,
                     "custom_num2": 0.0,
@@ -299,10 +275,7 @@ class CustomerRepository(BaseRepository):
                         db_host=settings.RMS_DB_HOST,
                     )
 
-                logger.info(
-                    f"✅ Created guest customer: ID={customer_id}, "
-                    f"AccountNumber={account_number}"
-                )
+                logger.info(f"✅ Created guest customer: ID={customer_id}, " f"AccountNumber={account_number}")
 
                 # Cache the ID
                 self._guest_customer_id = customer_id

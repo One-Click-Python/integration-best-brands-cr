@@ -29,25 +29,10 @@ _last_sync_result: Optional[dict[str, Any]] = None
 class ReverseStockSyncRequest(BaseModel):
     """Request model for reverse stock sync."""
 
-    dry_run: bool = Field(
-        default=False,
-        description="Si True, solo simula sin hacer cambios reales"
-    )
-    delete_zero_stock: bool = Field(
-        default=True,
-        description="Si True, elimina variantes con stock 0"
-    )
-    batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=250,
-        description="Número de productos por batch"
-    )
-    limit: Optional[int] = Field(
-        default=None,
-        ge=1,
-        description="Límite total de productos a procesar (None = todos)"
-    )
+    dry_run: bool = Field(default=False, description="Si True, solo simula sin hacer cambios reales")
+    delete_zero_stock: bool = Field(default=True, description="Si True, elimina variantes con stock 0")
+    batch_size: int = Field(default=50, ge=1, le=250, description="Número de productos por batch")
+    limit: Optional[int] = Field(default=None, ge=1, description="Límite total de productos a procesar (None = todos)")
 
 
 class ReverseStockSyncResponse(BaseModel):
@@ -89,7 +74,7 @@ async def get_reverse_stock_synchronizer(
     if not primary_location_id:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo obtener la ubicación principal de Shopify"
+            detail="No se pudo obtener la ubicación principal de Shopify",
         )
 
     return ReverseStockSynchronizer(
@@ -156,8 +141,7 @@ async def execute_reverse_stock_sync(
     except Exception as e:
         logger.error(f"❌ Error in reverse stock sync: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Reverse stock sync failed: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Reverse stock sync failed: {str(e)}"
         ) from e
 
 
@@ -236,6 +220,5 @@ async def dry_run_reverse_sync(
     except Exception as e:
         logger.error(f"❌ Error in reverse sync dry-run: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Dry-run failed: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Dry-run failed: {str(e)}"
         ) from e

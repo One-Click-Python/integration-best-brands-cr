@@ -190,14 +190,9 @@ class ShopifyToRMSOrderOrchestrator:
                 customer_info, order_name=validated_order.get("name"), payment_status=payment_status
             )
 
-            # Step 4: Get existing entries for inventory adjustment
-            logger.debug("Getting existing entries for inventory adjustment")
-            existing_entries_raw = await self.order_creator.order_repo.get_order_entries(existing_order_id)
-            # Convert to dict format expected by inventory manager
-            old_entries = [
-                {"item_id": entry["ItemID"], "quantity_on_order": entry["QuantityOnOrder"]}
-                for entry in existing_entries_raw
-            ]
+            # Step 4: Get existing entries for inventory adjustment (disabled)
+            # Note: Inventory adjustment is handled by another system
+            _ = await self.order_creator.order_repo.get_order_entries(existing_order_id)
 
             # Step 5: Update order in RMS
             logger.debug(f"Updating order {existing_order_id} in RMS")

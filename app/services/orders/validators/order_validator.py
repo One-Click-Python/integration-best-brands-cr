@@ -34,7 +34,10 @@ class OrderValidator:
                                        Defaults to PAID, PARTIALLY_PAID, AUTHORIZED, PENDING
         """
         self.allowed_financial_statuses = allowed_financial_statuses or [
-            "PAID", "PARTIALLY_PAID", "AUTHORIZED", "PENDING"
+            "PAID",
+            "PARTIALLY_PAID",
+            "AUTHORIZED",
+            "PENDING",
         ]
 
     def validate(self, order: dict[str, Any]) -> dict[str, Any]:

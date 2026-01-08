@@ -11,10 +11,10 @@ This service ensures complete inventory synchronization by:
 import asyncio
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from app.core.config import get_settings
+
 # Queries are now used by public client methods internally
 # from app.db.queries.reverse_sync import (
 #     BULK_UPDATE_INVENTORY_MUTATION,  # Used by inventory.set_variant_inventory_quantity()
@@ -349,18 +349,22 @@ class ReverseStockSynchronizer:
                         variants_to_delete.append({"id": variant_id, "sku": sku})
                     elif rms_qty != current_qty:
                         # Prepare inventory update for batch processing
-                        inventory_updates.append({
-                            "inventory_item_id": inventory_item_id,
-                            "location_id": self.primary_location_id,
-                            "available": rms_qty,
-                            "sku": sku,
-                            "original_qty": current_qty,
-                        })
+                        inventory_updates.append(
+                            {
+                                "inventory_item_id": inventory_item_id,
+                                "location_id": self.primary_location_id,
+                                "available": rms_qty,
+                                "sku": sku,
+                                "original_qty": current_qty,
+                            }
+                        )
                         self.stats["total_variants_updated"] += 1
                         self.stats["details"]["updated"].append(
                             {"sku": sku, "old_qty": current_qty, "new_qty": rms_qty, "dry_run": dry_run}
                         )
-                        logger.info(f"   📊 {'[DRY-RUN]' if dry_run else '✅'} Updated {sku}: {current_qty} → {rms_qty}")
+                        logger.info(
+                            f"   📊 {'[DRY-RUN]' if dry_run else '✅'} Updated {sku}: {current_qty} → {rms_qty}"
+                        )
 
                 # Phase 2: Execute batch inventory updates
                 if inventory_updates and not dry_run:
@@ -371,13 +375,17 @@ class ReverseStockSynchronizer:
 
                     if success_count > 0:
                         # Track successful updates for rollback
-                        rollback_actions.extend([
-                            {"type": "inventory_update",
-                             "inventory_item_id": upd["inventory_item_id"],
-                             "original_qty": upd["original_qty"],
-                             "sku": upd["sku"]}
-                            for upd in inventory_updates[:success_count]
-                        ])
+                        rollback_actions.extend(
+                            [
+                                {
+                                    "type": "inventory_update",
+                                    "inventory_item_id": upd["inventory_item_id"],
+                                    "original_qty": upd["original_qty"],
+                                    "sku": upd["sku"],
+                                }
+                                for upd in inventory_updates[:success_count]
+                            ]
+                        )
 
                     if errors:
                         logger.warning(f"⚠️ {len(errors)} inventory updates failed")
@@ -393,7 +401,7 @@ class ReverseStockSynchronizer:
                     today_tag = self._get_today_sync_tag()
                     await self._mark_product_as_synced(product_id, product_title, today_tag)
 
-            except Exception as e:
+            except Exception:
                 # Rollback: Revert inventory updates if any operation failed
                 if rollback_actions and not dry_run:
                     logger.warning(f"⏮️ Rolling back {len(rollback_actions)} inventory updates for {product_title}")
@@ -543,13 +551,13 @@ class ReverseStockSynchronizer:
                 rollback_failures += 1
 
         # Log rollback summary
-        logger.info(
-            f"🔄 Rollback completed: {rollback_success} successful, {rollback_failures} failed"
-        )
+        logger.info(f"🔄 Rollback completed: {rollback_success} successful, {rollback_failures} failed")
 
         # Update stats to reflect rollback
         self.stats["details"]["rollbacks"] = self.stats["details"].get("rollbacks", 0) + rollback_success
-        self.stats["details"]["rollback_failures"] = self.stats["details"].get("rollback_failures", 0) + rollback_failures
+        self.stats["details"]["rollback_failures"] = (
+            self.stats["details"].get("rollback_failures", 0) + rollback_failures
+        )
 
     async def _validate_variant_deletion(self, variant_id: str, sku: str, inventory_item_id: str) -> tuple[bool, str]:
         """
@@ -644,9 +652,7 @@ class ReverseStockSynchronizer:
 
             try:
                 # Find the full variant info from all_variants to get inventory_item_id
-                full_variant = next(
-                    (v for v in all_variants if v.get("id") == variant_id), None
-                )
+                full_variant = next((v for v in all_variants if v.get("id") == variant_id), None)
 
                 if not full_variant:
                     logger.warning(f"⚠️ Could not find full variant info for {sku}, skipping validation")
@@ -656,21 +662,15 @@ class ReverseStockSynchronizer:
 
                 # Validate deletion (unless dry-run or no inventory item ID)
                 if not dry_run and inventory_item_id:
-                    can_delete, reason = await self._validate_variant_deletion(
-                        variant_id, sku, inventory_item_id
-                    )
+                    can_delete, reason = await self._validate_variant_deletion(variant_id, sku, inventory_item_id)
 
                     if not can_delete:
-                        logger.info(
-                            f"⏭️ Skipping deletion of {sku}: Validation failed ({reason})"
-                        )
+                        logger.info(f"⏭️ Skipping deletion of {sku}: Validation failed ({reason})")
                         self.stats["skipped"] += 1
-                        self.stats["details"]["deletion_validation_failures"] = (
-                            self.stats["details"].get("deletion_validation_failures", [])
+                        self.stats["details"]["deletion_validation_failures"] = self.stats["details"].get(
+                            "deletion_validation_failures", []
                         )
-                        self.stats["details"]["deletion_validation_failures"].append(
-                            {"sku": sku, "reason": reason}
-                        )
+                        self.stats["details"]["deletion_validation_failures"].append({"sku": sku, "reason": reason})
                         continue
 
                 # Proceed with deletion if validation passed

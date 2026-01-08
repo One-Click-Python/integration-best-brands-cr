@@ -203,9 +203,7 @@ class RMSOrderEntry(BaseModel):
     comment: Optional[str] = Field(
         None, max_length=255, description="Comentario de la entrada (e.g., 'Shipping Item' para envíos)"
     )
-    price_source: int = Field(
-        default=1, description="Fuente de precio (1=estándar, 10=envío con impuesto incluido)"
-    )
+    price_source: int = Field(default=1, description="Fuente de precio (1=estándar, 10=envío con impuesto incluido)")
 
 
 class RMSOrderHistory(BaseModel):

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class ShopifyInventoryClient(BaseShopifyGraphQLClient):
     """
     Specialized client for Shopify inventory operations.
-    
+
     Handles inventory tracking, quantity management, and location-based inventory.
     """
 
@@ -36,17 +36,17 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         variant_or_inventory_item_id,
         location_id: str,
         quantity: int,
-        disconnect_if_necessary: bool = False  # Parameter is used in the mutation logic
+        disconnect_if_necessary: bool = False,  # Parameter is used in the mutation logic
     ) -> Dict[str, Any]:
         """
         Set the inventory quantity for a variant at a specific location.
-        
+
         Args:
             variant_or_inventory_item_id: Variant object with inventoryItem or inventory item ID string
             location_id: Location ID
             quantity: New quantity
             disconnect_if_necessary: Whether to disconnect if necessary
-            
+
         Returns:
             Result dictionary with success status
         """
@@ -59,12 +59,12 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                 if not inventory_item or not inventory_item.get("id"):
                     logger.warning(f"Variant {variant.get('id')} has no inventory item")
                     return {"success": False, "error": "No inventory item"}
-                
+
                 inventory_item_id = inventory_item["id"]
             else:
                 # It's an inventory item ID string
                 inventory_item_id = variant_or_inventory_item_id
-            
+
             # Use INVENTORY_SET_QUANTITIES_MUTATION for exact quantity setting
             variables = {
                 "input": {
@@ -77,9 +77,9 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                     ],
                 }
             }
-            
+
             result = await self._execute_query(INVENTORY_SET_QUANTITIES_MUTATION, variables)
-            
+
             set_data = result.get("inventorySetQuantities", {})
             if set_errors := set_data.get("userErrors", []):
                 logger.error(f"Failed to set inventory quantity: {set_errors}")
@@ -100,25 +100,22 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                 "inventory_item_id": inventory_item_id,
                 "quantity": quantity,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to set variant inventory quantity: {e}")
             return {"success": False, "error": str(e)}
 
     async def activate_inventory_tracking_well(
-        self,
-        inventory_item_id: str,
-        location_id: str,
-        available_quantity: int = None
+        self, inventory_item_id: str, location_id: str, available_quantity: int = None
     ) -> Dict[str, Any]:
         """
         Activate inventory tracking with quantity setting (backward compatible method).
-        
+
         Args:
             inventory_item_id: Inventory item ID
             location_id: Location ID
             available_quantity: Quantity to set
-            
+
         Returns:
             Result with success and inventory level data
         """
@@ -128,9 +125,9 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                 inventory_item_id=inventory_item_id,
                 location_id=location_id,
                 track_quantity=True,
-                continue_selling_when_out_of_stock=False
+                continue_selling_when_out_of_stock=False,
             )
-            
+
             # Set quantity if provided
             if available_quantity is not None and available_quantity > 0:
                 # Use the INVENTORY_SET_QUANTITIES_MUTATION for setting exact quantities
@@ -149,20 +146,20 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                         ],
                     }
                 }
-                
+
                 set_result = await self._execute_query(INVENTORY_SET_QUANTITIES_MUTATION, variables)
                 set_data = set_result.get("inventorySetQuantities", {})
                 self._handle_graphql_errors(set_data, "Inventory quantity set")
-                
+
                 logger.info(f"✅ Set inventory quantity: {available_quantity} for item {inventory_item_id}")
-            
+
             return {
                 "success": True,
                 "inventoryLevel": tracking_result,
                 "tracked": True,
-                "finalQuantity": available_quantity or 0
+                "finalQuantity": available_quantity or 0,
             }
-            
+
         except Exception as e:
             logger.error(f"Error in activate_inventory_tracking_well: {e}")
             return {"success": False, "error": str(e)}
@@ -172,17 +169,17 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         inventory_item_id: str,
         location_id: str,
         track_quantity: bool = True,
-        continue_selling_when_out_of_stock: bool = False
+        continue_selling_when_out_of_stock: bool = False,
     ) -> Dict[str, Any]:
         """
         Activate inventory tracking for a variant at a location.
-        
+
         Args:
             inventory_item_id: Inventory item ID
             location_id: Location ID
             track_quantity: Whether to track quantity
             continue_selling_when_out_of_stock: Allow sales when out of stock
-            
+
         Returns:
             Inventory level data
         """
@@ -191,42 +188,36 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                 "inventoryItemId": inventory_item_id,
                 "locationId": location_id,
                 "tracked": track_quantity,
-                "availableWhenSoldOut": continue_selling_when_out_of_stock
+                "availableWhenSoldOut": continue_selling_when_out_of_stock,
             }
-            
+
             result = await self._execute_query(INVENTORY_ACTIVATE_MUTATION, variables)
-            
+
             activate_result = result.get("inventoryActivate", {})
             self._handle_graphql_errors(activate_result, "Inventory activation")
-            
+
             inventory_level = activate_result.get("inventoryLevel")
             if inventory_level:
                 logger.info(
-                    f"✅ Activated inventory tracking for item {inventory_item_id} "
-                    f"at location {location_id}"
+                    f"✅ Activated inventory tracking for item {inventory_item_id} " f"at location {location_id}"
                 )
                 return inventory_level
-            
+
             raise ShopifyAPIException("Inventory activation failed: No inventory level returned")
-            
+
         except Exception as e:
             logger.error(f"Error activating inventory tracking: {e}")
             raise ShopifyAPIException(f"Failed to activate inventory tracking: {str(e)}") from e
 
-    async def update_inventory(
-        self,
-        inventory_item_id: str,
-        location_id: str,
-        available_quantity: int
-    ) -> bool:
+    async def update_inventory(self, inventory_item_id: str, location_id: str, available_quantity: int) -> bool:
         """
         Update inventory quantity for a specific item at a location.
-        
+
         Args:
             inventory_item_id: Inventory item ID
             location_id: Location ID
             available_quantity: New available quantity
-            
+
         Returns:
             True if update was successful
         """
@@ -237,22 +228,18 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
             except Exception as e:
                 # If activation fails, it might already be activated
                 logger.debug(f"Inventory activation warning (may already be active): {e}")
-            
+
             # Set the inventory quantity
             inventory_level = await self.set_variant_inventory_quantity(
-                variant_or_inventory_item_id=inventory_item_id,
-                location_id=location_id,
-                quantity=available_quantity
+                variant_or_inventory_item_id=inventory_item_id, location_id=location_id, quantity=available_quantity
             )
-            
+
             if inventory_level:
-                logger.info(
-                    f"✅ Updated inventory: {available_quantity} for item {inventory_item_id}"
-                )
+                logger.info(f"✅ Updated inventory: {available_quantity} for item {inventory_item_id}")
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error(f"Error updating inventory: {e}")
             raise ShopifyAPIException(f"Failed to update inventory: {str(e)}") from e
@@ -260,11 +247,11 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
     async def batch_update_inventory(self, inventory_updates: List[Dict[str, Any]]) -> Tuple[int, List[Dict[str, Any]]]:
         """
         Update inventory in batch with error handling and rate limiting.
-        
+
         Args:
             inventory_updates: List of inventory updates with structure:
                 [{"inventory_item_id": "...", "location_id": "...", "available": 123}, ...]
-                
+
         Returns:
             Tuple with (success_count, list_of_errors)
         """
@@ -279,11 +266,7 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
             # Process chunk concurrently
             tasks = []
             for update in chunk:
-                task = self.update_inventory(
-                    update["inventory_item_id"],
-                    update["location_id"],
-                    update["available"]
-                )
+                task = self.update_inventory(update["inventory_item_id"], update["location_id"], update["available"])
                 tasks.append(task)
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -303,45 +286,37 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         logger.info(f"✅ Inventory batch update: {success_count} success, {len(errors)} errors")
         return success_count, errors
 
-    async def adjust_inventory_quantities(
-        self,
-        adjustments: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    async def adjust_inventory_quantities(self, adjustments: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Adjust inventory quantities using bulk operation.
-        
+
         Args:
             adjustments: List of inventory adjustments with structure:
                 [{
                     "inventoryItemId": "gid://shopify/InventoryItem/123",
-                    "locationId": "gid://shopify/Location/456", 
+                    "locationId": "gid://shopify/Location/456",
                     "quantityDelta": 5
                 }, ...]
-                
+
         Returns:
             Adjustment result
         """
         try:
-            variables = {
-                "input": {
-                    "name": "available",
-                    "changes": adjustments
-                }
-            }
-            
+            variables = {"input": {"name": "available", "changes": adjustments}}
+
             result = await self._execute_query(INVENTORY_ADJUST_QUANTITIES_MUTATION, variables)
-            
+
             adjust_result = result.get("inventoryAdjustQuantities", {})
             self._handle_graphql_errors(adjust_result, "Inventory quantity adjustment")
-            
+
             adjustment_group = adjust_result.get("inventoryAdjustmentGroup")
             if adjustment_group:
                 changes_count = len(adjustment_group.get("changes", []))
                 logger.info(f"✅ Adjusted inventory quantities: {changes_count} changes applied")
                 return adjustment_group
-            
+
             raise ShopifyAPIException("Inventory adjustment failed: No adjustment group returned")
-            
+
         except Exception as e:
             logger.error(f"Error adjusting inventory quantities: {e}")
             raise ShopifyAPIException(f"Failed to adjust inventory quantities: {str(e)}") from e
@@ -355,11 +330,11 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
         province_code_of_origin: Optional[str] = None,
         sku: Optional[str] = None,
         tracked: Optional[bool] = None,
-        country_harmonized_system_codes: Optional[List[Dict[str, str]]] = None
+        country_harmonized_system_codes: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Update inventory item properties.
-        
+
         Args:
             inventory_item_id: Inventory item ID to update
             cost: Cost per unit
@@ -369,13 +344,13 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
             sku: SKU
             tracked: Whether inventory is tracked
             country_harmonized_system_codes: Country-specific HS codes
-            
+
         Returns:
             Updated inventory item
         """
         try:
             input_data = {"id": inventory_item_id}
-            
+
             if cost is not None:
                 input_data["cost"] = cost
             if country_code_of_origin is not None:
@@ -390,21 +365,21 @@ class ShopifyInventoryClient(BaseShopifyGraphQLClient):
                 input_data["tracked"] = tracked
             if country_harmonized_system_codes is not None:
                 input_data["countryHarmonizedSystemCodes"] = country_harmonized_system_codes
-            
+
             variables = {"input": input_data}
-            
+
             result = await self._execute_query(INVENTORY_ITEM_UPDATE_MUTATION, variables)
-            
+
             update_result = result.get("inventoryItemUpdate", {})
             self._handle_graphql_errors(update_result, "Inventory item update")
-            
+
             inventory_item = update_result.get("inventoryItem")
             if inventory_item:
                 logger.info(f"✅ Updated inventory item: {inventory_item_id}")
                 return inventory_item
-            
+
             raise ShopifyAPIException("Inventory item update failed: No inventory item returned")
-            
+
         except Exception as e:
             logger.error(f"Error updating inventory item {inventory_item_id}: {e}")
             raise ShopifyAPIException(f"Failed to update inventory item: {str(e)}") from e

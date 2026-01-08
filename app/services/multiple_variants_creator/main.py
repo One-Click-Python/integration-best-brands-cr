@@ -63,9 +63,7 @@ class MultipleVariantsCreator:
                 shopify_client=shopify_client,
             )
         elif enable_cleanup and not product_repository:
-            logger.warning(
-                "⚠️  Cleanup service disabled: product_repository not provided"
-            )
+            logger.warning("⚠️  Cleanup service disabled: product_repository not provided")
 
     async def create_product_with_variants(self, shopify_input: ShopifyProductInput) -> Dict[str, Any]:
         """

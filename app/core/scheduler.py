@@ -40,8 +40,9 @@ async def _save_scheduler_state():
     - last_full_sync_date: Fecha de última full sync programada
     """
     try:
-        from app.core.redis_client import get_redis_client
         import json
+
+        from app.core.redis_client import get_redis_client
 
         if not settings.REDIS_URL:
             logger.debug("Redis no configurado, estado no persistido")
@@ -74,8 +75,9 @@ async def _load_scheduler_state():
     global _last_rms_sync_time, _last_rms_sync_success, _last_full_sync_date, _last_order_poll_time
 
     try:
-        from app.core.redis_client import get_redis_client
         import json
+
+        from app.core.redis_client import get_redis_client
 
         if not settings.REDIS_URL:
             logger.debug("Redis no configurado, estado no cargado")
@@ -138,8 +140,7 @@ async def start_scheduler():
             )
         elif settings.ENABLE_WEBHOOKS:
             logger.warning(
-                "⚠️ Solo webhooks activo (no recomendado). "
-                "Considere habilitar Order Polling (más confiable)."
+                "⚠️ Solo webhooks activo (no recomendado). " "Considere habilitar Order Polling (más confiable)."
             )
         else:
             logger.error(
@@ -182,6 +183,7 @@ async def stop_scheduler():
         if _polling_service:
             try:
                 from app.services.order_polling_service import close_polling_service
+
                 await close_polling_service()
                 logger.info("✅ Order polling service detenido")
             except Exception as e:
@@ -207,15 +209,16 @@ async def _scheduler_loop():
     Loop principal del scheduler que ejecuta tareas programadas.
     """
     global _change_detector
-    
+
     try:
         logger.info(f"🔄 Iniciando monitoreo automático cada {settings.SYNC_INTERVAL_MINUTES} minutos")
 
         # Inicializar detector de cambios en background (no bloquear startup)
         try:
             from app.services.change_detector import get_change_detector
+
             _change_detector = await get_change_detector()
-            
+
             # Iniciar detección de cambios
             await _change_detector.start_monitoring(settings.SYNC_INTERVAL_MINUTES)
             logger.info("✅ Change detector inicializado y en monitoreo")
@@ -337,8 +340,8 @@ async def _check_reverse_stock_sync():
             )
 
             success_rate = (
-                (report['statistics']['variants_updated'] + report['statistics']['variants_deleted'])
-                / max(1, report['statistics']['variants_checked'])
+                (report["statistics"]["variants_updated"] + report["statistics"]["variants_deleted"])
+                / max(1, report["statistics"]["variants_checked"])
             ) * 100
 
             logger.info(
@@ -388,10 +391,7 @@ async def _check_order_polling():
             if time_since_last_poll < required_interval:
                 return
 
-        logger.info(
-            f"🔄 Ejecutando order polling "
-            f"(intervalo: {settings.ORDER_POLLING_INTERVAL_MINUTES} min)"
-        )
+        logger.info(f"🔄 Ejecutando order polling " f"(intervalo: {settings.ORDER_POLLING_INTERVAL_MINUTES} min)")
 
         # Inicializar polling service si es necesario
         if not _polling_service:
@@ -685,7 +685,8 @@ def notify_rms_sync_completed(success: bool):
     _last_rms_sync_success = success
 
     if success:
-        logger.info(f"📝 RMS sync completada exitosamente - Reverse sync programado para dentro de {settings.REVERSE_SYNC_DELAY_MINUTES} min")
+        delay = settings.REVERSE_SYNC_DELAY_MINUTES
+        logger.info(f"📝 RMS sync completada exitosamente - Reverse sync en {delay} min")
     else:
         logger.warning("⚠️ RMS sync completada con errores - Reverse sync no se ejecutará")
 

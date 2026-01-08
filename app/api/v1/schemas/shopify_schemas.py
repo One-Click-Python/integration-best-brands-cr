@@ -174,39 +174,39 @@ class ShopifyProductInput(BaseModel):
     def to_safe_update_input(self, preserve_media: bool = True, preserve_publishing: bool = True) -> Dict[str, Any]:
         """
         Convierte el modelo a formato de input GraphQL para actualizaciones seguras.
-        
+
         Args:
             preserve_media: Si True, excluye campos relacionados con media/contenido
             preserve_publishing: Si True, excluye campos relacionados con publishing
-            
+
         Returns:
             Dict con solo los campos seguros para actualizar
         """
         # Campos seguros que siempre se pueden actualizar (datos de RMS)
         # NOTA: productType NO se incluye porque RMS retorna "", no queremos sobrescribir valores manuales de Shopify
         safe_fields = ["title", "status", "vendor", "category"]
-        
+
         # Campos a excluir siempre en actualizaciones
         always_exclude = {"id", "variants", "options", "metafields"}
-        
+
         # Campos a excluir si se preserva media/contenido
         if preserve_media:
             always_exclude.update({"description", "images", "seo"})
-            
+
         # Campos a excluir si se preserva publishing
         if preserve_publishing:
             always_exclude.update({"tags", "publishedAt", "availableForSale"})
-        
+
         # Obtener solo campos seguros
         data = self.model_dump(exclude_none=True, exclude=always_exclude)
-        
+
         # Filtrar para incluir solo campos seguros
         safe_data = {k: v for k, v in data.items() if k in safe_fields}
-        
+
         # Convertir enums a valores string
         if "status" in safe_data and hasattr(safe_data["status"], "value"):
             safe_data["status"] = safe_data["status"].value
-            
+
         return safe_data
 
     def get_variant_data_for_creation(self) -> Optional[Dict[str, Any]]:

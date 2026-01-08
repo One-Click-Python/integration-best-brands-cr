@@ -567,7 +567,7 @@ class OrderRepository(BaseRepository):
         WHERE ID = :entry_id
         """
 
-        result = await session.execute(text(query), {"entry_id": entry_id})
+        await session.execute(text(query), {"entry_id": entry_id})
 
         # Note: rowcount may not be available for all dialects, log optimistically
         logger.info(f"✅ Deleted order entry {entry_id} from RMS")

@@ -296,9 +296,7 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
                 all_orders.extend(orders_batch)
 
                 pages_fetched += 1
-                logger.info(
-                    f"✅ Fetched page {pages_fetched}/{max_pages}: {len(orders_batch)} orders"
-                )
+                logger.info(f"✅ Fetched page {pages_fetched}/{max_pages}: {len(orders_batch)} orders")
 
                 # Check if more pages exist
                 has_more = page_info.get("hasNextPage", False)
@@ -309,10 +307,7 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
                     break
 
             # Summary
-            logger.info(
-                f"📦 Polling complete: {len(all_orders)} orders fetched "
-                f"across {pages_fetched} pages"
-            )
+            logger.info(f"📦 Polling complete: {len(all_orders)} orders fetched " f"across {pages_fetched} pages")
 
             return {
                 "orders": all_orders,
@@ -356,9 +351,7 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
 
         # Financial status filter
         if financial_statuses:
-            status_conditions = " OR ".join(
-                [f"financial_status:{status}" for status in financial_statuses]
-            )
+            status_conditions = " OR ".join([f"financial_status:{status}" for status in financial_statuses])
             if len(financial_statuses) > 1:
                 filters.append(f"({status_conditions})")
             else:
@@ -366,9 +359,7 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
 
         # Fulfillment status filter
         if fulfillment_statuses:
-            fulfillment_conditions = " OR ".join(
-                [f"fulfillment_status:{status}" for status in fulfillment_statuses]
-            )
+            fulfillment_conditions = " OR ".join([f"fulfillment_status:{status}" for status in fulfillment_statuses])
             if len(fulfillment_statuses) > 1:
                 filters.append(f"({fulfillment_conditions})")
             else:
@@ -417,9 +408,7 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
 
             order = result.get("order")
             if order:
-                logger.info(
-                    f"✅ Fetched order {order.get('name')} (ID: {order_id})"
-                )
+                logger.info(f"✅ Fetched order {order.get('name')} (ID: {order_id})")
             else:
                 logger.warning(f"⚠️ Order not found: {order_id}")
 
@@ -427,13 +416,9 @@ class OrderPollingClient(BaseShopifyGraphQLClient):
 
         except Exception as e:
             logger.error(f"❌ Error fetching order {order_id}: {e}")
-            raise ShopifyAPIException(
-                f"Failed to fetch order {order_id}: {str(e)}"
-            ) from e
+            raise ShopifyAPIException(f"Failed to fetch order {order_id}: {str(e)}") from e
 
-    async def get_order_count(
-        self, lookback_minutes: int | None = None
-    ) -> dict[str, Any]:
+    async def get_order_count(self, lookback_minutes: int | None = None) -> dict[str, Any]:
         """
         Get count of recent orders for estimation/monitoring.
 

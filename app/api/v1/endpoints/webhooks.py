@@ -46,8 +46,8 @@ async def receive_shopify_webhook(request: Request, background_tasks: Background
             content={
                 "error": "Webhooks disabled",
                 "message": "Order Polling is the primary sync method. Enable ENABLE_WEBHOOKS to use webhooks.",
-                "active_sync_method": "order_polling"
-            }
+                "active_sync_method": "order_polling",
+            },
         )
 
     try:

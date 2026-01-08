@@ -24,7 +24,6 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -191,7 +190,7 @@ class DistributedLock:
                     with open(self.lock_file, "r") as f:
                         data = f.read().strip().split("|")
                         lock_time = float(data[0])
-                        lock_token = data[1] if len(data) > 1 else ""
+                        _ = data[1] if len(data) > 1 else ""  # token (unused)
 
                     # Check if lock has expired
                     if time.time() - lock_time < self.timeout_seconds:

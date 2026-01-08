@@ -246,4 +246,3 @@ class MetadataRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Error getting metadata stats: {e}")
             return {}
-

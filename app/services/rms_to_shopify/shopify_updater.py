@@ -55,7 +55,7 @@ class ShopifyUpdater:
         if uncached_handles:
             try:
                 for i in range(0, len(uncached_handles), MAX_HANDLES_PER_QUERY):
-                    chunk_handles = uncached_handles[i:i + MAX_HANDLES_PER_QUERY]
+                    chunk_handles = uncached_handles[i : i + MAX_HANDLES_PER_QUERY]
 
                     logger.debug(
                         f"🔍 Checking {len(chunk_handles)} products in Shopify "

@@ -491,6 +491,7 @@ class RMSToShopifySyncOrchestrator:
             # This triggers reverse stock sync after configured delay
             try:
                 from app.core.scheduler import notify_rms_sync_completed
+
                 notify_rms_sync_completed(success=sync_successful)
                 logger.info(f"📝 Scheduler notified of RMS→Shopify sync (success: {sync_successful})")
                 final_report["scheduler_notified"] = True
@@ -506,6 +507,7 @@ class RMSToShopifySyncOrchestrator:
             # Notify scheduler about failed sync
             try:
                 from app.core.scheduler import notify_rms_sync_completed
+
                 notify_rms_sync_completed(success=False)
             except Exception as notify_error:
                 logger.error(f"Error notifying scheduler about failed sync: {notify_error}")

@@ -70,16 +70,16 @@ class ProductProcessor:
         # Use global total if processing pages, otherwise use current batch size
         total_products = total_products_global if total_products_global else len(rms_products)
         page_products = len(rms_products)
-        
+
         # Handle empty product list
         if not rms_products or len(rms_products) == 0:
             logger.info(f"📭 No products to process [sync_id: {self.sync_id}]")
             return stats
-        
+
         progress_tracker = SyncProgressTracker(
             total_items=max(1, total_products),  # Ensure at least 1 to avoid division by zero
-            operation_name="Optimized Product Sync", 
-            sync_id=self.sync_id
+            operation_name="Optimized Product Sync",
+            sync_id=self.sync_id,
         )
 
         products_to_process = rms_products[start_index:]
@@ -99,7 +99,11 @@ class ProductProcessor:
             batch = products_to_process[i : i + batch_size]
             batch_number = (start_index + i) // batch_size + 1
             # Calculate total batches based on current page when processing pages
-            total_batches = (page_products + batch_size - 1) // batch_size if is_page_processing else (total_products + batch_size - 1) // batch_size
+            total_batches = (
+                (page_products + batch_size - 1) // batch_size
+                if is_page_processing
+                else (total_products + batch_size - 1) // batch_size
+            )
 
             batch_start_time = time.time()
             logger.info(f"🔄 Processing batch {batch_number}/{total_batches} ({len(batch)} products)")
@@ -118,15 +122,13 @@ class ProductProcessor:
             # For page processing, use global stats count; otherwise use local count
             if is_page_processing:
                 processed_count = stats["total_processed"]  # Use cumulative count
-                should_save_checkpoint = (
-                    processed_count % self.checkpoint_frequency == 0 or 
-                    i + batch_size >= len(products_to_process)
+                should_save_checkpoint = processed_count % self.checkpoint_frequency == 0 or i + batch_size >= len(
+                    products_to_process
                 )
             else:
                 processed_count = start_index + i + len(batch)
-                should_save_checkpoint = (
-                    processed_count % self.checkpoint_frequency == 0 or 
-                    i + batch_size >= len(products_to_process)
+                should_save_checkpoint = processed_count % self.checkpoint_frequency == 0 or i + batch_size >= len(
+                    products_to_process
                 )
 
             if should_save_checkpoint and not is_page_processing:  # Only save checkpoint if not page processing
@@ -151,14 +153,14 @@ class ProductProcessor:
                     logger.warning(f"❌ Failed to save checkpoint [sync_id: {self.sync_id}]")
 
             batch_duration = time.time() - batch_start_time
-            
+
             if is_page_processing:
                 # Show progress relative to global total
                 logger.info(
                     f"✅ Batch {batch_number} completed [sync_id: {self.sync_id}] in {batch_duration:.1f}s | "
                     f"Created: {batch_stats['created']}, Updated: {batch_stats['updated']}, "
                     f"Skipped: {batch_stats['skipped']}, Errors: {batch_stats['errors']} | "
-                    f"Global Progress: {stats['total_processed']}/{total_products} ({stats['total_processed'] / total_products * 100:.1f}%)"
+                    f"Progress: {stats['total_processed']}/{total_products} ({stats['total_processed']/total_products*100:.1f}%)"
                 )
             else:
                 processed_so_far = i + len(batch)
@@ -304,4 +306,3 @@ class ProductProcessor:
             if progress_tracker:
                 progress_tracker.update(errors=1)
             logger.error(f"❌ Error processing {ccod or 'unknown'}: {str(e)}")
-

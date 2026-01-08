@@ -85,9 +85,7 @@ class ZeroStockVariantCleanupService:
                 logger.debug(f"No se encontraron variantes en Shopify para producto {ccod}")
                 return self.stats
 
-            logger.debug(
-                f"Encontradas {len(shopify_variants)} variantes en Shopify para {ccod}"
-            )
+            logger.debug(f"Encontradas {len(shopify_variants)} variantes en Shopify para {ccod}")
 
             # 2. Eliminar variantes que tienen stock 0 en RMS
             for variant in shopify_variants:
@@ -102,8 +100,7 @@ class ZeroStockVariantCleanupService:
                 # Si el SKU ESTÁ en la lista de stock 0, eliminar de Shopify
                 if sku in zero_stock_skus:
                     logger.warning(
-                        f"🗑️  Variante con stock 0 detectada en Shopify: "
-                        f"SKU={sku}, ID={variant_id}, CCOD={ccod}"
+                        f"🗑️  Variante con stock 0 detectada en Shopify: " f"SKU={sku}, ID={variant_id}, CCOD={ccod}"
                     )
 
                     deleted = await self._delete_variant(variant_id, sku, ccod, shopify_product_id)
@@ -152,20 +149,14 @@ class ZeroStockVariantCleanupService:
         """
 
         try:
-            response = await self.shopify_client._execute_query(
-                query, {"id": product_id}
-            )
+            response = await self.shopify_client._execute_query(query, {"id": product_id})
 
             # Note: _execute_query already extracts "data" field, so response = {'product': {...}}
             if not response or "product" not in response:
                 logger.warning(f"Respuesta inválida al obtener variantes: {response}")
                 return []
 
-            variants_data = (
-                response.get("product", {})
-                .get("variants", {})
-                .get("edges", [])
-            )
+            variants_data = response.get("product", {}).get("variants", {}).get("edges", [])
 
             variants = []
             for edge in variants_data:
@@ -186,9 +177,7 @@ class ZeroStockVariantCleanupService:
                 status_code=500,
             ) from e
 
-    async def _delete_variant(
-        self, variant_id: str, sku: str, ccod: str, product_id: str
-    ) -> bool:
+    async def _delete_variant(self, variant_id: str, sku: str, ccod: str, product_id: str) -> bool:
         """
         Elimina una variante en Shopify.
 
@@ -218,8 +207,7 @@ class ZeroStockVariantCleanupService:
 
         try:
             response = await self.shopify_client._execute_query(
-                delete_mutation,
-                {"productId": product_id, "variantsIds": [variant_id]}
+                delete_mutation, {"productId": product_id, "variantsIds": [variant_id]}
             )
 
             # Note: _execute_query already extracts "data" field
@@ -227,10 +215,7 @@ class ZeroStockVariantCleanupService:
                 logger.error(f"Respuesta inválida al eliminar variante {sku}: {response}")
                 return False
 
-            user_errors = (
-                response.get("productVariantsBulkDelete", {})
-                .get("userErrors", [])
-            )
+            user_errors = response.get("productVariantsBulkDelete", {}).get("userErrors", [])
 
             if user_errors:
                 logger.error(f"Errores al eliminar variante {sku}: {user_errors}")
@@ -240,14 +225,10 @@ class ZeroStockVariantCleanupService:
             product = response.get("productVariantsBulkDelete", {}).get("product")
 
             if product:
-                logger.info(
-                    f"🗑️  Variante ELIMINADA (stock 0 en RMS): SKU={sku}, ID={variant_id}, CCOD={ccod}"
-                )
+                logger.info(f"🗑️  Variante ELIMINADA (stock 0 en RMS): SKU={sku}, ID={variant_id}, CCOD={ccod}")
                 return True
             else:
-                logger.warning(
-                    f"No se pudo confirmar eliminación de variante {sku}"
-                )
+                logger.warning(f"No se pudo confirmar eliminación de variante {sku}")
                 return False
 
         except Exception as e:

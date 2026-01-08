@@ -37,12 +37,12 @@ def configure_cors_middleware(app: FastAPI) -> None:
             "http://localhost:8000",
             "http://127.0.0.1:8000",
             "http://0.0.0.0:8000",
-            "http://localhost:8080", 
+            "http://localhost:8080",
             "http://127.0.0.1:8080",
             "http://0.0.0.0:8080",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            "*"  # Fallback para desarrollo
+            "*",  # Fallback para desarrollo
         ]
     else:
         # En producción, usar solo los hosts configurados
