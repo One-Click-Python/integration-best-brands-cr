@@ -82,10 +82,10 @@ class CustomerRepository(BaseRepository):
 
         try:
             async with self.get_session() as session:
-                # Attempt a generic lookup by Email column; handle schema differences gracefully.
+                # Lookup by EmailAddress column (RMS Customer table schema)
                 query = f"""
-                SELECT TOP 1 * FROM [{self._customer_table_name}] 
-                WHERE Email = :email
+                SELECT TOP 1 * FROM [{self._customer_table_name}]
+                WHERE EmailAddress = :email
                 """
                 result = await session.execute(text(query), {"email": email})
                 row = result.fetchone()

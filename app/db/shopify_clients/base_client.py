@@ -54,7 +54,17 @@ class BaseShopifyGraphQLClient:
         Raises:
             ShopifyAPIException: If initialization fails
         """
+        # If already initialized, skip
+        if self.session is not None and not self.session.closed:
+            logger.debug("Shopify GraphQL client already initialized, skipping")
+            return
+
         try:
+            # Close existing session if it exists but is in a bad state
+            if self.session is not None:
+                await self.session.close()
+                self.session = None
+
             # Create HTTP session
             timeout = ClientTimeout(total=30, connect=10)
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)

@@ -415,4 +415,7 @@ async def sync_shopify_to_rms(
         Dict: Resultado de la sincronización
     """
     sync_service = ShopifyToRMSSync()
-    return await sync_service.sync_orders(order_ids, skip_validation)
+    try:
+        return await sync_service.sync_orders(order_ids, skip_validation)
+    finally:
+        await sync_service.close()

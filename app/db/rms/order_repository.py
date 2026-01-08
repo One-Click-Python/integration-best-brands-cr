@@ -422,12 +422,20 @@ class OrderRepository(BaseRepository):
         set_clauses: List[str] = []
         params: Dict[str, Any] = {"order_id": order_id}
 
+        # Monetary columns that need float conversion for SQL Server MONEY type
+        # (Decimal values are not properly handled by aioodbc/pyodbc for MONEY columns)
+        monetary_columns = {"tax", "total", "deposit", "shipping_charge_on_order"}
+
         for key, value in order_data.items():
             if key != "id":
                 # Map snake_case to PascalCase for RMS
                 db_column = self.ORDER_COLUMN_MAP.get(key, key)
                 set_clauses.append(f"{db_column} = :{key}")
-                params[key] = value
+                # Convert Decimal to float for SQL Server MONEY columns
+                if key in monetary_columns:
+                    params[key] = float(value) if value is not None else 0.0
+                else:
+                    params[key] = value
 
         # ✨ ALWAYS update LastUpdated timestamp on any order modification
         set_clauses.append("LastUpdated = :last_updated")
