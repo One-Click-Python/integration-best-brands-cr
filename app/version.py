@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 
 # Fallback version if package metadata unavailable (dev mode)
-_FALLBACK_VERSION = "1.0.0"
+_FALLBACK_VERSION = "1.0.1"
 
 # GitHub repository configuration
 GITHUB_REPO_OWNER = os.environ.get("GITHUB_REPO_OWNER", "")
